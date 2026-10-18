@@ -11,6 +11,6 @@ package com.unimet.avilaos;
 public class AvilaOS {
 
     public static void main(String[] args) {
-        System.out.println("Hello World!");
+        System.out.println("Hello World");
     }
 }
