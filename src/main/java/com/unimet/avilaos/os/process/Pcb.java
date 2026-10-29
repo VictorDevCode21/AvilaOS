@@ -1,5 +1,7 @@
 package com.unimet.avilaos.os.process;
 
+import java.util.concurrent.Semaphore;
+
 /**
  * Bloque de control de proceso (PCB). Un proceso de ÁvilaOS es monohilo, así que
  * el PCB es también la unidad que el planificador asigna al procesador.
@@ -8,8 +10,14 @@ package com.unimet.avilaos.os.process;
  * su PC. El kernel copia el PC entre la CPU y el PCB en cada cambio de contexto.
  *
  * Lo escribe el hilo de su computador y lo lee la GUI, por eso los campos que
- * cambian son volatile. Las decisiones (cuándo bloquear, terminar, etc.) las toma
- * el kernel; el PCB solo guarda el estado y valida que la transición sea legal.
+ * cambian son volatile. Además, dos computadores pueden tocar el mismo PCB en el
+ * mismo tick (ej. su computador lo termina por deadline mientras un productor de
+ * otro computador hace semSignal y lo despierta). Por eso cada cambio de estado
+ * (verificar + cambiar) ocurre dentro de stateMutex: si no, ambos verían BLOCKED,
+ * ambos pasarían la validación y un proceso TERMINADO podría volver a LISTO.
+ *
+ * Las decisiones (cuándo bloquear, terminar, etc.) las toma el kernel; el PCB solo
+ * guarda el estado y valida que la transición sea legal.
  *
  * Elementos mínimos que exige el enunciado: ID, nombre, computador, estado, tipo,
  * prioridad, memoria asignada, deadline y tiempo restante de ejecución.
@@ -41,13 +49,16 @@ public class Pcb {
     // ---------- Estado de ejecución (cambia durante la simulación) ----------
     private volatile ProcessState state = ProcessState.NEW;
     private volatile BlockReason blockReason;          // null si no está bloqueado
-    private volatile String blockDetail;               // ej. "semáforo 'e' del buffer B1"
+    private volatile String blockDetail;               // ej. "'lleno' de B1" (sin repetir "semáforo")
     private volatile int programCounter;
     private volatile int remainingInstructions;
     private volatile long remainingDeadline;
     private volatile int quantumUsed;                  // solo importa en Round Robin
     private volatile int itemsDone;
     private volatile boolean deadlineMissed;
+
+    /** Mutex de los cambios de estado: verificar y cambiar deben ser atómicos. */
+    private final Semaphore stateMutex = new Semaphore(1, true);
 
     // ---------- Contabilidad para métricas ----------
     private volatile long firstRunCycle = -1;
@@ -77,6 +88,9 @@ public class Pcb {
         }
         if (computerId < 1) {
             throw new IllegalArgumentException("El computador debe ser 1 o mayor");
+        }
+        if (arrivalCycle < 0) {
+            throw new IllegalArgumentException("El ciclo de llegada no puede ser negativo");
         }
         this.id = PidGenerator.nextPid();   // se pide el ID solo si todo lo anterior es válido
         this.name = name.trim();
@@ -132,7 +146,10 @@ public class Pcb {
 
     // ---------- Transiciones de estado (las ordena el kernel) ----------
 
-    /** Cambia de estado validando el diagrama de 5 estados. */
+    /**
+     * Cambia de estado validando el diagrama de 5 estados.
+     * Debe llamarse con stateMutex tomado (lo hacen los métodos mark...).
+     */
     private void transitionTo(ProcessState next) {
         if (!state.canTransitionTo(next)) {
             throw new IllegalStateException("Transición inválida de " + this + ": "
@@ -143,37 +160,62 @@ public class Pcb {
 
     /** NEW → READY (admitido porque había RAM) o BLOCKED/RUNNING → READY. */
     public void markReady() {
-        transitionTo(ProcessState.READY);
-        blockReason = null;
-        blockDetail = null;
-        quantumUsed = 0;
+        stateMutex.acquireUninterruptibly();
+        try {
+            transitionTo(ProcessState.READY);
+            blockReason = null;
+            blockDetail = null;
+            quantumUsed = 0;
+        } finally {
+            stateMutex.release();
+        }
     }
 
     /** READY → RUNNING. Registra la primera vez que corre (tiempo de respuesta). */
     public void markRunning(long cycle) {
-        transitionTo(ProcessState.RUNNING);
-        if (firstRunCycle < 0) {
-            firstRunCycle = cycle;
+        stateMutex.acquireUninterruptibly();
+        try {
+            transitionTo(ProcessState.RUNNING);
+            if (firstRunCycle < 0) {
+                firstRunCycle = cycle;
+            }
+        } finally {
+            stateMutex.release();
         }
     }
 
-    /** RUNNING → BLOCKED con su motivo. detail: texto para la GUI, ej. "semáforo 'e' de B1". */
+    /**
+     * RUNNING → BLOCKED con su motivo.
+     *
+     * @param detail solo el complemento, sin repetir el motivo: ej. "'lleno' de B1"
+     *               (describeBlock lo muestra como "Esperando semáforo: 'lleno' de B1")
+     */
     public void markBlocked(BlockReason reason, String detail) {
         if (reason == null) {
             throw new IllegalArgumentException("Un bloqueo necesita motivo");
         }
-        transitionTo(ProcessState.BLOCKED);
-        blockReason = reason;
-        blockDetail = detail;
+        stateMutex.acquireUninterruptibly();
+        try {
+            transitionTo(ProcessState.BLOCKED);
+            blockReason = reason;
+            blockDetail = detail;
+        } finally {
+            stateMutex.release();
+        }
     }
 
     /** Cualquier estado → TERMINATED. deadlineExpired = true si lo mató el deadline. */
     public void markTerminated(long cycle, boolean deadlineExpired) {
-        transitionTo(ProcessState.TERMINATED);
-        finishCycle = cycle;
-        deadlineMissed = deadlineExpired;
-        blockReason = null;
-        blockDetail = null;
+        stateMutex.acquireUninterruptibly();
+        try {
+            transitionTo(ProcessState.TERMINATED);
+            finishCycle = cycle;
+            deadlineMissed = deadlineExpired;
+            blockReason = null;
+            blockDetail = null;
+        } finally {
+            stateMutex.release();
+        }
     }
 
     // ---------- Avance por ciclo (lo llama el kernel en cada tick) ----------
@@ -257,7 +299,7 @@ public class Pcb {
     public long getFinishCycle() { return finishCycle; }
     public long getBlockedOnSemaphoreCycles() { return blockedOnSemaphoreCycles; }
 
-    /** Texto para la GUI de bloqueados, ej. "Esperando semáforo: 'e' de B1". */
+    /** Texto para la GUI de bloqueados, ej. "Esperando semáforo: 'lleno' de B1". */
     public String describeBlock() {
         if (blockReason == null) {
             return "";
@@ -265,9 +307,15 @@ public class Pcb {
         return blockDetail == null ? blockReason.getLabel() : blockReason.getLabel() + ": " + blockDetail;
     }
 
-    /** Formato corto para colas y log, ej. "P3-H2" (proceso 3 en el computador 2). */
+    /**
+     * Formato corto para colas y log, ej. "P3-H1": proceso 3, hilo 1.
+     * H es el hilo (TCB 1:1 con el PCB, modelo monohilo), NO el computador:
+     * en el log del enunciado "Computador 1 selecciona el proceso P3-H2" no puede
+     * significar computador 2, porque no hay migración. El computador se muestra
+     * aparte en la GUI y el log (getComputerId).
+     */
     @Override
     public String toString() {
-        return "P" + id + "-H" + computerId;
+        return "P" + id + "-H1";
     }
 }
