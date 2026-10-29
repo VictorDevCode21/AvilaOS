@@ -3,8 +3,8 @@ package com.unimet.avilaos.os.process;
 /**
  * Motivo por el que un proceso está en BLOCKED. Justificación para la defensa:
  *  - IO: un I/O bound espera que el dispositivo termine; lo despierta la interrupción IO_COMPLETION.
- *  - SEMAPHORE: hizo semWait sobre e, n o s de un buffer y el valor no le permitió seguir;
- *    lo despierta un semSignal de otro proceso.
+ *  - SEMAPHORE: hizo semWait sobre empty, full o mutex de un buffer ("vacíos", "lleno",
+ *    "mutex" en la GUI) y el valor no le permitió seguir; lo despierta un semSignal de otro proceso.
  *  - NETWORK: accede a un buffer de otro computador y espera los ciclos de latencia;
  *    lo despierta la interrupción NETWORK_COMPLETION.
  * Los tres son esperas que SÍ terminan (no son interbloqueos).
