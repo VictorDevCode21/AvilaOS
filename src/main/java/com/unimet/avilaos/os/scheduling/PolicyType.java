@@ -33,10 +33,15 @@ public enum PolicyType {
         };
     }
 
-    /** Busca por etiqueta (lo que devuelve el selector de la GUI o el archivo de configuración). */
+    /**
+     * Busca por etiqueta ("Round Robin") o por nombre del enum ("ROUND_ROBIN"),
+     * sin importar mayúsculas: sirve para el selector de la GUI y para archivos
+     * de configuración escritos con cualquiera de los dos.
+     */
     public static PolicyType fromLabel(String label) {
+        String text = label == null ? "" : label.trim();
         for (PolicyType type : values()) {
-            if (type.label.equalsIgnoreCase(label == null ? "" : label.trim())) {
+            if (type.label.equalsIgnoreCase(text) || type.name().equalsIgnoreCase(text)) {
                 return type;
             }
         }

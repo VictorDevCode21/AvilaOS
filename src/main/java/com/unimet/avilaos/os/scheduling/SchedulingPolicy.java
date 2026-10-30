@@ -20,7 +20,8 @@ public interface SchedulingPolicy {
 
     /**
      * Orden de la cola de listos: negativo si a va antes que b.
-     * Si empatan (0), se respeta el orden de llegada a la cola (FIFO).
+     * Si empatan (0), el Scheduler desempata por orden de llegada a listos
+     * (readySequence), así que la política no necesita ocuparse de eso.
      */
     ElementComparator<Pcb> readyOrder();
 
