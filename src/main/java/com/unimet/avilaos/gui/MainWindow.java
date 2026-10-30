@@ -1,10 +1,13 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.events.EventLog;
+import com.unimet.avilaos.events.LogEntry;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.Rectangle;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
@@ -15,27 +18,39 @@ import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
+import javax.swing.JViewport;
+import javax.swing.Scrollable;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultCaret;
 
 /**
  * Ventana principal del simulador ÁvilaOS.
  *
- * Arriba: controles globales (ciclo de reloj, iniciar/pausar, duración del ciclo,
+ * Arriba: controles globales (ciclo de reloj, iniciar/pausar, reiniciar, duración del ciclo,
  * quantum y botones para crear procesos/buffers y configurar).
- * Centro: un ComputerPanel por computador.
+ * Centro: un ComputerPanel por computador, uno al lado del otro.
  * Abajo: buffers y log de eventos.
  *
  * La ventana solo muestra y reenvía las acciones del usuario: no contiene lógica del SO.
  *
  * @author NicollPinzon
  */
-public class MainWindow extends JFrame {
+public final class MainWindow extends JFrame {
+
+    private static final long serialVersionUID = 1L;
+
+    /** Quantum inicial mientras no se cargue la configuración (igual a SimulationConfig.defaults()). */
+    public static final int DEFAULT_QUANTUM = 3;
+
+    /** Máximo de líneas en el log en pantalla (igual que la capacidad de EventLog). */
+    public static final int MAX_LOG_LINES = EventLog.DEFAULT_CAPACITY;
 
     private final JLabel cycleLabel = new JLabel("Ciclo: 0");
     private final JButton startPauseButton = new JButton("Iniciar");
+    private final JButton resetButton = new JButton("Reiniciar");
     private final JSpinner cycleDurationSpinner = new JSpinner(new SpinnerNumberModel(500, 10, 10_000, 50));
-    private final JSpinner quantumSpinner = new JSpinner(new SpinnerNumberModel(4, 1, 100, 1));
+    private final JSpinner quantumSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_QUANTUM, 1, 100, 1));
     private final JButton createProcessButton = new JButton("Crear proceso");
     private final JButton createBufferButton = new JButton("Crear buffer");
     private final JButton configButton = new JButton("Configuración");
@@ -47,9 +62,9 @@ public class MainWindow extends JFrame {
 
     /**
      * @param computerCount número de computadores del clúster (mínimo 2)
-     * @param policies      políticas disponibles para los selectores
+     * @param policyLabels  políticas para los selectores (PolicyType.labels())
      */
-    public MainWindow(int computerCount, String[] policies) {
+    public MainWindow(int computerCount, String[] policyLabels) {
         super("ÁvilaOS - Simulador de sistema operativo distribuido");
         if (computerCount < 2) {
             throw new IllegalArgumentException("El clúster necesita al menos 2 computadores");
@@ -57,7 +72,7 @@ public class MainWindow extends JFrame {
 
         computerPanels = new ComputerPanel[computerCount];
         for (int i = 0; i < computerCount; i++) {
-            computerPanels[i] = new ComputerPanel(i + 1, policies);
+            computerPanels[i] = new ComputerPanel(i + 1, policyLabels);
         }
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -66,17 +81,17 @@ public class MainWindow extends JFrame {
 
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
                 buildComputersArea(), buildBottomArea());
-        split.setResizeWeight(0.7);
+        split.setResizeWeight(0.75);
         add(split, BorderLayout.CENTER);
 
-        setPreferredSize(new Dimension(1400, 900));
+        setPreferredSize(new Dimension(1440, 900));
         pack();
         setLocationRelativeTo(null);
 
-        // Botones aún sin funcionalidad (llegan en las siguientes ramas)
-        createProcessButton.addActionListener(e -> notImplemented());
-        createBufferButton.addActionListener(e -> notImplemented());
-        configButton.addActionListener(e -> notImplemented());
+        // Crear proceso, Crear buffer y Reiniciar los conecta quien arma la simulación.
+        // Configuración llega en otra rama.
+        configButton.addActionListener(e -> JOptionPane.showMessageDialog(this,
+                "Disponible en una próxima versión.", "En construcción", JOptionPane.INFORMATION_MESSAGE));
     }
 
     // ---------- Construcción ----------
@@ -84,8 +99,10 @@ public class MainWindow extends JFrame {
     private JPanel buildControlBar() {
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 6));
         cycleLabel.setFont(new Font(Font.MONOSPACED, Font.BOLD, 18));
+        resetButton.setToolTipText("Detiene la simulación y la vuelve al ciclo 0 con la carga inicial");
         bar.add(cycleLabel);
         bar.add(startPauseButton);
+        bar.add(resetButton);
         bar.add(new JLabel("Duración ciclo (ms):"));
         bar.add(cycleDurationSpinner);
         bar.add(new JLabel("Quantum RR:"));
@@ -97,7 +114,8 @@ public class MainWindow extends JFrame {
     }
 
     private JScrollPane buildComputersArea() {
-        JPanel grid = new JPanel(new GridLayout(0, 1, 8, 8));   // un computador debajo del otro
+        // Uno al lado del otro, como el boceto del enunciado
+        JPanel grid = new WidthTrackingPanel(new GridLayout(1, 0, 8, 8));
         for (ComputerPanel panel : computerPanels) {
             grid.add(panel);
         }
@@ -111,19 +129,16 @@ public class MainWindow extends JFrame {
         bufferArea.add(new JLabel("Aquí irá el estado de los buffers", JLabel.CENTER));
 
         logArea.setEditable(false);
+        logArea.setLineWrap(true);                      // las líneas largas no se cortan a la derecha
+        logArea.setWrapStyleWord(true);
         logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         ((DefaultCaret) logArea.getCaret()).setUpdatePolicy(DefaultCaret.ALWAYS_UPDATE); // autoscroll
         JScrollPane logScroll = new JScrollPane(logArea);
         logScroll.setBorder(BorderFactory.createTitledBorder("Log de eventos"));
 
         JSplitPane bottom = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bufferArea, logScroll);
-        bottom.setResizeWeight(0.5);
+        bottom.setResizeWeight(0.4);
         return bottom;
-    }
-
-    private void notImplemented() {
-        JOptionPane.showMessageDialog(this, "Disponible en una próxima versión.",
-                "En construcción", JOptionPane.INFORMATION_MESSAGE);
     }
 
     // ---------- Métodos para actualizar la vista (hilo de Swing) ----------
@@ -132,9 +147,36 @@ public class MainWindow extends JFrame {
         cycleLabel.setText("Ciclo: " + cycle);
     }
 
-    /** Agrega una línea al log con el número de ciclo. */
-    public void appendLog(long cycle, String message) {
-        logArea.append("[Ciclo " + cycle + "] " + message + "\n");
+    /** Agrega una entrada del EventLog. Si se pasa de MAX_LOG_LINES, borra la más vieja. */
+    public void appendLog(LogEntry entry) {
+        logArea.append(entry.format() + "\n");
+        int extra = logArea.getLineCount() - 1 - MAX_LOG_LINES;     // la última línea está vacía
+        if (extra > 0) {
+            try {
+                logArea.replaceRange("", 0, logArea.getLineEndOffset(extra - 1));
+            } catch (BadLocationException e) {
+                logArea.setText("");                                // no debería pasar
+            }
+        }
+    }
+
+    /** Muestra si la simulación está corriendo (cambia el texto de Iniciar/Pausar). */
+    public void setRunning(boolean running) {
+        startPauseButton.setText(running ? "Pausar" : "Iniciar");
+    }
+
+    public void setQuantum(int quantum) {
+        quantumSpinner.setValue(quantum);
+    }
+
+    /** Deja la vista como al abrir el programa: ciclo 0, log vacío y paneles vacíos. */
+    public void resetView() {
+        setCycle(0);
+        setRunning(false);
+        logArea.setText("");
+        for (ComputerPanel panel : computerPanels) {
+            panel.clear();
+        }
     }
 
     public ComputerPanel getComputerPanel(int computerId) {
@@ -147,6 +189,10 @@ public class MainWindow extends JFrame {
 
     public JButton getStartPauseButton() {
         return startPauseButton;
+    }
+
+    public JButton getResetButton() {
+        return resetButton;
     }
 
     public JSpinner getCycleDurationSpinner() {
@@ -167,5 +213,45 @@ public class MainWindow extends JFrame {
 
     public JButton getConfigButton() {
         return configButton;
+    }
+
+    /**
+     * Panel que siempre usa el ancho visible: los computadores se reparten la ventana
+     * en vez de salirse por la derecha (solo hay scroll vertical si no caben de alto).
+     */
+    private static final class WidthTrackingPanel extends JPanel implements Scrollable {
+
+        private static final long serialVersionUID = 1L;
+
+        WidthTrackingPanel(GridLayout layout) {
+            super(layout);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+            return 160;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        /** Si sobra alto, las tablas lo usan; si falta, aparece el scroll vertical. */
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return getParent() instanceof JViewport viewport
+                    && viewport.getHeight() > getPreferredSize().height;
+        }
     }
 }
