@@ -22,23 +22,30 @@ import org.jfree.data.xy.XYSeriesCollection;
  * (todas las líneas en el mismo gráfico, como pide el enunciado).
  *
  * Solo dibuja lo que guardan las ComputerMetrics: no calcula nada.
- * Cada vez que se llama update() agrega únicamente los puntos nuevos,
- * así no se redibuja todo el historial en cada ciclo.
+ * Cada vez que se llama update() agrega únicamente los puntos nuevos y la
+ * gráfica se redibuja UNA sola vez, sin importar cuántos computadores haya.
+ *
+ * Si update() recibe otras métricas (nueva simulación, otra configuración),
+ * la gráfica se reinicia sola: no depende de que alguien llame clear().
  *
  * @author NicollPinzon
  */
-public class CpuUsageChart extends JPanel {
+public final class CpuUsageChart extends JPanel {
+
+    private static final long serialVersionUID = 1L;
 
     /** Máximo de puntos por línea; los más viejos se descartan para no llenar la memoria. */
     private static final int MAX_POINTS = 500;
 
     private final XYSeriesCollection dataset = new XYSeriesCollection();
+    private final JFreeChart chart;
     private XYSeries[] series = new XYSeries[0];
+    private transient ComputerMetrics[] sources = new ComputerMetrics[0];   // de quién es cada línea
 
     public CpuUsageChart() {
         super(new BorderLayout());
 
-        JFreeChart chart = ChartFactory.createXYLineChart(
+        chart = ChartFactory.createXYLineChart(
                 "Utilización de CPU por computador",
                 "Ciclo de reloj",
                 "Utilización (%)",
@@ -72,21 +79,22 @@ public class CpuUsageChart extends JPanel {
      */
     public void update(LinkedList<ComputerMetrics> computers) {
         ensureSeries(computers);
-        for (int i = 0; i < computers.size(); i++) {
-            LinkedList<UtilizationSample> history = computers.get(i).getUtilizationHistory();
-            XYSeries line = series[i];
-            long lastShown = line.getItemCount() == 0 ? -1 : (long) line.getMaxX();  // último ciclo dibujado
-            boolean changed = false;
-            for (int j = 0; j < history.size(); j++) {
-                UtilizationSample sample = history.get(j);
-                if (sample.cycle() > lastShown) {
-                    line.add(sample.cycle(), sample.utilization() * 100, false);
-                    changed = true;
+        chart.setNotify(false);                         // se agregan todos los puntos sin redibujar...
+        try {
+            for (int i = 0; i < series.length; i++) {
+                LinkedList<UtilizationSample> history = sources[i].getUtilizationHistory();
+                XYSeries line = series[i];
+                long lastShown = line.getItemCount() == 0 ? -1 : (long) line.getMaxX();  // último ciclo dibujado
+                while (!history.isEmpty()) {
+                    UtilizationSample sample = history.removeFirst();   // es una copia: se puede vaciar
+                    if (sample.cycle() > lastShown) {
+                        line.add(sample.cycle(), sample.utilization() * 100, false);
+                    }
                 }
+                line.fireSeriesChanged();
             }
-            if (changed) {
-                line.fireSeriesChanged();               // un solo redibujo por computador
-            }
+        } finally {
+            chart.setNotify(true);                      // ...y se redibuja UNA vez
         }
     }
 
@@ -94,22 +102,43 @@ public class CpuUsageChart extends JPanel {
     public void clear() {
         dataset.removeAllSeries();
         series = new XYSeries[0];
+        sources = new ComputerMetrics[0];
     }
 
     // ---------- Internos ----------
 
-    /** Crea una línea por computador la primera vez (o si cambió la cantidad). */
+    /**
+     * Crea una línea por computador la primera vez, o vuelve a crearlas si las
+     * métricas recibidas no son las mismas de antes (nueva simulación).
+     */
     private void ensureSeries(LinkedList<ComputerMetrics> computers) {
-        if (series.length == computers.size()) {
+        if (sameSources(computers)) {
             return;
         }
         clear();
         series = new XYSeries[computers.size()];
+        sources = new ComputerMetrics[computers.size()];
+        LinkedList<ComputerMetrics> walk = computers.copy();
         for (int i = 0; i < series.length; i++) {
-            XYSeries line = new XYSeries("Computador " + computers.get(i).getComputerId());
+            sources[i] = walk.removeFirst();
+            XYSeries line = new XYSeries("Computador " + sources[i].getComputerId());
             line.setMaximumItemCount(MAX_POINTS);
             series[i] = line;
             dataset.addSeries(line);
         }
+    }
+
+    /** ¿Son exactamente las mismas métricas, en el mismo orden, que ya se dibujan? */
+    private boolean sameSources(LinkedList<ComputerMetrics> computers) {
+        if (computers.size() != sources.length) {
+            return false;
+        }
+        LinkedList<ComputerMetrics> walk = computers.copy();
+        for (int i = 0; i < sources.length; i++) {
+            if (walk.removeFirst() != sources[i]) {
+                return false;
+            }
+        }
+        return true;
     }
 }
