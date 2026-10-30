@@ -460,6 +460,9 @@ public class Kernel implements InterruptHandler {
             log.log(cycle, source, "el proceso " + rt.pcb + " inserta el elemento " + item + " en " + buffer.getName()
                     + remote + " (" + buffer.getItemCount() + "/" + buffer.getCapacity() + ")");
         } else if (step == ExecutionStep.EXTRACT) {
+            // La métrica del buffer cuenta el elemento como consumido al EXTRAERLO; el
+            // consumidor lo suma a sus elementos después de consumirlo (afterUserInstruction).
+            // Si muere mientras consume, los dos números difieren en 1: miden cosas distintas.
             int item = buffer.extract(rt.pcb);
             if (systemMetrics != null) {
                 systemMetrics.itemConsumed(buffer.getName());
