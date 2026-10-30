@@ -215,17 +215,33 @@ public class Kernel implements InterruptHandler {
     }
 
     private void acceptArrivals() {
-        LinkedList<Pcb> batch = drain(arrivals);
-        while (!batch.isEmpty()) {
-            Pcb pcb = batch.removeFirst();
-            try {
-                memory.submit(pcb);
-                processes.addLast(new ProcessRuntime(pcb));
-                log.log(cycle, source, "llega el proceso " + pcb + " (" + pcb.getName() + ", "
-                        + pcb.getType().getLabel() + ", " + pcb.getMemorySize() + " MB)");
-            } catch (IllegalArgumentException | IllegalStateException e) {
-                log.log(cycle, source, "rechaza el proceso " + pcb + ": " + e.getMessage());
+        // De las llegadas a Nuevos DENTRO del mutex: así el proceso nunca está "entre" las
+        // dos colas. El clúster revisa las llegadas (getArrivalsSnapshot, mismo mutex) y
+        // MemoryManager.reserveBuffer revisa Nuevos: entre los dos siempre lo ven.
+        LinkedList<Pcb> accepted = new LinkedList<>();
+        LinkedList<String> rejections = new LinkedList<>();
+        mutex.acquireUninterruptibly();
+        try {
+            while (!arrivals.isEmpty()) {
+                Pcb pcb = arrivals.removeFirst();
+                try {
+                    memory.submit(pcb);
+                    accepted.addLast(pcb);
+                } catch (IllegalArgumentException | IllegalStateException e) {
+                    rejections.addLast("rechaza el proceso " + pcb + ": " + e.getMessage());
+                }
             }
+        } finally {
+            mutex.release();
+        }
+        while (!accepted.isEmpty()) {
+            Pcb pcb = accepted.removeFirst();
+            processes.addLast(new ProcessRuntime(pcb));
+            log.log(cycle, source, "llega el proceso " + pcb + " (" + pcb.getName() + ", "
+                    + pcb.getType().getLabel() + ", " + pcb.getMemorySize() + " MB)");
+        }
+        while (!rejections.isEmpty()) {
+            log.log(cycle, source, rejections.removeFirst());
         }
     }
 
@@ -683,17 +699,6 @@ public class Kernel implements InterruptHandler {
             }
         }
         return null;
-    }
-
-    private LinkedList<Pcb> drain(LinkedList<Pcb> list) {
-        mutex.acquireUninterruptibly();
-        try {
-            LinkedList<Pcb> copy = list.copy();
-            list.clear();
-            return copy;
-        } finally {
-            mutex.release();
-        }
     }
 
     // =====================================================================
