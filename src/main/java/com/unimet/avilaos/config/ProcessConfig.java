@@ -34,6 +34,13 @@ public record ProcessConfig(String name, ProcessType type, int priority, int mem
     public static final int MAX_OPERATION_INTERVAL = 1_000;
     public static final int MAX_ITEMS = 10_000;
 
+    /**
+     * Operaciones de buffer por elemento, cada una cuesta 1 instrucción:
+     * productor = wait vacíos, wait mutex, insertar, signal mutex, signal lleno;
+     * consumidor = wait lleno, wait mutex, extraer, signal mutex, signal vacíos.
+     */
+    public static final int BUFFER_OPERATIONS_PER_ITEM = 5;
+
     public ProcessConfig {
         name = ConfigText.requireName(name, "El proceso", NAME_MAX_LENGTH);
         if (type == null) {
@@ -60,11 +67,28 @@ public record ProcessConfig(String name, ProcessType type, int priority, int mem
             bufferName = ConfigText.requireCode(bufferName, "El buffer de " + name, BufferConfig.NAME_MAX_LENGTH);
             ConfigText.requireRange(operationInterval, 1, MAX_OPERATION_INTERVAL, "El intervalo de operación de " + name);
             ConfigText.requireRange(itemsRequired, 1, MAX_ITEMS, "Los elementos requeridos de " + name);
+            // D3: termina al completar sus elementos O al agotar sus instrucciones. Si no le
+            // alcanzan, terminaría "a tiempo" sin haber hecho su trabajo: se rechaza aquí.
+            long minimum = minimumBufferInstructions(operationInterval, itemsRequired);
+            if (instructions < minimum) {
+                throw new IllegalArgumentException("Las instrucciones de " + name + " (" + instructions
+                        + ") no alcanzan para " + itemsRequired + " elementos: necesita al menos " + minimum
+                        + " (" + itemsRequired + " × (" + operationInterval + " + " + BUFFER_OPERATIONS_PER_ITEM + "))");
+            }
         } else {
             bufferName = null;
             operationInterval = 0;
             itemsRequired = 0;
         }
+    }
+
+    /**
+     * Instrucciones mínimas de un productor/consumidor para completar sus elementos:
+     * cada elemento son operationInterval instrucciones de usuario más las 5 del buffer.
+     * En long para que no se desborde con valores grandes.
+     */
+    public static long minimumBufferInstructions(int operationInterval, int itemsRequired) {
+        return (long) itemsRequired * ((long) operationInterval + BUFFER_OPERATIONS_PER_ITEM);
     }
 
     public boolean isAutomatic() {

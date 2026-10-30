@@ -65,6 +65,7 @@ public class Pcb {
     private volatile long firstRunCycle = -1;
     private volatile long finishCycle = -1;
     private volatile long blockedOnSemaphoreCycles;
+    private volatile long readyCycles;                 // ciclos en Listos esperando la CPU (equidad)
 
     private Pcb(String name, ProcessType type, int priority, int memorySize, int totalInstructions,
             long deadline, int computerId, long arrivalCycle, int ioInterval, int ioDuration,
@@ -250,6 +251,11 @@ public class Pcb {
         blockedOnSemaphoreCycles++;
     }
 
+    /** Suma un ciclo en Listos: quería la CPU y no la tenía (métrica de equidad). */
+    public void addReadyCycle() {
+        readyCycles++;
+    }
+
     public void itemProcessed() {
         itemsDone++;
     }
@@ -319,6 +325,7 @@ public class Pcb {
     public long getFirstRunCycle() { return firstRunCycle; }
     public long getFinishCycle() { return finishCycle; }
     public long getBlockedOnSemaphoreCycles() { return blockedOnSemaphoreCycles; }
+    public long getReadyCycles() { return readyCycles; }
 
     /** Texto para la GUI de bloqueados, ej. "Esperando semáforo: 'lleno' de B1". */
     public String describeBlock() {

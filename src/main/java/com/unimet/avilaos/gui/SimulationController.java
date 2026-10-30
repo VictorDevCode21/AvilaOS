@@ -8,6 +8,7 @@ import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.LogEntry;
 import com.unimet.avilaos.hardware.Cpu;
+import com.unimet.avilaos.metrics.MetricsSnapshot;
 import com.unimet.avilaos.os.Kernel;
 import com.unimet.avilaos.os.scheduling.PolicyType;
 import javax.swing.JOptionPane;
@@ -17,6 +18,7 @@ import javax.swing.Timer;
  * Une la ventana con el clúster. La ventana solo muestra y reenvía clics; el clúster
  * simula. Este controlador:
  *  - conecta los botones, los selectores de política y los spinners con el clúster,
+ *  - abre la vista de configuración y, si se acepta, reinicia todo con la nueva,
  *  - refresca la vista con un javax.swing.Timer (REFRESH_MS) que LEE el estado:
  *    la simulación nunca espera a la GUI y la GUI nunca toca el SO.
  *
@@ -35,6 +37,7 @@ public final class SimulationController {
     private final Timer refreshTimer;
     private Cluster cluster;
     private long lastLogSequence = -1;
+    private boolean hadWork;              // hubo procesos vivos desde el último arranque o reinicio
 
     public SimulationController(SimulationConfig config) {
         if (config == null) {
@@ -62,6 +65,7 @@ public final class SimulationController {
         window.setResetAction(e -> reset());
         window.setCreateProcessAction(e -> createProcess());
         window.setCreateBufferAction(e -> createBuffer());
+        window.setConfigAction(e -> configure());
         window.getCycleDurationSpinner().addChangeListener(e -> cluster.setCycleDurationMs(
                 ((Number) window.getCycleDurationSpinner().getValue()).longValue()));
         window.getQuantumSpinner().addChangeListener(e -> cluster.setQuantum(
@@ -86,9 +90,11 @@ public final class SimulationController {
 
     private void startOrPause() {
         if (!cluster.isRunning()) {
+            hadWork = cluster.getTotalLoad() > 0;   // un proceso corto puede terminar antes del primer refresco
             cluster.start();
             window.setRunning(true);
         } else if (cluster.isPaused()) {
+            hadWork = cluster.getTotalLoad() > 0;   // un proceso corto puede terminar antes del primer refresco
             cluster.resume();
             window.setRunning(true);
         } else {
@@ -116,6 +122,7 @@ public final class SimulationController {
         cluster = next;
         window.resetView();
         lastLogSequence = -1;
+        hadWork = false;
         showInitialSettings();
         refresh();
     }
@@ -158,6 +165,22 @@ public final class SimulationController {
         refresh();
     }
 
+    /**
+     * Abre la vista de configuración. Si el usuario acepta, se aplica reemplazando la
+     * simulación completa: el número de computadores fija la ventana, así que se detiene
+     * el clúster, se cierra esta ventana y se abre un controlador nuevo con la configuración.
+     */
+    private void configure() {
+        SimulationConfig newConfig = ConfigDialog.showDialog(window, config);
+        if (newConfig == null) {
+            return;
+        }
+        refreshTimer.stop();
+        cluster.shutdown();
+        window.dispose();
+        new SimulationController(newConfig).show();
+    }
+
     private void showError(String title, IllegalArgumentException ex) {
         JOptionPane.showMessageDialog(window, ex.getMessage(), title, JOptionPane.ERROR_MESSAGE);
     }
@@ -165,6 +188,7 @@ public final class SimulationController {
     // ---------- Refresco ----------
 
     private void refresh() {
+        pauseWhenIdle();
         window.setCycle(cluster.getCurrentCycle());
         for (int id = 1; id <= cluster.getComputerCount(); id++) {
             Computer computer = cluster.getComputer(id);
@@ -177,7 +201,38 @@ public final class SimulationController {
             panel.showQueues(kernel.getNewSnapshot(), kernel.getReadySnapshot(),
                     kernel.getBlockedSnapshot(), kernel.getTerminatedSnapshot());
         }
+        window.showBuffers(cluster.getBuffers(), cluster.getSystemMetrics().getBufferStats());
+        MetricsSnapshot[] perComputer = new MetricsSnapshot[cluster.getComputerCount()];
+        for (int id = 1; id <= perComputer.length; id++) {
+            perComputer[id - 1] = cluster.getComputer(id).getMetrics().getSnapshot();
+        }
+        window.showMetrics(perComputer, cluster.getSystemMetrics().getSnapshot());
+        window.showCpuHistory(cluster.getSystemMetrics().getComputers());
         appendNewLogEntries();
+    }
+
+    /**
+     * Pausa la simulación cuando todos los procesos terminaron. Si el reloj siguiera, el
+     * throughput (terminados a tiempo / ciclos) bajaría con cada ciclo ocioso y no se
+     * podrían comparar políticas entre corridas. Solo pausa si antes hubo trabajo: una
+     * simulación sin procesos sigue corriendo (el usuario puede ir creándolos).
+     *
+     * Se revisa en cada refresco (cada REFRESH_MS), así que puede correr algún ciclo
+     * ocioso de más antes de pausar. Iniciar la reanuda normalmente.
+     */
+    private void pauseWhenIdle() {
+        if (!cluster.isRunning() || cluster.isPaused()) {
+            return;
+        }
+        if (cluster.getTotalLoad() > 0) {
+            hadWork = true;
+        } else if (hadWork) {
+            hadWork = false;
+            cluster.pause();
+            window.setRunning(false);
+            cluster.getLog().log(cluster.getCurrentCycle(), "Clúster",
+                    "todos los procesos terminaron: la simulación se pausa");
+        }
     }
 
     /** Agrega solo las entradas que no se han mostrado (cada LogEntry trae su número de secuencia). */

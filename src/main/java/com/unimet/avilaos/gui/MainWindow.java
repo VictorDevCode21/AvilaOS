@@ -1,8 +1,13 @@
 package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.config.SimulationConfig;
+import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.events.LogEntry;
+import com.unimet.avilaos.metrics.BufferStats;
+import com.unimet.avilaos.metrics.ComputerMetrics;
+import com.unimet.avilaos.metrics.MetricsSnapshot;
+import com.unimet.avilaos.os.sync.BoundedBuffer;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -10,6 +15,7 @@ import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Rectangle;
 import java.awt.event.ActionListener;
+import java.awt.event.MouseEvent;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
@@ -19,10 +25,14 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JViewport;
 import javax.swing.Scrollable;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.table.JTableHeader;
+import javax.swing.table.TableModel;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultCaret;
 
@@ -32,7 +42,8 @@ import javax.swing.text.DefaultCaret;
  * Arriba: controles globales (ciclo de reloj, iniciar/pausar, reiniciar, duración del ciclo,
  * quantum y botones para crear procesos/buffers y configurar).
  * Centro: un ComputerPanel por computador, uno al lado del otro.
- * Abajo: buffers y log de eventos.
+ * Abajo: tabla de buffers (semáforos y quién espera) y pestañas con el log de eventos,
+ * las métricas de rendimiento y la gráfica de utilización de CPU.
  *
  * La ventana solo muestra y reenvía las acciones del usuario: no contiene lógica del SO.
  *
@@ -76,6 +87,9 @@ public final class MainWindow extends JFrame {
 
     private final JTextArea logArea = new JTextArea();
     private final JPanel bufferArea = new JPanel(new BorderLayout());
+    private final BufferTableModel bufferModel = new BufferTableModel();
+    private final MetricsTableModel metricsModel = new MetricsTableModel();
+    private final CpuUsageChart cpuChart = new CpuUsageChart();
 
     private final ComputerPanel[] computerPanels;
 
@@ -147,7 +161,8 @@ public final class MainWindow extends JFrame {
 
     private JSplitPane buildBottomArea() {
         bufferArea.setBorder(BorderFactory.createTitledBorder("Buffers"));
-        bufferArea.add(new JLabel("Aquí irá el estado de los buffers", JLabel.CENTER));
+        bufferArea.add(new JScrollPane(newTable(bufferModel, BufferTableModel.COLUMN_TIPS,
+                BufferTableModel.COLUMN_WIDTHS)));
 
         logArea.setEditable(false);
         logArea.setLineWrap(true);                      // las líneas largas no se cortan a la derecha
@@ -155,11 +170,75 @@ public final class MainWindow extends JFrame {
         logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         ((DefaultCaret) logArea.getCaret()).setUpdatePolicy(DefaultCaret.ALWAYS_UPDATE); // autoscroll
         JScrollPane logScroll = new JScrollPane(logArea);
-        logScroll.setBorder(BorderFactory.createTitledBorder("Log de eventos"));
 
-        JSplitPane bottom = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bufferArea, logScroll);
-        bottom.setResizeWeight(0.4);
+        cpuChart.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));   // el título ya lo da la pestaña
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("Log de eventos", logScroll);
+        tabs.addTab("Métricas", buildMetricsTab());
+        tabs.addTab("Utilización de CPU", cpuChart);
+
+        // Mismo ancho preferido a los dos lados: el divisor arranca en el medio y la tabla de buffers cabe
+        bufferArea.setPreferredSize(new Dimension(700, 220));
+        tabs.setPreferredSize(new Dimension(700, 220));
+        JSplitPane bottom = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bufferArea, tabs);
+        bottom.setResizeWeight(0.5);
         return bottom;
+    }
+
+    private JPanel buildMetricsTab() {
+        JPanel panel = new JPanel(new BorderLayout(4, 4));
+        panel.add(new JScrollPane(newTable(metricsModel, MetricsTableModel.COLUMN_TIPS,
+                MetricsTableModel.COLUMN_WIDTHS)), BorderLayout.CENTER);
+        // Lo dice el javadoc de MetricsSnapshot: un proceso vivo todavía no cuenta en los promedios
+        // JTextArea y no JLabel: hace salto de línea, así la nota no obliga a la pestaña a ser ancha
+        JTextArea note = new JTextArea("Tiempos en ciclos. Los promedios, la equidad y el cumplimiento de deadlines"
+                + " solo cuentan procesos TERMINADOS; la utilización de CPU es la acumulada hasta ahora.");
+        note.setEditable(false);
+        note.setFocusable(false);
+        note.setOpaque(false);
+        note.setLineWrap(true);
+        note.setWrapStyleWord(true);
+        note.setFont(new JLabel().getFont().deriveFont(Font.ITALIC, 11f));
+        note.setBorder(BorderFactory.createEmptyBorder(0, 4, 2, 4));
+        panel.add(note, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    /**
+     * Tabla de solo lectura con el texto completo de la celda y del encabezado al pasar el mouse
+     * (los encabezados son cortos para que quepan).
+     */
+    private static JTable newTable(TableModel model, String[] columnTips, int[] columnWidths) {
+        JTable table = new JTable(model) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public String getToolTipText(MouseEvent e) {
+                int row = rowAtPoint(e.getPoint());
+                int col = columnAtPoint(e.getPoint());
+                if (row < 0 || col < 0) {
+                    return null;
+                }
+                Object value = getValueAt(row, col);
+                return value == null ? null : value.toString();
+            }
+        };
+        table.setFillsViewportHeight(true);
+        table.setRowSelectionAllowed(false);
+        table.setTableHeader(new JTableHeader(table.getColumnModel()) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public String getToolTipText(MouseEvent e) {
+                int col = columnAtPoint(e.getPoint());
+                return col < 0 || col >= columnTips.length ? null : columnTips[col];
+            }
+        });
+        table.getTableHeader().setReorderingAllowed(false);
+        for (int i = 0; i < columnWidths.length; i++) {
+            table.getColumnModel().getColumn(i).setPreferredWidth(columnWidths[i]);
+        }
+        return table;
     }
 
     // ---------- Métodos para actualizar la vista (hilo de Swing) ----------
@@ -181,6 +260,32 @@ public final class MainWindow extends JFrame {
         }
     }
 
+    /**
+     * Muestra el estado de los buffers: ocupación, semáforos, quién espera en cada uno
+     * y producidos/consumidos.
+     *
+     * @param buffers copia de la lista de buffers (Cluster.getBuffers())
+     * @param stats   contadores de cada buffer (SystemMetrics.getBufferStats())
+     */
+    public void showBuffers(LinkedList<BoundedBuffer> buffers, LinkedList<BufferStats> stats) {
+        bufferModel.setBuffers(buffers, stats);
+    }
+
+    /**
+     * Muestra la tabla de métricas: una fila por computador y la fila "Sistema".
+     *
+     * @param computers foto de cada computador (índice 0 = Computador 1)
+     * @param system    foto del sistema completo
+     */
+    public void showMetrics(MetricsSnapshot[] computers, MetricsSnapshot system) {
+        metricsModel.setMetrics(computers, system);
+    }
+
+    /** Agrega a la gráfica los puntos nuevos de utilización de CPU (SystemMetrics.getComputers()). */
+    public void showCpuHistory(LinkedList<ComputerMetrics> computers) {
+        cpuChart.showHistory(computers);
+    }
+
     /** Muestra si la simulación está corriendo (cambia el texto de Iniciar/Pausar). */
     public void setRunning(boolean running) {
         startPauseButton.setText(running ? "Pausar" : "Iniciar");
@@ -190,11 +295,14 @@ public final class MainWindow extends JFrame {
         quantumSpinner.setValue(quantum);
     }
 
-    /** Deja la vista como al abrir el programa: ciclo 0, log vacío y paneles vacíos. */
+    /** Deja la vista como al abrir el programa: ciclo 0, y log, buffers, métricas, gráfica y paneles vacíos. */
     public void resetView() {
         setCycle(0);
         setRunning(false);
         logArea.setText("");
+        bufferModel.clear();
+        metricsModel.clear();
+        cpuChart.clear();
         for (ComputerPanel panel : computerPanels) {
             panel.clear();
         }

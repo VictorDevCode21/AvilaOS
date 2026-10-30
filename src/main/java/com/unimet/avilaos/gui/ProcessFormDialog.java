@@ -243,6 +243,15 @@ public final class ProcessFormDialog extends JDialog {
             operationInterval = v.integer(operationIntervalField, "Produce/consume cada", 1,
                     MAX_OPERATION_INTERVAL);
             items = v.integer(itemsField, "Elementos para terminar", 1, MAX_ITEMS);
+            if (instructions > 0 && operationInterval > 0 && items > 0) {
+                // Misma regla que ProcessConfig (D3): cada elemento = intervalo + 5 operaciones de buffer
+                long minimum = ProcessConfig.minimumBufferInstructions(operationInterval, items);
+                if (instructions < minimum) {
+                    v.addError(instructionsField, "Instrucciones: " + instructions + " no alcanzan para " + items
+                            + " elementos. Se necesitan al menos " + minimum + " (" + items + " × ("
+                            + operationInterval + " + " + ProcessConfig.BUFFER_OPERATIONS_PER_ITEM + ")).");
+                }
+            }
         }
 
         if (v.hasErrors()) {

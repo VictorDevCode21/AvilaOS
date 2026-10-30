@@ -189,6 +189,7 @@ public class Kernel implements InterruptHandler {
         admitNewProcesses();
         preemptIfNeeded();
         planCpu();
+        countReadyWaits();
     }
 
     private void applyRequests() {
@@ -214,17 +215,33 @@ public class Kernel implements InterruptHandler {
     }
 
     private void acceptArrivals() {
-        LinkedList<Pcb> batch = drain(arrivals);
-        while (!batch.isEmpty()) {
-            Pcb pcb = batch.removeFirst();
-            try {
-                memory.submit(pcb);
-                processes.addLast(new ProcessRuntime(pcb));
-                log.log(cycle, source, "llega el proceso " + pcb + " (" + pcb.getName() + ", "
-                        + pcb.getType().getLabel() + ", " + pcb.getMemorySize() + " MB)");
-            } catch (IllegalArgumentException | IllegalStateException e) {
-                log.log(cycle, source, "rechaza el proceso " + pcb + ": " + e.getMessage());
+        // De las llegadas a Nuevos DENTRO del mutex: así el proceso nunca está "entre" las
+        // dos colas. El clúster revisa las llegadas (getArrivalsSnapshot, mismo mutex) y
+        // MemoryManager.reserveBuffer revisa Nuevos: entre los dos siempre lo ven.
+        LinkedList<Pcb> accepted = new LinkedList<>();
+        LinkedList<String> rejections = new LinkedList<>();
+        mutex.acquireUninterruptibly();
+        try {
+            while (!arrivals.isEmpty()) {
+                Pcb pcb = arrivals.removeFirst();
+                try {
+                    memory.submit(pcb);
+                    accepted.addLast(pcb);
+                } catch (IllegalArgumentException | IllegalStateException e) {
+                    rejections.addLast("rechaza el proceso " + pcb + ": " + e.getMessage());
+                }
             }
+        } finally {
+            mutex.release();
+        }
+        while (!accepted.isEmpty()) {
+            Pcb pcb = accepted.removeFirst();
+            processes.addLast(new ProcessRuntime(pcb));
+            log.log(cycle, source, "llega el proceso " + pcb + " (" + pcb.getName() + ", "
+                    + pcb.getType().getLabel() + ", " + pcb.getMemorySize() + " MB)");
+        }
+        while (!rejections.isEmpty()) {
+            log.log(cycle, source, rejections.removeFirst());
         }
     }
 
@@ -505,6 +522,23 @@ public class Kernel implements InterruptHandler {
         }
     }
 
+    /**
+     * Métrica de equidad: un ciclo en Listos por cada proceso que QUERÍA la CPU en este ciclo
+     * y no la obtuvo. Se cuenta justo después de planCpu, cuando ya se decidió quién usa la
+     * CPU: el que está en Listos en ese momento esperó todo el ciclo. No se cuenta en afterCpu
+     * porque ahí también estarían en Listos los que acaban de volver de E/S o de la red en ese
+     * mismo ciclo (no esperaron la CPU): eso castigaría a los I/O bound.
+     */
+    private void countReadyWaits() {
+        LinkedList<ProcessRuntime> all = processes.copy();
+        while (!all.isEmpty()) {
+            ProcessRuntime rt = all.removeFirst();
+            if (rt.pcb.getState() == ProcessState.READY) {
+                rt.pcb.addReadyCycle();
+            }
+        }
+    }
+
     // =====================================================================
     // Terminación (con limpieza tipo SEM_UNDO)
     // =====================================================================
@@ -665,17 +699,6 @@ public class Kernel implements InterruptHandler {
             }
         }
         return null;
-    }
-
-    private LinkedList<Pcb> drain(LinkedList<Pcb> list) {
-        mutex.acquireUninterruptibly();
-        try {
-            LinkedList<Pcb> copy = list.copy();
-            list.clear();
-            return copy;
-        } finally {
-            mutex.release();
-        }
     }
 
     // =====================================================================
