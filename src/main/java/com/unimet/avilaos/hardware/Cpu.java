@@ -21,6 +21,7 @@ public class Cpu implements ClockListener {
     private volatile int memoryAddressRegister;
     private volatile CpuMode mode = CpuMode.KERNEL;
     private volatile boolean idle = true;
+    private volatile boolean kernelWork;      // el próximo ciclo es trabajo del SO (no avanza el PC)
 
     // ---------- Interrupciones ----------
     private final LinkedQueue<Interrupt> pendingInterrupts = new LinkedQueue<>();
@@ -42,7 +43,13 @@ public class Cpu implements ClockListener {
 
     @Override
     public void onTick(long cycle) {
-        if (idle) {
+        if (kernelWork) {
+            // Trabajo propio del SO (despachar, pedir E/S, enviar una solicitud remota):
+            // la CPU está ocupada en modo SO, pero no ejecuta instrucciones del proceso.
+            busyCycles++;
+            kernelCycles++;
+            kernelWork = false;
+        } else if (idle) {
             idleCycles++;
         } else {
             memoryAddressRegister = programCounter;   // captación: MAR <- PC
@@ -111,11 +118,27 @@ public class Cpu implements ClockListener {
     public void unload() {
         this.idle = true;
         this.mode = CpuMode.KERNEL;
+        this.kernelWork = false;
     }
 
     /** El kernel indica en qué modo se ejecutará la próxima instrucción. */
     public void setMode(CpuMode mode) {
         this.mode = mode;
+    }
+
+    /**
+     * El próximo ciclo la CPU hace trabajo del sistema operativo (despachar, registrar
+     * una E/S, enviar una solicitud remota): cuenta como ciclo ocupado en modo SO,
+     * pero NO avanza el PC ni el MAR, porque no es una instrucción del proceso.
+     */
+    public void scheduleKernelWork() {
+        this.mode = CpuMode.KERNEL;
+        this.kernelWork = true;
+    }
+
+    /** true si el ciclo planificado es trabajo del SO (para la GUI). */
+    public boolean isKernelWork() {
+        return kernelWork;
     }
 
     // ---------- Consultas (GUI y métricas) ----------

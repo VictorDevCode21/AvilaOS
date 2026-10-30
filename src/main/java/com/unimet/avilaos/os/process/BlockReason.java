@@ -6,7 +6,8 @@ package com.unimet.avilaos.os.process;
  *  - SEMAPHORE: hizo semWait sobre empty, full o mutex de un buffer ("vacíos", "lleno",
  *    "mutex" en la GUI) y el valor no le permitió seguir; lo despierta un semSignal de otro proceso.
  *  - NETWORK: accede a un buffer de otro computador y espera los ciclos de latencia;
- *    lo despierta la interrupción NETWORK_COMPLETION.
+ *    el kernel descuenta esa latencia en cada ciclo y, al llegar a 0, lo pasa a Listo
+ *    (no es un dispositivo, así que no genera ninguna interrupción).
  * Los tres son esperas que SÍ terminan (no son interbloqueos).
  *
  * @author donatovodola
