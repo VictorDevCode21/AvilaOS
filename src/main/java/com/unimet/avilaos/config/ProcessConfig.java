@@ -4,11 +4,16 @@ import com.unimet.avilaos.os.process.Pcb;
 import com.unimet.avilaos.os.process.ProcessType;
 
 /**
- * Un proceso de la carga inicial, con todos sus atributos (lo pide el enunciado).
- * NO es un PCB: es la "receta". El PCB se crea al iniciar la simulación con
- * toPcb, que es cuando se le asigna un ID único.
+ * Un proceso con todos sus atributos (lo pide el enunciado). Sirve igual para la
+ * carga inicial del CSV y para los procesos que crea el usuario en la Vista 1.
+ * NO es un PCB: es la "receta". El PCB se crea con toPcb, que es cuando se le
+ * asigna un ID único.
  *
- * Los campos que no aplican a su tipo se ignoran (ej. bufferName en un CPU bound).
+ * Los límites están aquí (no en la GUI) para que el CSV y el formulario apliquen
+ * exactamente las mismas reglas. La memoria máxima depende de la RAM de cada
+ * computador, así que esa la valida SimulationConfig.
+ *
+ * Los campos que no aplican a su tipo se guardan en 0 (o null el buffer).
  *
  * @param computerId 0 = asignación automática (la decide ÁvilaOS); 1 o más = manual
  *
@@ -21,36 +26,44 @@ public record ProcessConfig(String name, ProcessType type, int priority, int mem
 
     public static final int AUTOMATIC = 0;
 
+    public static final int NAME_MAX_LENGTH = 30;
+    public static final int MAX_PRIORITY = 99;
+    public static final int MAX_INSTRUCTIONS = 100_000;
+    public static final long MAX_DEADLINE = 1_000_000;
+    public static final int MAX_IO_DURATION = 1_000;
+    public static final int MAX_OPERATION_INTERVAL = 1_000;
+    public static final int MAX_ITEMS = 10_000;
+
     public ProcessConfig {
-        name = ConfigText.requireName(name, "El proceso");
+        name = ConfigText.requireName(name, "El proceso", NAME_MAX_LENGTH);
         if (type == null) {
             throw new IllegalArgumentException("El proceso " + name + " necesita un tipo");
         }
-        if (priority < 0) {
-            throw new IllegalArgumentException("La prioridad de " + name + " no puede ser negativa");
-        }
+        ConfigText.requireRange(priority, 0, MAX_PRIORITY, "La prioridad de " + name);
         if (memorySize <= 0) {
             throw new IllegalArgumentException("La memoria de " + name + " debe ser mayor que 0");
         }
-        if (instructions <= 0) {
-            throw new IllegalArgumentException("Las instrucciones de " + name + " deben ser mayores que 0");
-        }
-        if (deadline <= 0) {
-            throw new IllegalArgumentException("El deadline de " + name + " debe ser mayor que 0 ciclos");
-        }
+        ConfigText.requireRange(instructions, 1, MAX_INSTRUCTIONS, "Las instrucciones de " + name);
+        ConfigText.requireRange(deadline, 1, MAX_DEADLINE, "El deadline de " + name);
         if (computerId < 0) {
             throw new IllegalArgumentException("El computador de " + name + " debe ser 0 (automático) o 1 o mayor");
         }
-        if (type == ProcessType.IO_BOUND && (ioInterval <= 0 || ioDuration <= 0)) {
-            throw new IllegalArgumentException("El I/O bound " + name + " necesita intervalo y duración de E/S mayores que 0");
+        if (type == ProcessType.IO_BOUND) {
+            ConfigText.requireRange(ioInterval, 1, instructions, "El intervalo de E/S de " + name
+                    + " (no puede pasar de sus instrucciones)");
+            ConfigText.requireRange(ioDuration, 1, MAX_IO_DURATION, "La duración de E/S de " + name);
+        } else {
+            ioInterval = 0;
+            ioDuration = 0;
         }
         if (type.usesBuffer()) {
-            bufferName = ConfigText.requireName(bufferName, "El buffer de " + name);
-            if (operationInterval <= 0 || itemsRequired <= 0) {
-                throw new IllegalArgumentException(name + " necesita intervalo y elementos requeridos mayores que 0");
-            }
+            bufferName = ConfigText.requireCode(bufferName, "El buffer de " + name, BufferConfig.NAME_MAX_LENGTH);
+            ConfigText.requireRange(operationInterval, 1, MAX_OPERATION_INTERVAL, "El intervalo de operación de " + name);
+            ConfigText.requireRange(itemsRequired, 1, MAX_ITEMS, "Los elementos requeridos de " + name);
         } else {
             bufferName = null;
+            operationInterval = 0;
+            itemsRequired = 0;
         }
     }
 
