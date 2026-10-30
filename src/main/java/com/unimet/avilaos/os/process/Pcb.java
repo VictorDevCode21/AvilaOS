@@ -54,6 +54,7 @@ public class Pcb {
     private volatile int remainingInstructions;
     private volatile long remainingDeadline;
     private volatile int quantumUsed;                  // solo importa en Round Robin
+    private volatile long readySequence;               // orden de llegada a listos (lo pone el Scheduler)
     private volatile int itemsDone;
     private volatile boolean deadlineMissed;
 
@@ -269,6 +270,18 @@ public class Pcb {
 
     public void resetQuantum() {
         quantumUsed = 0;
+    }
+
+    /**
+     * Número de llegada a la cola de listos. Lo asigna el Scheduler cada vez que
+     * el proceso entra a listos; sirve para desempatar y para FCFS/Round Robin.
+     */
+    public void setReadySequence(long readySequence) {
+        this.readySequence = readySequence;
+    }
+
+    public long getReadySequence() {
+        return readySequence;
     }
 
     // ---------- Getters ----------
