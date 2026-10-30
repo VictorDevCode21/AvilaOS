@@ -5,22 +5,41 @@ import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.hardware.CpuMode;
 import com.unimet.avilaos.os.process.BlockReason;
 import com.unimet.avilaos.os.process.Pcb;
-import com.unimet.avilaos.os.process.ProcessType;
+import com.unimet.avilaos.os.process.PidGenerator;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.UIManager;
 
 /**
- * Demo TEMPORAL de la interfaz con datos falsos, mientras el kernel no existe.
- * Se elimina cuando la GUI se conecte al Cluster real.
+ * Demo TEMPORAL de la interfaz mientras el kernel no existe. Se elimina cuando la GUI
+ * se conecte al Cluster real.
+ *
+ * Para poder probar la GUI, imita de forma muy simple lo que hará el kernel
+ * (FCFS, admisión por RAM, deadline y terminación). Esta lógica NO es parte de la GUI:
+ * con la simulación real, la GUI solo mostrará lo que decida el kernel.
+ *
+ * - "Reiniciar" vuelve al ciclo 0 con la carga inicial.
+ * - Cuando ya no queda ningún proceso por ejecutar, el reloj se detiene solo.
  *
  * @author NicollPinzon
  */
 public final class GuiDemo {
 
     private static final String[] POLICIES = {"FCFS", "Round Robin", "EDF", "Prioridades apropiativas"};
+    private static final int RAM_MB = 1024;
+
+    private final MainWindow window = new MainWindow(2, POLICIES);
+    private final EventLog eventLog = new EventLog();
+    private final DemoComputer[] computers = new DemoComputer[2];
+    private final LinkedList<String> buffers = new LinkedList<>();
+    private final Timer timer;
+    private long cycle;
 
     private GuiDemo() {
+        timer = new Timer(500, e -> tick());
+        eventLog.addListener(entry -> SwingUtilities.invokeLater(() -> window.appendLog(entry)));
+        wireButtons();
+        loadInitialState();
     }
 
     public static void main(String[] args) {
@@ -33,109 +52,137 @@ public final class GuiDemo {
         } catch (Exception ignored) {
             // si Nimbus no está disponible se usa el aspecto por defecto
         }
+        new GuiDemo().window.setVisible(true);
+    }
 
-        MainWindow window = new MainWindow(2, POLICIES);
-        EventLog eventLog = new EventLog();
-        eventLog.addListener(entry -> SwingUtilities.invokeLater(() -> window.appendLog(entry)));
+    // ---------- Carga inicial y reinicio ----------
 
-        // ----- Computador 1 -----
-        Pcb running1 = ready(Pcb.cpuBound("Navegador", 1, 200, 50, 80, 1, 0));
-        running1.markRunning(0);
-        LinkedList<Pcb> new1 = list(Pcb.cpuBound("Editor", 2, 900, 30, 60, 1, 0));
-        LinkedList<Pcb> ready1 = list(ready(Pcb.ioBound("Copia", 3, 100, 40, 90, 1, 0, 5, 3)),
-                ready(Pcb.cpuBound("Compilador", 1, 150, 70, 120, 1, 0)));
-        Pcb blocked1 = ready(Pcb.bufferUser("Prod", ProcessType.PRODUCER, 2, 50, 20, 100, 1, 0, "B1", 2, 5));
-        blocked1.markRunning(0);
-        blocked1.markBlocked(BlockReason.SEMAPHORE, "'vacíos' de B1");
-
-        // ----- Computador 2 -----
-        Pcb blocked2 = ready(Pcb.ioBound("Backup", 2, 120, 30, 70, 2, 0, 4, 6));
-        blocked2.markRunning(0);
-        blocked2.markBlocked(BlockReason.IO, "disco");
-        Pcb done2 = ready(Pcb.cpuBound("Script", 1, 60, 10, 30, 2, 0));
-        done2.markRunning(0);
-        done2.markTerminated(9, false);
-
-        LinkedList<Pcb> blockedList1 = list(blocked1);
-        LinkedList<Pcb> doneList1 = new LinkedList<>();
-        LinkedList<Pcb> new2 = new LinkedList<>();
-        LinkedList<Pcb> ready2 = new LinkedList<>();
-        LinkedList<Pcb> blockedList2 = list(blocked2);
-        LinkedList<Pcb> doneList2 = list(done2);
-
-        window.getComputerPanel(1).showQueues(new1, ready1, blockedList1, doneList1);
-        window.getComputerPanel(1).showMemory(500, 1024);
-        window.getComputerPanel(2).showQueues(new2, ready2, blockedList2, doneList2);
-        window.getComputerPanel(2).showMemory(120, 2048);
-        window.getComputerPanel(2).showRunning(null, CpuMode.KERNEL);
-
-        for (int id = 1; id <= window.getComputerCount(); id++) {
-            int computer = id;
-            window.getComputerPanel(id).onPolicyChanged(policy ->
-                    eventLog.log(0, "Computador " + computer, "cambia su política a " + policy));
+    private void loadInitialState() {
+        cycle = 0;
+        PidGenerator.reset();                       // los IDs vuelven a empezar en P1
+        eventLog.clear();
+        window.resetView();
+        buffers.clear();
+        buffers.addLast("B1");
+        for (int i = 0; i < computers.length; i++) {
+            computers[i] = new DemoComputer(i + 1);
         }
 
-        // "Reloj" de mentira: avanza el PC del proceso en CPU para ver la vista en tiempo real
-        long[] cycle = {0};
-        Timer timer = new Timer(500, e -> {
-            cycle[0]++;
-            running1.setProgramCounter(running1.getProgramCounter() + 1);
-            running1.instructionExecuted();
-            running1.tickDeadline();
-            CpuMode mode = cycle[0] % 5 == 0 ? CpuMode.KERNEL : CpuMode.USER;
-            window.setCycle(cycle[0]);
-            window.getComputerPanel(1).showRunning(running1, mode);
-            if (cycle[0] % 5 == 0) {
-                eventLog.log(cycle[0], "Computador 1", "ejecuta código del SO (planificador)");
-            }
-        });
+        DemoComputer c1 = computers[0];
+        c1.add(Pcb.cpuBound("Navegador", 1, 200, 12, 40, 1, 0));
+        c1.add(Pcb.cpuBound("Editor", 2, 300, 8, 30, 1, 0));
+        c1.add(Pcb.cpuBound("Compilador", 1, 900, 10, 60, 1, 0));    // espera RAM en Nuevos
+        Pcb producer = Pcb.bufferUser("Prod", com.unimet.avilaos.os.process.ProcessType.PRODUCER,
+                2, 50, 20, 25, 1, 0, "B1", 2, 5);
+        producer.markReady();
+        producer.markRunning(0);
+        producer.markBlocked(BlockReason.SEMAPHORE, "'vacíos' de B1");
+        c1.blocked.addLast(producer);
+        c1.usedRam += producer.getMemorySize();
+
+        DemoComputer c2 = computers[1];
+        c2.add(Pcb.cpuBound("Script", 1, 60, 6, 20, 2, 0));
+        c2.add(Pcb.cpuBound("Backup", 3, 120, 15, 12, 2, 0));       // su deadline vence antes de terminar
+
+        eventLog.log(0, "ÁvilaOS", "Carga inicial lista: pulsa Iniciar");
+        timer.setDelay((Integer) window.getCycleDurationSpinner().getValue());
+        window.getStartPauseButton().setEnabled(true);
+        refresh(CpuMode.KERNEL, CpuMode.KERNEL);
+    }
+
+    private void wireButtons() {
         window.getStartPauseButton().addActionListener(e -> {
             if (timer.isRunning()) {
                 timer.stop();
-                window.getStartPauseButton().setText("Iniciar");
+                window.setRunning(false);
             } else {
                 timer.start();
-                window.getStartPauseButton().setText("Pausar");
+                window.setRunning(true);
             }
+        });
+        window.getResetButton().addActionListener(e -> {
+            timer.stop();
+            loadInitialState();
         });
         window.getCycleDurationSpinner().addChangeListener(e ->
                 timer.setDelay((Integer) window.getCycleDurationSpinner().getValue()));
+        for (int id = 1; id <= window.getComputerCount(); id++) {
+            int computer = id;
+            window.getComputerPanel(id).onPolicyChanged(policy -> eventLog.log(cycle,
+                    "Computador " + computer, "cambia su política a " + policy + " (la demo siempre usa FCFS)"));
+        }
+        window.getCreateBufferButton().addActionListener(e -> createBuffer());
+        window.getCreateProcessButton().addActionListener(e -> createProcess());
+    }
 
-        // Vista 1: crear buffer y crear proceso (en la demo se agregan a la cola de Nuevos)
-        LinkedList<String> buffers = new LinkedList<>();
-        buffers.addLast("B1");
-        window.getCreateBufferButton().addActionListener(e -> {
-            BufferFormData data = BufferFormDialog.showDialog(window, window.getComputerCount(),
-                    2048, toArray(buffers));
-            if (data != null) {
-                buffers.addLast(data.name());
-                eventLog.log(cycle[0], "ÁvilaOS", "Se crea el buffer " + data.name() + " (capacidad "
-                        + data.capacity() + ") en el Computador " + data.hostComputerId());
-            }
-        });
-        window.getCreateProcessButton().addActionListener(e -> {
-            ProcessFormData data = ProcessFormDialog.showDialog(window, window.getComputerCount(),
-                    2048, toArray(buffers));
-            if (data == null) {
-                return;                                     // el usuario canceló
-            }
-            // En la demo, "automático" elige el computador con menos procesos nuevos.
-            // Con el kernel real esta decisión la toma ÁvilaOS, no la GUI.
-            int computerId = data.isAutomatic() ? (new1.size() <= new2.size() ? 1 : 2) : data.computerId();
-            Pcb pcb = toPcb(data, computerId, cycle[0]);
-            LinkedList<Pcb> target = computerId == 1 ? new1 : new2;
-            target.addLast(pcb);
-            if (computerId == 1) {
-                window.getComputerPanel(1).showQueues(new1, ready1, blockedList1, doneList1);
-            } else {
-                window.getComputerPanel(2).showQueues(new2, ready2, blockedList2, doneList2);
-            }
-            eventLog.log(cycle[0], "ÁvilaOS", "Se crea el proceso " + pcb + " (" + pcb.getType().getLabel()
-                    + ") en el Computador " + computerId + (data.isAutomatic() ? " (asignación automática)" : ""));
-        });
+    // ---------- Un ciclo de reloj (imita al kernel) ----------
 
-        window.getComputerPanel(1).showRunning(running1, CpuMode.USER);
-        window.setVisible(true);
+    private void tick() {
+        cycle++;
+        window.setCycle(cycle);
+        CpuMode[] modes = new CpuMode[computers.length];
+        for (int i = 0; i < computers.length; i++) {
+            modes[i] = computers[i].tick();
+        }
+        refresh(modes[0], modes[1]);
+
+        if (allFinished()) {                         // nada más por ejecutar: el reloj se detiene
+            timer.stop();
+            window.setRunning(false);
+            window.getStartPauseButton().setEnabled(false);
+            eventLog.log(cycle, "ÁvilaOS", "Simulación terminada: todos los procesos terminaron. "
+                    + "Pulsa Reiniciar para volver a empezar.");
+        }
+    }
+
+    private boolean allFinished() {
+        for (DemoComputer c : computers) {
+            if (c.running != null || !c.newQueue.isEmpty() || !c.ready.isEmpty() || !c.blocked.isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void refresh(CpuMode mode1, CpuMode mode2) {
+        CpuMode[] modes = {mode1, mode2};
+        for (int i = 0; i < computers.length; i++) {
+            DemoComputer c = computers[i];
+            ComputerPanel panel = window.getComputerPanel(c.id);
+            panel.showRunning(c.running, modes[i]);
+            panel.showMemory(c.usedRam, RAM_MB);
+            panel.showQueues(c.newQueue.copy(), c.ready.copy(), c.blocked.copy(), c.done.copy());
+        }
+    }
+
+    // ---------- Vista 1 ----------
+
+    private void createBuffer() {
+        BufferFormData data = BufferFormDialog.showDialog(window, window.getComputerCount(), RAM_MB,
+                toArray(buffers));
+        if (data != null) {
+            buffers.addLast(data.name());
+            eventLog.log(cycle, "Computador " + data.hostComputerId(),
+                    "se crea el buffer " + data.name() + " (capacidad " + data.capacity() + ")");
+        }
+    }
+
+    private void createProcess() {
+        ProcessFormData data = ProcessFormDialog.showDialog(window, window.getComputerCount(), RAM_MB,
+                toArray(buffers));
+        if (data == null) {
+            return;                                     // el usuario canceló
+        }
+        // "Automático": en la demo, el computador con menos procesos pendientes.
+        // Con el kernel real esta decisión la toma ÁvilaOS, no la GUI.
+        int computerId = data.isAutomatic()
+                ? (computers[0].pending() <= computers[1].pending() ? 1 : 2) : data.computerId();
+        Pcb pcb = toPcb(data, computerId, cycle);
+        computers[computerId - 1].add(pcb);
+        eventLog.log(cycle, "Computador " + computerId, "se crea el proceso " + pcb + " ("
+                + pcb.getType().getLabel() + ")" + (data.isAutomatic() ? " por asignación automática" : ""));
+        window.getStartPauseButton().setEnabled(true);  // hay trabajo nuevo: se puede volver a iniciar
+        refresh(CpuMode.KERNEL, CpuMode.KERNEL);
     }
 
     /** En la demo la GUI crea el Pcb; con el kernel real lo hará el Cluster con estos mismos datos. */
@@ -159,16 +206,97 @@ public final class GuiDemo {
         return result;
     }
 
-    private static Pcb ready(Pcb pcb) {
-        pcb.markReady();
-        return pcb;
-    }
+    // ---------- Computador de mentira (FCFS) ----------
 
-    private static LinkedList<Pcb> list(Pcb... items) {
-        LinkedList<Pcb> result = new LinkedList<>();
-        for (Pcb p : items) {
-            result.addLast(p);
+    /** Imita lo mínimo de un computador para la demo. NO es el Computer real. */
+    private final class DemoComputer {
+
+        final int id;
+        final String source;
+        final LinkedList<Pcb> newQueue = new LinkedList<>();
+        final LinkedList<Pcb> ready = new LinkedList<>();
+        final LinkedList<Pcb> blocked = new LinkedList<>();
+        final LinkedList<Pcb> done = new LinkedList<>();
+        Pcb running;
+        int usedRam;
+
+        DemoComputer(int id) {
+            this.id = id;
+            this.source = "Computador " + id;
         }
-        return result;
+
+        void add(Pcb pcb) {
+            newQueue.addLast(pcb);
+        }
+
+        int pending() {
+            return newQueue.size() + ready.size() + blocked.size() + (running == null ? 0 : 1);
+        }
+
+        /** Un ciclo: deadlines, ejecución, admisión y despacho. Devuelve el modo de la CPU. */
+        CpuMode tick() {
+            expireDeadlines();
+            CpuMode mode = CpuMode.USER;
+            if (running != null) {
+                running.setProgramCounter(running.getProgramCounter() + 1);
+                running.instructionExecuted();
+                if (running.isFinished()) {
+                    terminate(running, false);
+                    running = null;
+                }
+            }
+            admit();
+            if (running == null && !ready.isEmpty()) {          // despacho FCFS (código del SO)
+                running = ready.removeFirst();
+                running.markRunning(cycle);
+                eventLog.log(cycle, source, "selecciona el proceso " + running);
+                mode = CpuMode.KERNEL;
+            }
+            return mode;
+        }
+
+        /** El deadline baja en todas las colas; al llegar a 0 el proceso se termina. */
+        private void expireDeadlines() {
+            if (running != null && running.tickDeadline()) {
+                terminate(running, true);
+                running = null;
+            }
+            expireIn(newQueue);
+            expireIn(ready);
+            expireIn(blocked);
+        }
+
+        private void expireIn(LinkedList<Pcb> queue) {
+            LinkedList<Pcb> snapshot = queue.copy();
+            for (int i = 0; i < snapshot.size(); i++) {
+                Pcb p = snapshot.get(i);
+                if (p.tickDeadline()) {
+                    queue.remove(p);
+                    terminate(p, true);
+                }
+            }
+        }
+
+        /** Nuevo → Listo solo si hay RAM, en orden de llegada. */
+        private void admit() {
+            while (!newQueue.isEmpty() && usedRam + newQueue.peekFirst().getMemorySize() <= RAM_MB) {
+                Pcb p = newQueue.removeFirst();
+                usedRam += p.getMemorySize();
+                p.markReady();
+                ready.addLast(p);
+                eventLog.log(cycle, source, "admite " + p + " (hay RAM)");
+            }
+        }
+
+        private void terminate(Pcb p, boolean deadlineExpired) {
+            boolean admitted = p.getState() != com.unimet.avilaos.os.process.ProcessState.NEW;
+            p.markTerminated(cycle, deadlineExpired);
+            if (admitted) {
+                usedRam -= p.getMemorySize();                     // libera su memoria
+            }
+            done.addLast(p);
+            eventLog.log(cycle, source, p + (deadlineExpired
+                    ? " se termina: venció su deadline" : " terminó su ejecución"));
+        }
     }
 }
