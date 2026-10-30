@@ -33,13 +33,19 @@ public class SystemMetrics {
         }
     }
 
-    /** Se llama al crear un buffer. Si ya existía uno con ese nombre, no hace nada. */
+    /**
+     * Se llama al crear un buffer. Los nombres son únicos en todo el clúster
+     * ("B1" siempre es un solo buffer, también en los accesos remotos).
+     *
+     * @throws IllegalArgumentException si ya existe un buffer con ese nombre
+     */
     public void registerBuffer(String bufferName) {
         mutex.acquireUninterruptibly();
         try {
-            if (findBuffer(bufferName) == null) {
-                buffers.addLast(new BufferStats(bufferName));
+            if (findBuffer(bufferName) != null) {
+                throw new IllegalArgumentException("Ya existe un buffer llamado " + bufferName.trim());
             }
+            buffers.addLast(new BufferStats(bufferName));
         } finally {
             mutex.release();
         }
@@ -154,8 +160,12 @@ public class SystemMetrics {
     }
 
     private BufferStats findBuffer(String bufferName) {
+        if (bufferName == null) {
+            return null;
+        }
+        String name = bufferName.trim();                  // " B2 " y "B2" son el mismo buffer
         for (int i = 0; i < buffers.size(); i++) {
-            if (buffers.get(i).getBufferName().equals(bufferName)) {
+            if (buffers.get(i).getBufferName().equalsIgnoreCase(name)) {
                 return buffers.get(i);
             }
         }
@@ -165,7 +175,7 @@ public class SystemMetrics {
     private BufferStats requireBuffer(String bufferName) {
         BufferStats stats = findBuffer(bufferName);
         if (stats == null) {
-            throw new IllegalArgumentException("No existe el buffer " + bufferName);
+            throw new IllegalArgumentException("No existe el buffer " + (bufferName == null ? "" : bufferName.trim()));
         }
         return stats;
     }
