@@ -62,8 +62,8 @@ public final class BufferFormDialog extends JDialog {
         this.config = config;
         nameField.setText("B" + (config.getBuffers().size() + 1));  // sugerencia: B1, B2, ...
         for (int id = 1; id <= config.getComputerCount(); id++) {
-            // RAM sin buffers = RAM total menos los buffers que ya viven ahí (no es la RAM libre en este instante)
-            hostCombo.addItem("Computador " + id + " (" + config.processMemoryLimit(id) + " MB sin buffers)");
+            // RAM total menos los buffers que ya viven ahí (no es la RAM libre en este instante)
+            hostCombo.addItem("Computador " + id + " (" + config.processMemoryLimit(id) + " MB sin usar por buffers)");
         }
         FormValidator.clearErrorOnEdit(nameField, capacityField, memoryField);
 
@@ -71,7 +71,7 @@ public final class BufferFormDialog extends JDialog {
         fields.setBorder(BorderFactory.createTitledBorder("Datos del buffer"));
         addRow(fields, "Nombre (letras y números, máx. " + NAME_MAX_LENGTH + "):", nameField);
         addRow(fields, "Capacidad en elementos (1-" + MAX_CAPACITY + "):", capacityField);
-        addRow(fields, "Memoria que ocupa MB (hasta la RAM sin buffers del anfitrión):", memoryField);
+        addRow(fields, "Memoria que ocupa MB (hasta la RAM sin usar por buffers del anfitrión):", memoryField);
         addRow(fields, "Computador anfitrión:", hostCombo);
 
         JButton create = new JButton("Crear");
