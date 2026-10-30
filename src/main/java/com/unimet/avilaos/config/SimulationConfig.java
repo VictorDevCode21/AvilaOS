@@ -57,6 +57,21 @@ public class SimulationConfig {
     }
 
     public void addBuffer(BufferConfig buffer) {
+        checkBuffer(buffer);
+        buffers.addLast(buffer);
+    }
+
+    /**
+     * Comprueba que el buffer se pueda agregar, SIN agregarlo. La GUI lo usa antes de crear
+     * el buffer en la simulación, para que la configuración y el clúster nunca discrepen.
+     *
+     * Reglas: el anfitrión existe, el nombre no se repite, cabe junto a los otros buffers
+     * del anfitrión y, como su RAM no se libera nunca, ningún proceso de la configuración
+     * queda sin poder entrar (si no, Reiniciar fallaría al volver a cargar esa configuración).
+     *
+     * @throws IllegalArgumentException con el motivo, si no se puede agregar
+     */
+    public void checkBuffer(BufferConfig buffer) {
         if (buffer == null) {
             throw new IllegalArgumentException("El buffer no puede ser null");
         }
@@ -75,7 +90,24 @@ public class SimulationConfig {
                     + " MB) no cabe en el computador " + host.id() + ": tiene " + host.ramSize()
                     + " MB y sus buffers ya ocupan " + used + " MB");
         }
-        buffers.addLast(buffer);
+        // Ningún proceso puede quedar sin espacio para siempre por culpa del buffer nuevo.
+        LinkedList<ProcessConfig> all = processes.copy();
+        while (!all.isEmpty()) {
+            ProcessConfig process = all.removeFirst();
+            int limit = process.isAutomatic()
+                    ? maxProcessMemoryLimitWith(host.id(), buffer.memorySize())
+                    : processMemoryLimit(process.computerId())
+                            - (process.computerId() == host.id() ? buffer.memorySize() : 0);
+            if (process.memorySize() > limit) {
+                throw new IllegalArgumentException("El buffer " + buffer.name() + " (" + buffer.memorySize()
+                        + " MB) dejaría al proceso " + process.name() + " (" + process.memorySize()
+                        + " MB) sin poder entrar nunca: "
+                        + (process.isAutomatic()
+                                ? "ningún computador tendría más de " + limit + " MB para procesos"
+                                : "el computador " + process.computerId() + " quedaría con " + limit
+                                        + " MB para procesos"));
+            }
+        }
     }
 
     public void addProcess(ProcessConfig process) {
@@ -144,6 +176,15 @@ public class SimulationConfig {
         int best = 0;
         for (int id = 1; id <= computers.size(); id++) {
             best = Math.max(best, processMemoryLimit(id));
+        }
+        return best;
+    }
+
+    /** Como maxProcessMemoryLimit(), pero suponiendo un buffer extra de extraMb en el computador hostId. */
+    private int maxProcessMemoryLimitWith(int hostId, int extraMb) {
+        int best = 0;
+        for (int id = 1; id <= computers.size(); id++) {
+            best = Math.max(best, processMemoryLimit(id) - (id == hostId ? extraMb : 0));
         }
         return best;
     }

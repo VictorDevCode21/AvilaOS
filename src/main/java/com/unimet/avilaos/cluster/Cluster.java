@@ -203,6 +203,19 @@ public class Cluster implements Interconnect {
             throw new IllegalArgumentException("Ya existe un buffer llamado " + buffer.name());
         }
         Computer host = getComputer(buffer.hostComputerId());
+        // reserveBuffer() solo ve la cola de Nuevos. Un proceso enviado con la simulación en
+        // pausa sigue en las llegadas del kernel: si el buffer lo dejara sin espacio, el kernel
+        // lo rechazaría al reanudar y el proceso se perdería sin aparecer en ninguna cola.
+        int newLimit = host.getProcessMemoryLimit() - buffer.memorySize();
+        LinkedList<Pcb> arriving = host.getKernel().getArrivalsSnapshot();
+        while (!arriving.isEmpty()) {
+            Pcb pcb = arriving.removeFirst();
+            if (pcb.getMemorySize() > newLimit) {
+                throw new IllegalArgumentException("El buffer " + buffer.name() + " dejaría a " + pcb
+                        + " (" + pcb.getMemorySize() + " MB, aún por entrar al Computador " + host.getId()
+                        + ") sin poder entrar nunca: el límite para procesos bajaría a " + newLimit + " MB");
+            }
+        }
         if (!host.getMemoryManager().reserveBuffer(buffer.memorySize())) {
             throw new IllegalArgumentException("El Computador " + host.getId() + " no tiene ahora "
                     + buffer.memorySize() + " MB libres para el buffer " + buffer.name()

@@ -100,12 +100,25 @@ public final class SimulationController {
         }
     }
 
-    /** Detiene la simulación y arma una nueva desde la configuración (ciclo 0, PID desde 1). */
+    /**
+     * Detiene la simulación y arma una nueva desde la configuración (ciclo 0, PID desde 1).
+     *
+     * El clúster nuevo se arma ANTES de apagar el actual: si la configuración no se puede
+     * cargar, se muestra el error y la simulación actual sigue viva (antes quedaba apagada
+     * y sin reemplazo, e Iniciar ya no hacía nada).
+     */
     private void reset() {
+        Cluster next;
+        try {
+            next = Cluster.create(config);
+        } catch (IllegalArgumentException ex) {
+            showError("No se pudo reiniciar", ex);
+            return;
+        }
         cluster.shutdown();
+        cluster = next;
         window.resetView();
         lastLogSequence = -1;
-        cluster = Cluster.create(config);
         showInitialSettings();
         refresh();
     }
@@ -128,13 +141,18 @@ public final class SimulationController {
         refresh();
     }
 
-    /** Primero el clúster (puede no haber RAM libre ahora mismo); si lo acepta, la configuración. */
+    /**
+     * Orden: 1) la configuración valida sin agregar (es la que se vuelve a cargar al reiniciar),
+     * 2) el clúster lo crea (puede no haber RAM libre ahora mismo), 3) recién entonces se agrega
+     * a la configuración. Así la configuración y la simulación nunca discrepan.
+     */
     private void createBuffer() {
         BufferConfig buffer = BufferFormDialog.showDialog(window, config);
         if (buffer == null) {
             return;
         }
         try {
+            config.checkBuffer(buffer);
             cluster.createBuffer(buffer);
             config.addBuffer(buffer);
         } catch (IllegalArgumentException ex) {
