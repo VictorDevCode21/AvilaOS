@@ -98,6 +98,9 @@ public final class ComputerPanel extends JPanel {
         addPair(cpu, "Memoria:", memoryLabel);
         cpu.add(new JLabel());                                  // relleno de la última fila
         cpu.add(new JLabel());
+        // El MAR va un paso detrás del PC: los dos suben 1 por ciclo (ver showRunning)
+        pcLabel.setToolTipText("Program counter: dirección de la PRÓXIMA instrucción");
+        marLabel.setToolTipText("Memory address register: dirección de la instrucción de este ciclo (MAR ← PC)");
         modeLabel.setFont(modeLabel.getFont().deriveFont(Font.BOLD));
 
         JPanel memory = new JPanel(new BorderLayout());
@@ -180,6 +183,11 @@ public final class ComputerPanel extends JPanel {
     /**
      * Muestra el proceso en CPU con los registros de la CPU.
      * PC y MAR vienen de la Cpu (no del PCB): el PCB solo guarda el PC al salir de la CPU.
+     *
+     * Por qué el MAR va uno detrás del PC (ej. PC = 5, MAR = 4): en cada ciclo la Cpu hace la
+     * captación MAR ← PC y luego PC ← PC + 1. Al terminar el ciclo, el MAR tiene la dirección de
+     * la instrucción que se acaba de ejecutar y el PC ya apunta a la siguiente. Los dos suben
+     * exactamente 1 por ciclo, como pide el enunciado; solo están desfasados un paso.
      *
      * @param running proceso en CPU, o null si está ociosa
      * @param mode    modo de la CPU (usuario o kernel)
