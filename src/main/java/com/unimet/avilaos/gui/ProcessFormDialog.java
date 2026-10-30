@@ -100,7 +100,8 @@ public final class ProcessFormDialog extends JDialog {
 
         computerCombo.addItem("Automático (ÁvilaOS decide)");
         for (int id = 1; id <= config.getComputerCount(); id++) {
-            computerCombo.addItem("Computador " + id + " (" + config.processMemoryLimit(id) + " MB libres)");
+            // RAM para procesos = RAM total menos sus buffers (no es la RAM libre en este instante)
+            computerCombo.addItem("Computador " + id + " (" + config.processMemoryLimit(id) + " MB para procesos)");
         }
         typeCombo.setRenderer(new DefaultListCellRenderer() {   // muestra "Productor" y no "PRODUCER"
             private static final long serialVersionUID = 1L;
@@ -137,7 +138,7 @@ public final class ProcessFormDialog extends JDialog {
         addRow(panel, "Nombre (máx. " + NAME_MAX_LENGTH + "):", nameField);
         addRow(panel, "Tipo:", typeCombo);
         addRow(panel, "Instrucciones (1-" + MAX_INSTRUCTIONS + "):", instructionsField);
-        addRow(panel, "Memoria MB (hasta la RAM libre del computador):", memoryField);
+        addRow(panel, "Memoria MB (hasta la RAM para procesos del computador):", memoryField);
         addRow(panel, "Prioridad (0 = más alta, 0-" + MAX_PRIORITY + "):", priorityField);
         addRow(panel, "Deadline en ciclos (1-" + MAX_DEADLINE + "):", deadlineField);
         addRow(panel, "Computador:", computerCombo);
@@ -209,12 +210,12 @@ public final class ProcessFormDialog extends JDialog {
         int instructions = v.integer(instructionsField, "Instrucciones", 1, MAX_INSTRUCTIONS);
         int computerId = computerCombo.getSelectedIndex();   // 0 = automático, 1..N = computador
         // Mismo límite que SimulationConfig.addProcess: la RAM menos la de sus buffers.
-        // Si es automático, el computador con más RAM libre (ÁvilaOS lo pondrá donde quepa).
+        // Si es automático, el computador con más RAM para procesos (ÁvilaOS lo pondrá donde quepa).
         boolean automatic = computerId == ProcessConfig.AUTOMATIC;
         int ramLimit = automatic ? config.maxProcessMemoryLimit() : config.processMemoryLimit(computerId);
         String ramOwner = automatic
-                ? "ningún computador tiene más de " + ramLimit + " MB libres"
-                : "el Computador " + computerId + " tiene " + ramLimit + " MB libres, descontando sus buffers";
+                ? "ningún computador tiene más de " + ramLimit + " MB para procesos"
+                : "el Computador " + computerId + " tiene " + ramLimit + " MB para procesos, descontando sus buffers";
         int memory = -1;
         if (ramLimit < 1) {
             v.addError(memoryField, "Memoria: " + ramOwner + ", no cabe ningún proceso.");
