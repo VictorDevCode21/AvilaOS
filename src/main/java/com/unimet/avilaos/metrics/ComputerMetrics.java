@@ -210,6 +210,11 @@ public class ComputerMetrics {
         }
     }
 
+    /** Todas las métricas de este computador tomadas en el mismo instante (una lectura consistente). */
+    public MetricsSnapshot getSnapshot() {
+        return snapshot().toMetrics();
+    }
+
     /** Copia de los puntos de la gráfica, para dibujarla sin bloquear al computador. */
     public LinkedList<UtilizationSample> getUtilizationHistory() {
         mutex.acquireUninterruptibly();
@@ -226,7 +231,7 @@ public class ComputerMetrics {
     Totals snapshot() {
         mutex.acquireUninterruptibly();
         try {
-            return new Totals(lastCycle, completed, onTime, responseCount, responseSum,
+            return new Totals(lastCycle, completed, onTime, responseCount, responseSum, turnaroundSum,
                     fairnessCount, fairnessSum, fairnessSquareSum, bufferUsers, semaphoreBlockedSum,
                     cpu.getBusyCycles(), cpu.getIdleCycles());
         } finally {
@@ -235,11 +240,30 @@ public class ComputerMetrics {
     }
 
     record Totals(long lastCycle, long completed, long onTime, long responseCount, long responseSum,
-            long fairnessCount, double fairnessSum, double fairnessSquareSum,
+            long turnaroundSum, long fairnessCount, double fairnessSum, double fairnessSquareSum,
             long bufferUsers, long semaphoreBlockedSum, long busyCycles, long idleCycles) {
+
+        /** Convierte los acumulados en los valores que muestra la GUI. */
+        MetricsSnapshot toMetrics() {
+            long cycles = busyCycles + idleCycles;
+            return new MetricsSnapshot(
+                    lastCycle,
+                    completed,
+                    lastCycle == 0 ? 0.0 : (double) onTime / lastCycle,
+                    cycles == 0 ? 0.0 : (double) busyCycles / cycles,
+                    responseCount == 0 ? 0.0 : (double) responseSum / responseCount,
+                    completed == 0 ? 0.0 : (double) turnaroundSum / completed,
+                    completed == 0 ? 0.0 : (double) onTime / completed,
+                    jain(fairnessCount, fairnessSum, fairnessSquareSum),
+                    bufferUsers == 0 ? 0.0 : (double) semaphoreBlockedSum / bufferUsers);
+        }
     }
 
-    /** J = (Σx)² / (n · Σx²). Con n = 0 no hay nada que comparar y se devuelve 1. */
+    /**
+     * J = (Σx)² / (n · Σx²).
+     * Con n = 0, o si ningún proceso llegó a ejecutarse (Σx² = 0), no hay nada que
+     * comparar y se devuelve 1 (nadie fue tratado peor que otro).
+     */
     static double jain(long n, double sum, double squareSum) {
         if (n == 0 || squareSum == 0) {
             return 1.0;
