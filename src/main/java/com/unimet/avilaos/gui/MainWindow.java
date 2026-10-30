@@ -40,6 +40,7 @@ public class MainWindow extends JFrame {
 
     private final JLabel cycleLabel = new JLabel("Ciclo: 0");
     private final JButton startPauseButton = new JButton("Iniciar");
+    private final JButton resetButton = new JButton("Reiniciar");
     private final JSpinner cycleDurationSpinner = new JSpinner(new SpinnerNumberModel(500, 10, 10_000, 50));
     private final JSpinner quantumSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_QUANTUM, 1, 100, 1));
     private final JButton createProcessButton = new JButton("Crear proceso");
@@ -90,7 +91,9 @@ public class MainWindow extends JFrame {
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 6));
         cycleLabel.setFont(new Font(Font.MONOSPACED, Font.BOLD, 18));
         bar.add(cycleLabel);
+        resetButton.setToolTipText("Detiene la simulación y la vuelve al ciclo 0 con la carga inicial");
         bar.add(startPauseButton);
+        bar.add(resetButton);
         bar.add(new JLabel("Duración ciclo (ms):"));
         bar.add(cycleDurationSpinner);
         bar.add(new JLabel("Quantum RR:"));
@@ -145,6 +148,21 @@ public class MainWindow extends JFrame {
         logArea.append("[Ciclo " + cycle + "] " + message + "\n");
     }
 
+    /** Muestra si la simulación está corriendo (cambia el texto de Iniciar/Pausar). */
+    public void setRunning(boolean running) {
+        startPauseButton.setText(running ? "Pausar" : "Iniciar");
+    }
+
+    /** Deja la vista como al abrir el programa: ciclo 0, log vacío y paneles vacíos. */
+    public void resetView() {
+        setCycle(0);
+        setRunning(false);
+        logArea.setText("");
+        for (ComputerPanel panel : computerPanels) {
+            panel.clear();
+        }
+    }
+
     public void setQuantum(int quantum) {
         quantumSpinner.setValue(quantum);
     }
@@ -159,6 +177,10 @@ public class MainWindow extends JFrame {
 
     public JButton getStartPauseButton() {
         return startPauseButton;
+    }
+
+    public JButton getResetButton() {
+        return resetButton;
     }
 
     public JSpinner getCycleDurationSpinner() {
