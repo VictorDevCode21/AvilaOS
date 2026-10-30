@@ -61,6 +61,9 @@ public class ComputerMetrics {
     }
 
     public ComputerMetrics(int computerId, Cpu cpu, int sampleInterval) {
+        if (computerId < 1) {
+            throw new IllegalArgumentException("El computador debe ser 1 o mayor");   // misma regla que Pcb
+        }
         if (cpu == null) {
             throw new IllegalArgumentException("Las métricas necesitan la CPU del computador");
         }
@@ -134,85 +137,51 @@ public class ComputerMetrics {
     }
 
     // ---------- Consultas (GUI) ----------
+    // Cada fórmula vive en UN solo lugar (Totals.toMetrics): los getters solo leen la foto.
 
     public int getComputerId() {
         return computerId;
     }
 
+    /** Todas las métricas de este computador tomadas en el mismo instante (una lectura consistente). */
+    public MetricsSnapshot getSnapshot() {
+        return snapshot().toMetrics();
+    }
+
     public long getCompletedProcesses() {
-        mutex.acquireUninterruptibly();
-        try {
-            return completed;
-        } finally {
-            mutex.release();
-        }
+        return getSnapshot().completedProcesses();
     }
 
     /** Procesos que terminaron su trabajo (sin vencer su deadline) por ciclo. */
     public double getThroughput() {
-        mutex.acquireUninterruptibly();
-        try {
-            return lastCycle == 0 ? 0.0 : (double) onTime / lastCycle;
-        } finally {
-            mutex.release();
-        }
+        return getSnapshot().throughput();
     }
 
     /** Utilización acumulada desde el inicio (0 a 1). */
     public double getCpuUtilization() {
-        return cpu.getUtilization();
+        return getSnapshot().cpuUtilization();
     }
 
     public double getAverageResponseTime() {
-        mutex.acquireUninterruptibly();
-        try {
-            return responseCount == 0 ? 0.0 : (double) responseSum / responseCount;
-        } finally {
-            mutex.release();
-        }
+        return getSnapshot().averageResponseTime();
     }
 
     public double getAverageTurnaroundTime() {
-        mutex.acquireUninterruptibly();
-        try {
-            return completed == 0 ? 0.0 : (double) turnaroundSum / completed;
-        } finally {
-            mutex.release();
-        }
+        return getSnapshot().averageTurnaroundTime();
     }
 
     /** Fracción de procesos terminados que cumplieron su deadline (0 a 1). */
     public double getDeadlineComplianceRate() {
-        mutex.acquireUninterruptibly();
-        try {
-            return completed == 0 ? 0.0 : (double) onTime / completed;
-        } finally {
-            mutex.release();
-        }
+        return getSnapshot().deadlineComplianceRate();
     }
 
     /** Índice de Jain (entre 1/n y 1; 1 = equidad perfecta). */
     public double getFairnessIndex() {
-        mutex.acquireUninterruptibly();
-        try {
-            return jain(fairnessCount, fairnessSum, fairnessSquareSum);
-        } finally {
-            mutex.release();
-        }
+        return getSnapshot().fairnessIndex();
     }
 
     public double getAverageSemaphoreBlockedTime() {
-        mutex.acquireUninterruptibly();
-        try {
-            return bufferUsers == 0 ? 0.0 : (double) semaphoreBlockedSum / bufferUsers;
-        } finally {
-            mutex.release();
-        }
-    }
-
-    /** Todas las métricas de este computador tomadas en el mismo instante (una lectura consistente). */
-    public MetricsSnapshot getSnapshot() {
-        return snapshot().toMetrics();
+        return getSnapshot().averageSemaphoreBlockedTime();
     }
 
     /** Copia de los puntos de la gráfica, para dibujarla sin bloquear al computador. */
