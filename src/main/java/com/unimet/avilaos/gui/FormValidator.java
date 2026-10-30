@@ -37,6 +37,10 @@ public class FormValidator {
         if (value.length() > maxLength) {
             return fail(field, label + ": máximo " + maxLength + " caracteres.");
         }
+        if (value.indexOf(',') >= 0 || value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0) {
+            // la configuración se guarda en CSV: una coma rompería las columnas
+            return fail(field, label + ": no puede contener comas.");
+        }
         ok(field);
         return value;
     }
