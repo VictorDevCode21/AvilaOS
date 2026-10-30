@@ -61,6 +61,9 @@ public class ComputerMetrics {
     }
 
     public ComputerMetrics(int computerId, Cpu cpu, int sampleInterval) {
+        if (computerId < 1) {
+            throw new IllegalArgumentException("El computador debe ser 1 o mayor");   // misma regla que Pcb
+        }
         if (cpu == null) {
             throw new IllegalArgumentException("Las métricas necesitan la CPU del computador");
         }
