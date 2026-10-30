@@ -19,8 +19,20 @@ import java.util.concurrent.Semaphore;
  *
  * El buffer NO ejecuta ese algoritmo: lo ejecuta el kernel, una operación por ciclo
  * (cada una cuenta como instrucción en modo sistema operativo). Aquí solo están
- * las piezas. Por eso insert/extract validan: si se llaman sin haber pasado por
- * los semáforos, el algoritmo está mal y se avisa con un error.
+ * las piezas. Por eso insert/extract validan: si se llaman sin tener el mutex,
+ * el algoritmo está mal y se avisa con un error.
+ *
+ * Los semáforos de conteo tienen como máximo la capacidad: un semSignal de más
+ * (algoritmo mal escrito) falla de inmediato en vez de "agrandar" el buffer.
+ *
+ * Si un proceso muere a mitad del algoritmo (deadline), el kernel debe deshacer
+ * lo que dejó tomado, como SEM_UNDO en UNIX (ver contrato en KernelSemaphore):
+ *  - esperaba en un semáforo           → removeWaitingProcess(pcb)
+ *  - tenía el mutex                    → getMutex().semSignal(pcb)
+ *  - productor que pasó 'vacíos' y no insertó   → getEmpty().semSignal(pcb)
+ *  - productor que insertó y no avisó  → getFull().semSignal(pcb)
+ *  - consumidor que pasó 'lleno' y no extrajo   → getFull().semSignal(pcb)
+ *  - consumidor que extrajo y no avisó → getEmpty().semSignal(pcb)
  *
  * @author donatovodola
  */
@@ -64,9 +76,9 @@ public class BoundedBuffer {
         this.hostComputerId = hostComputerId;
         this.capacity = capacity;
         this.memorySize = memorySize;
-        this.empty = new KernelSemaphore("vacíos", this.name, SemaphoreType.COUNTING, capacity);
-        this.full = new KernelSemaphore("lleno", this.name, SemaphoreType.COUNTING, 0);
-        this.mutex = new KernelSemaphore("mutex", this.name, SemaphoreType.BINARY, 1);
+        this.empty = new KernelSemaphore("vacíos", this.name, SemaphoreType.COUNTING, capacity, capacity);
+        this.full = new KernelSemaphore("lleno", this.name, SemaphoreType.COUNTING, 0, capacity);
+        this.mutex = new KernelSemaphore("mutex", this.name, SemaphoreType.BINARY, 1, 1);
     }
 
     // ---------- Operaciones sobre los elementos (dentro de la región crítica simulada) ----------
@@ -75,9 +87,11 @@ public class BoundedBuffer {
      * anyadir(): el productor mete un elemento.
      * Precondición: ya pasó semWait(empty) y semWait(mutex).
      *
+     * @param producer proceso que inserta (debe tener el mutex)
      * @return número del elemento insertado
      */
-    public int insert() {
+    public int insert(Pcb producer) {
+        requireMutexHolder(producer, "insertar");
         itemsMutex.acquireUninterruptibly();
         try {
             if (items.size() >= capacity) {
@@ -96,9 +110,11 @@ public class BoundedBuffer {
      * extraer(): el consumidor saca el elemento más antiguo (FIFO).
      * Precondición: ya pasó semWait(full) y semWait(mutex).
      *
+     * @param consumer proceso que extrae (debe tener el mutex)
      * @return número del elemento extraído
      */
-    public int extract() {
+    public int extract(Pcb consumer) {
+        requireMutexHolder(consumer, "extraer");
         itemsMutex.acquireUninterruptibly();
         try {
             Integer item = items.dequeue();
@@ -176,10 +192,20 @@ public class BoundedBuffer {
         }
     }
 
-    /** Ej. "B1 (H1) 2/3 [vacíos=1, lleno=2, mutex=1]". */
+    /** Ej. "B1 (Computador 1) 2/3 [vacíos=1, lleno=2, mutex=0 (P3-H1)]". */
     @Override
     public String toString() {
-        return name + " (H" + hostComputerId + ") " + getItemCount() + "/" + capacity
+        return name + " (Computador " + hostComputerId + ") " + getItemCount() + "/" + capacity
                 + " [" + empty + ", " + full + ", " + mutex + "]";
+    }
+
+    // ---------- Internos ----------
+
+    /** insert/extract solo dentro de la región crítica: quien llama debe tener el mutex. */
+    private void requireMutexHolder(Pcb pcb, String operation) {
+        if (pcb == null || mutex.getHolder() != pcb) {
+            throw new IllegalStateException(pcb + " intenta " + operation + " en " + name
+                    + " sin tener el mutex: falta semWait('mutex')");
+        }
     }
 }
