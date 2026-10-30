@@ -1,5 +1,6 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.events.LogEntry;
 import java.awt.BorderLayout;
@@ -8,6 +9,7 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Rectangle;
+import java.awt.event.ActionListener;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
@@ -40,8 +42,14 @@ public final class MainWindow extends JFrame {
 
     private static final long serialVersionUID = 1L;
 
-    /** Quantum inicial mientras no se cargue la configuración (igual a SimulationConfig.defaults()). */
-    public static final int DEFAULT_QUANTUM = 3;
+    /** Valores iniciales mientras no se cargue un archivo: los mismos de SimulationConfig.defaults(). */
+    private static final SimulationConfig DEFAULTS = SimulationConfig.defaults();
+
+    /** Quantum inicial mientras no se cargue la configuración. */
+    public static final int DEFAULT_QUANTUM = DEFAULTS.getQuantum();
+
+    /** Duración inicial del ciclo (ms) mientras no se cargue la configuración. */
+    public static final int DEFAULT_CYCLE_MS = (int) DEFAULTS.getCycleDurationMs();
 
     /** Máximo de líneas en el log en pantalla (igual que la capacidad de EventLog). */
     public static final int MAX_LOG_LINES = EventLog.DEFAULT_CAPACITY;
@@ -49,11 +57,22 @@ public final class MainWindow extends JFrame {
     private final JLabel cycleLabel = new JLabel("Ciclo: 0");
     private final JButton startPauseButton = new JButton("Iniciar");
     private final JButton resetButton = new JButton("Reiniciar");
-    private final JSpinner cycleDurationSpinner = new JSpinner(new SpinnerNumberModel(500, 10, 10_000, 50));
-    private final JSpinner quantumSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_QUANTUM, 1, 100, 1));
+    // Rangos de SimulationConfig: la GUI y el archivo CSV aceptan exactamente lo mismo
+    private final JSpinner cycleDurationSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_CYCLE_MS,
+            (int) SimulationConfig.MIN_CYCLE_MS, (int) SimulationConfig.MAX_CYCLE_MS, 50));
+    private final JSpinner quantumSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_QUANTUM,
+            1, SimulationConfig.MAX_QUANTUM, 1));
     private final JButton createProcessButton = new JButton("Crear proceso");
     private final JButton createBufferButton = new JButton("Crear buffer");
     private final JButton configButton = new JButton("Configuración");
+
+    /**
+     * Acción por defecto de los botones que todavía nadie conectó: avisa en vez de no hacer nada.
+     * Quien arma la simulación la reemplaza con setCreateProcessAction / setCreateBufferAction /
+     * setConfigAction.
+     */
+    private final transient ActionListener notAvailable = e -> JOptionPane.showMessageDialog(this,
+            "Disponible en una próxima versión.", "En construcción", JOptionPane.INFORMATION_MESSAGE);
 
     private final JTextArea logArea = new JTextArea();
     private final JPanel bufferArea = new JPanel(new BorderLayout());
@@ -88,10 +107,10 @@ public final class MainWindow extends JFrame {
         pack();
         setLocationRelativeTo(null);
 
-        // Crear proceso, Crear buffer y Reiniciar los conecta quien arma la simulación.
-        // Configuración llega en otra rama.
-        configButton.addActionListener(e -> JOptionPane.showMessageDialog(this,
-                "Disponible en una próxima versión.", "En construcción", JOptionPane.INFORMATION_MESSAGE));
+        // Hasta que alguien los conecte, estos botones avisan "en construcción" en vez de quedarse mudos.
+        createProcessButton.addActionListener(notAvailable);
+        createBufferButton.addActionListener(notAvailable);
+        configButton.addActionListener(notAvailable);
     }
 
     // ---------- Construcción ----------
@@ -203,16 +222,30 @@ public final class MainWindow extends JFrame {
         return quantumSpinner;
     }
 
-    public JButton getCreateProcessButton() {
-        return createProcessButton;
+    /** Qué hacer al pulsar "Crear proceso" (reemplaza el aviso de "en construcción"). */
+    public void setCreateProcessAction(ActionListener action) {
+        replaceAction(createProcessButton, action);
     }
 
-    public JButton getCreateBufferButton() {
-        return createBufferButton;
+    /** Qué hacer al pulsar "Crear buffer" (reemplaza el aviso de "en construcción"). */
+    public void setCreateBufferAction(ActionListener action) {
+        replaceAction(createBufferButton, action);
     }
 
-    public JButton getConfigButton() {
-        return configButton;
+    /** Qué hacer al pulsar "Configuración" (reemplaza el aviso de "en construcción"). */
+    public void setConfigAction(ActionListener action) {
+        replaceAction(configButton, action);
+    }
+
+    /** Deja al botón con UNA sola acción: así nunca se ejecutan el aviso y la acción real a la vez. */
+    private static void replaceAction(JButton button, ActionListener action) {
+        if (action == null) {
+            throw new IllegalArgumentException("La acción del botón no puede ser null");
+        }
+        for (ActionListener old : button.getActionListeners()) {
+            button.removeActionListener(old);
+        }
+        button.addActionListener(action);
     }
 
     /**

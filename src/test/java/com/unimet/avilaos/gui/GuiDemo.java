@@ -119,8 +119,8 @@ public final class GuiDemo {
             window.getComputerPanel(id).onPolicyChanged(policy -> eventLog.log(cycle,
                     "Computador " + computer, "cambia su política a " + policy + " (la demo siempre usa FCFS)"));
         }
-        window.getCreateBufferButton().addActionListener(e -> createBuffer());
-        window.getCreateProcessButton().addActionListener(e -> createProcess());
+        window.setCreateBufferAction(e -> createBuffer());
+        window.setCreateProcessAction(e -> createProcess());
     }
 
     // ---------- Un ciclo de reloj (imita al kernel) ----------
