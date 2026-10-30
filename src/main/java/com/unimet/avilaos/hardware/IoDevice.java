@@ -4,14 +4,20 @@ import com.unimet.avilaos.datastructures.LinkedQueue;
 import java.util.concurrent.Semaphore;
 
 /**
- * Dispositivo de E/S de un computador (controlador de disco simplificado).
+ * Dispositivo de E/S de un computador (un disco simplificado, al estilo de un
+ * controlador DMA): atiende una solicitud a la vez, en orden FIFO, y cuando
+ * termina avisa a la CPU con UNA interrupción IO_COMPLETION.
  *
- * Trabaja en paralelo con la CPU: en cada tick avanza la solicitud que está
- * atendiendo. Atiende una solicitud a la vez, en orden de llegada (FIFO).
- * Al terminar una, genera la interrupción IO_COMPLETION en la CPU para que
- * el kernel pase al proceso de Bloqueado a Listo.
+ * Solo simula el TIEMPO de la operación (ciclos), no mueve datos reales.
  *
- * No conoce procesos ni PCB: solo un ID de proceso y una duración en ciclos.
+ * Orden dentro de un ciclo: el Computer debe llamar io.onTick() y luego
+ * cpu.onTick() de forma SECUENCIAL, en su propio hilo. Así la interrupción que
+ * se genere en este ciclo la atiende la CPU al final de ese mismo ciclo.
+ * Este dispositivo NO debe registrarse directamente en el GlobalClock: tendría
+ * su propio hilo worker y el orden respecto a la CPU quedaría indefinido.
+ *
+ * Regla de concurrencia: nunca se llama código ajeno (cpu.raiseInterrupt)
+ * mientras se tiene tomado el mutex propio.
  *
  * @author victor1102
  */
@@ -19,39 +25,81 @@ public class IoDevice implements ClockListener {
 
     private final Cpu cpu;
     private final LinkedQueue<IoRequest> waiting = new LinkedQueue<>();
-    private final Semaphore mutex = new Semaphore(1, true);   // protege waiting y current
-    private IoRequest current;                                // solicitud en servicio (null si está libre)
+    private final Semaphore mutex = new Semaphore(1, true);
 
+    private IoRequest current;                 // la que se está atendiendo (null = libre)
     private volatile long busyCycles;
     private volatile long completedRequests;
+    private volatile long cancelledRequests;
 
-    /**
-     * @param cpu CPU del mismo computador, a la que se le envían las interrupciones
-     */
     public IoDevice(Cpu cpu) {
         if (cpu == null) {
-            throw new IllegalArgumentException("El dispositivo de E/S necesita una CPU a la cual interrumpir");
+            throw new IllegalArgumentException("El dispositivo de E/S necesita la CPU para interrumpirla");
         }
         this.cpu = cpu;
     }
 
+    // ---------- Lo usa el kernel ----------
+
     /**
-     * El kernel registra una operación de E/S. Queda en cola si el dispositivo está ocupado.
+     * Encola una solicitud de E/S de un proceso.
      *
-     * @param processId      proceso que pidió la E/S
-     * @param durationCycles ciclos que tarda en satisfacerse (mayor que 0)
+     * @throws IllegalArgumentException si el id o la duración no son válidos
+     * @throws IllegalStateException    si el proceso ya tiene una solicitud pendiente
+     *                                  o en servicio (un proceso monohilo no puede
+     *                                  pedir dos E/S a la vez: sería un error del kernel)
      */
     public void request(int processId, int durationCycles) {
+        if (processId <= 0) {
+            throw new IllegalArgumentException("El id del proceso debe ser mayor que 0");
+        }
         if (durationCycles <= 0) {
             throw new IllegalArgumentException("La duración de la E/S debe ser mayor que 0 ciclos");
         }
         mutex.acquireUninterruptibly();
         try {
+            if (hasRequest(processId)) {
+                throw new IllegalStateException("P" + processId + " ya tiene una E/S pendiente");
+            }
             waiting.enqueue(new IoRequest(processId, durationCycles));
         } finally {
             mutex.release();
         }
     }
+
+    /**
+     * Cancela la E/S de un proceso, esté esperando o siendo atendida.
+     * El kernel la llama ANTES de terminar un proceso bloqueado por E/S
+     * (por ejemplo, cuando se le vence el deadline). No se genera interrupción.
+     *
+     * @return true si el proceso tenía una solicitud y se canceló
+     */
+    public boolean cancel(int processId) {
+        mutex.acquireUninterruptibly();
+        try {
+            boolean removed = false;
+            if (current != null && current.processId == processId) {
+                current = null;                // se aborta: no habrá IO_COMPLETION
+                removed = true;
+            } else {
+                for (int i = 0; i < waiting.size(); i++) {
+                    IoRequest r = waiting.get(i);
+                    if (r.processId == processId) {
+                        removed = waiting.remove(r);
+                        break;
+                    }
+                }
+            }
+            if (removed) {
+                cancelledRequests++;
+            }
+            return removed;
+        } finally {
+            mutex.release();
+        }
+    }
+
+    // ---------- Un ciclo de reloj ----------
 
     @Override
     public void onTick(long cycle) {
@@ -59,7 +107,7 @@ public class IoDevice implements ClockListener {
         mutex.acquireUninterruptibly();
         try {
             if (current == null) {
-                current = waiting.dequeue();          // toma la siguiente, si hay
+                current = waiting.dequeue();   // toma la siguiente (o null si no hay)
             }
             if (current != null) {
                 current.remaining--;
@@ -74,7 +122,7 @@ public class IoDevice implements ClockListener {
             mutex.release();
         }
         if (finished != null) {
-            cpu.raiseInterrupt(finished);             // FUERA del mutex: no llamar código ajeno con un candado tomado
+            cpu.raiseInterrupt(finished);      // FUERA del mutex
         }
     }
 
@@ -89,7 +137,7 @@ public class IoDevice implements ClockListener {
         }
     }
 
-    /** ID del proceso que se está atendiendo, o -1 si el dispositivo está libre. */
+    /** @return id del proceso que se está atendiendo, o -1 si el dispositivo está libre */
     public int getCurrentProcessId() {
         mutex.acquireUninterruptibly();
         try {
@@ -99,7 +147,7 @@ public class IoDevice implements ClockListener {
         }
     }
 
-    /** Ciclos que le faltan a la solicitud actual, o 0 si está libre. */
+    /** @return ciclos que le faltan a la solicitud en servicio, o 0 si está libre */
     public int getCurrentRemaining() {
         mutex.acquireUninterruptibly();
         try {
@@ -109,7 +157,7 @@ public class IoDevice implements ClockListener {
         }
     }
 
-    /** IDs de los procesos esperando el dispositivo, en orden de llegada (para la GUI). */
+    /** Copia de los ids en espera, en orden FIFO. */
     public int[] getWaitingProcessIds() {
         mutex.acquireUninterruptibly();
         try {
@@ -131,15 +179,31 @@ public class IoDevice implements ClockListener {
         return completedRequests;
     }
 
-    // ---------- Solicitud de E/S (interna) ----------
+    public long getCancelledRequests() {
+        return cancelledRequests;
+    }
 
-    /** No es record porque 'remaining' cambia en cada ciclo. */
+    // ---------- Internos ----------
+
+    /** Debe llamarse con el mutex tomado. */
+    private boolean hasRequest(int processId) {
+        if (current != null && current.processId == processId) {
+            return true;
+        }
+        for (int i = 0; i < waiting.size(); i++) {
+            if (waiting.get(i).processId == processId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Una solicitud: de qué proceso es y cuántos ciclos le faltan. */
     private static final class IoRequest {
-
         private final int processId;
         private int remaining;
 
-        IoRequest(int processId, int durationCycles) {
+        private IoRequest(int processId, int durationCycles) {
             this.processId = processId;
             this.remaining = durationCycles;
         }
