@@ -189,6 +189,7 @@ public class Kernel implements InterruptHandler {
         admitNewProcesses();
         preemptIfNeeded();
         planCpu();
+        countReadyWaits();
     }
 
     private void applyRequests() {
@@ -355,7 +356,7 @@ public class Kernel implements InterruptHandler {
         countDownNetwork();
         applyAction();
         tickDeadlines();
-        countWaits();
+        countSemaphoreWaits();
     }
 
     /** Latencias de red: las que llegan a 0 vuelven a Listo (ya pagaron su acceso). */
@@ -494,18 +495,29 @@ public class Kernel implements InterruptHandler {
         }
     }
 
-    /**
-     * Métricas de espera, una vez por ciclo y por proceso: tiempo bloqueado en semáforos
-     * (productor-consumidor) y tiempo en Listos (equidad). El que está en CPU está RUNNING,
-     * así que no cuenta como listo.
-     */
-    private void countWaits() {
+    /** Métrica del productor-consumidor: tiempo bloqueado en semáforos. */
+    private void countSemaphoreWaits() {
         LinkedList<ProcessRuntime> all = processes.copy();
         while (!all.isEmpty()) {
             ProcessRuntime rt = all.removeFirst();
             if (rt.pcb.getState() == ProcessState.BLOCKED && rt.pcb.getBlockReason() == BlockReason.SEMAPHORE) {
                 rt.pcb.addBlockedOnSemaphoreCycle();
-            } else if (rt.pcb.getState() == ProcessState.READY) {
+            }
+        }
+    }
+
+    /**
+     * Métrica de equidad: un ciclo en Listos por cada proceso que QUERÍA la CPU en este ciclo
+     * y no la obtuvo. Se cuenta justo después de planCpu, cuando ya se decidió quién usa la
+     * CPU: el que está en Listos en ese momento esperó todo el ciclo. No se cuenta en afterCpu
+     * porque ahí también estarían en Listos los que acaban de volver de E/S o de la red en ese
+     * mismo ciclo (no esperaron la CPU): eso castigaría a los I/O bound.
+     */
+    private void countReadyWaits() {
+        LinkedList<ProcessRuntime> all = processes.copy();
+        while (!all.isEmpty()) {
+            ProcessRuntime rt = all.removeFirst();
+            if (rt.pcb.getState() == ProcessState.READY) {
                 rt.pcb.addReadyCycle();
             }
         }
