@@ -8,6 +8,7 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.event.MouseEvent;
 import java.util.function.Consumer;
 import javax.swing.BorderFactory;
 import javax.swing.JComboBox;
@@ -16,6 +17,7 @@ import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
+import javax.swing.table.TableColumnModel;
 
 /**
  * "Vista 2": estado de UN computador del clúster.
@@ -104,7 +106,8 @@ public class ComputerPanel extends JPanel {
     }
 
     private JPanel buildQueuesSection() {
-        JPanel queues = new JPanel(new GridLayout(2, 2, 6, 6));
+        // Una cola debajo de la otra: cada tabla usa todo el ancho y el motivo no se corta
+        JPanel queues = new JPanel(new GridLayout(4, 1, 0, 4));
         queues.add(wrapTable("Nuevos", newModel));
         queues.add(wrapTable("Listos", readyModel));
         queues.add(wrapTable("Bloqueados", blockedModel));
@@ -113,12 +116,29 @@ public class ComputerPanel extends JPanel {
     }
 
     private static JScrollPane wrapTable(String title, ProcessTableModel model) {
-        JTable table = new JTable(model);
+        JTable table = new JTable(model) {
+            @Override
+            public String getToolTipText(MouseEvent e) {        // texto completo al pasar el mouse
+                int row = rowAtPoint(e.getPoint());
+                int col = columnAtPoint(e.getPoint());
+                if (row < 0 || col < 0) {
+                    return null;
+                }
+                Object value = getValueAt(row, col);
+                return value == null ? null : value.toString();
+            }
+        };
         table.setFillsViewportHeight(true);
         table.setRowSelectionAllowed(false);
+        table.getTableHeader().setReorderingAllowed(false);
+        TableColumnModel columns = table.getColumnModel();
+        int[] widths = {55, 90, 75, 45, 45, 65, 60, 60, 230};
+        for (int i = 0; i < widths.length; i++) {
+            columns.getColumn(i).setPreferredWidth(widths[i]);
+        }
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createTitledBorder(title));
-        scroll.setPreferredSize(new Dimension(600, 120));
+        scroll.setPreferredSize(new Dimension(480, 95));       // las columnas se ajustan al ancho real
         return scroll;
     }
 
