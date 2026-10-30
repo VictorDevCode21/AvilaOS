@@ -94,12 +94,12 @@ public final class GuiDemo {
 
         eventLog.log(0, "ÁvilaOS", "Carga inicial lista: pulsa Iniciar");
         timer.setDelay((Integer) window.getCycleDurationSpinner().getValue());
-        window.getStartPauseButton().setEnabled(true);
+        window.setStartPauseEnabled(true);
         refresh(CpuMode.KERNEL, CpuMode.KERNEL);
     }
 
     private void wireButtons() {
-        window.getStartPauseButton().addActionListener(e -> {
+        window.setStartPauseAction(e -> {
             if (timer.isRunning()) {
                 timer.stop();
                 window.setRunning(false);
@@ -108,7 +108,7 @@ public final class GuiDemo {
                 window.setRunning(true);
             }
         });
-        window.getResetButton().addActionListener(e -> {
+        window.setResetAction(e -> {
             timer.stop();
             loadInitialState();
         });
@@ -137,7 +137,7 @@ public final class GuiDemo {
         if (allFinished()) {                         // nada más por ejecutar: el reloj se detiene
             timer.stop();
             window.setRunning(false);
-            window.getStartPauseButton().setEnabled(false);
+            window.setStartPauseEnabled(false);
             eventLog.log(cycle, "ÁvilaOS", "Simulación terminada: todos los procesos terminaron. "
                     + "Pulsa Reiniciar para volver a empezar.");
         }
@@ -195,7 +195,7 @@ public final class GuiDemo {
         computers[computerId - 1].add(pcb);
         eventLog.log(cycle, "Computador " + computerId, "se crea el proceso " + pcb + " ("
                 + pcb.getType().getLabel() + ")" + (data.isAutomatic() ? " por asignación automática" : ""));
-        window.getStartPauseButton().setEnabled(true);  // hay trabajo nuevo: se puede volver a iniciar
+        window.setStartPauseEnabled(true);              // hay trabajo nuevo: se puede volver a iniciar
         refresh(CpuMode.KERNEL, CpuMode.KERNEL);
     }
 

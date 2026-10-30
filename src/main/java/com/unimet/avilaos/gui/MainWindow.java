@@ -68,8 +68,8 @@ public final class MainWindow extends JFrame {
 
     /**
      * Acción por defecto de los botones que todavía nadie conectó: avisa en vez de no hacer nada.
-     * Quien arma la simulación la reemplaza con setCreateProcessAction / setCreateBufferAction /
-     * setConfigAction.
+     * Quien arma la simulación la reemplaza con setStartPauseAction / setResetAction /
+     * setCreateProcessAction / setCreateBufferAction / setConfigAction.
      */
     private final transient ActionListener notAvailable = e -> JOptionPane.showMessageDialog(this,
             "Disponible en una próxima versión.", "En construcción", JOptionPane.INFORMATION_MESSAGE);
@@ -107,7 +107,9 @@ public final class MainWindow extends JFrame {
         pack();
         setLocationRelativeTo(null);
 
-        // Hasta que alguien los conecte, estos botones avisan "en construcción" en vez de quedarse mudos.
+        // Hasta que alguien los conecte, los 5 botones avisan "en construcción" en vez de quedarse mudos.
+        startPauseButton.addActionListener(notAvailable);
+        resetButton.addActionListener(notAvailable);
         createProcessButton.addActionListener(notAvailable);
         createBufferButton.addActionListener(notAvailable);
         configButton.addActionListener(notAvailable);
@@ -206,12 +208,9 @@ public final class MainWindow extends JFrame {
         return computerPanels.length;
     }
 
-    public JButton getStartPauseButton() {
-        return startPauseButton;
-    }
-
-    public JButton getResetButton() {
-        return resetButton;
+    /** Habilita o deshabilita Iniciar/Pausar (ej. cuando ya no queda trabajo por simular). */
+    public void setStartPauseEnabled(boolean enabled) {
+        startPauseButton.setEnabled(enabled);
     }
 
     public JSpinner getCycleDurationSpinner() {
@@ -222,22 +221,40 @@ public final class MainWindow extends JFrame {
         return quantumSpinner;
     }
 
-    /** Qué hacer al pulsar "Crear proceso" (reemplaza el aviso de "en construcción"). */
+    // ---------- Acciones de los botones ----------
+    // Cada set*Action REEMPLAZA cualquier acción anterior del botón (el aviso de "en construcción"
+    // u otra que se haya puesto antes): el botón queda siempre con UNA sola acción.
+    // Llamarlo dos veces no suma acciones; la segunda reemplaza a la primera.
+
+    /** Qué hacer al pulsar "Iniciar"/"Pausar". Reemplaza cualquier acción anterior del botón. */
+    public void setStartPauseAction(ActionListener action) {
+        replaceAction(startPauseButton, action);
+    }
+
+    /** Qué hacer al pulsar "Reiniciar". Reemplaza cualquier acción anterior del botón. */
+    public void setResetAction(ActionListener action) {
+        replaceAction(resetButton, action);
+    }
+
+    /** Qué hacer al pulsar "Crear proceso". Reemplaza cualquier acción anterior del botón. */
     public void setCreateProcessAction(ActionListener action) {
         replaceAction(createProcessButton, action);
     }
 
-    /** Qué hacer al pulsar "Crear buffer" (reemplaza el aviso de "en construcción"). */
+    /** Qué hacer al pulsar "Crear buffer". Reemplaza cualquier acción anterior del botón. */
     public void setCreateBufferAction(ActionListener action) {
         replaceAction(createBufferButton, action);
     }
 
-    /** Qué hacer al pulsar "Configuración" (reemplaza el aviso de "en construcción"). */
+    /** Qué hacer al pulsar "Configuración". Reemplaza cualquier acción anterior del botón. */
     public void setConfigAction(ActionListener action) {
         replaceAction(configButton, action);
     }
 
-    /** Deja al botón con UNA sola acción: así nunca se ejecutan el aviso y la acción real a la vez. */
+    /**
+     * Quita TODAS las acciones del botón (no solo el aviso) y deja únicamente la nueva:
+     * así nunca se ejecutan dos acciones a la vez por un mismo clic.
+     */
     private static void replaceAction(JButton button, ActionListener action) {
         if (action == null) {
             throw new IllegalArgumentException("La acción del botón no puede ser null");
