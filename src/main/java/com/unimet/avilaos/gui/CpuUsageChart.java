@@ -22,10 +22,10 @@ import org.jfree.data.xy.XYSeriesCollection;
  * (todas las líneas en el mismo gráfico, como pide el enunciado).
  *
  * Solo dibuja lo que guardan las ComputerMetrics: no calcula nada.
- * Cada vez que se llama update() agrega únicamente los puntos nuevos y la
+ * Cada vez que se llama showHistory() agrega únicamente los puntos nuevos y la
  * gráfica se redibuja UNA sola vez, sin importar cuántos computadores haya.
  *
- * Si update() recibe otras métricas (nueva simulación, otra configuración),
+ * Si showHistory() recibe otras métricas (nueva simulación, otra configuración),
  * la gráfica se reinicia sola: no depende de que alguien llame clear().
  *
  * @author NicollPinzon
@@ -75,12 +75,23 @@ public final class CpuUsageChart extends JPanel {
 
     /**
      * Agrega a la gráfica los puntos nuevos de cada computador.
-     * Debe llamarse desde el hilo de Swing (SwingUtilities.invokeLater).
+     * Debe llamarse desde el hilo de Swing (ej. un javax.swing.Timer de 100-200 ms).
+     *
+     * OJO: ComputerMetrics guarda solo las últimas MAX_SAMPLES muestras. Si pasan más
+     * ciclos que eso entre dos llamadas, los puntos intermedios ya no existen y la línea
+     * los salta. Con un Timer de 100-200 ms nunca pasa.
+     *
+     * (No se llama update() para no confundirse con JComponent.update(Graphics) de Swing.)
+     *
+     * @param computers métricas de cada computador, en orden (no puede ser null)
      */
-    public void update(LinkedList<ComputerMetrics> computers) {
-        ensureSeries(computers);
+    public void showHistory(LinkedList<ComputerMetrics> computers) {
+        if (computers == null) {
+            throw new IllegalArgumentException("La lista de métricas no puede ser null");
+        }
         chart.setNotify(false);                         // se agregan todos los puntos sin redibujar...
         try {
+            ensureSeries(computers);                    // dentro del try: reconstruir también redibuja una vez
             for (int i = 0; i < series.length; i++) {
                 LinkedList<UtilizationSample> history = sources[i].getUtilizationHistory();
                 XYSeries line = series[i];
