@@ -9,7 +9,6 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.event.MouseEvent;
-import java.util.function.Consumer;
 import javax.swing.BorderFactory;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
@@ -17,6 +16,7 @@ import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
+import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumnModel;
 
 /**
@@ -29,7 +29,9 @@ import javax.swing.table.TableColumnModel;
  *
  * @author NicollPinzon
  */
-public class ComputerPanel extends JPanel {
+public final class ComputerPanel extends JPanel {
+
+    private static final long serialVersionUID = 1L;
 
     private static final Color USER_COLOR = new Color(0, 128, 0);
     private static final Color KERNEL_COLOR = new Color(200, 100, 0);
@@ -41,6 +43,7 @@ public class ComputerPanel extends JPanel {
     private final JLabel processLabel = new JLabel(NONE);
     private final JLabel typeLabel = new JLabel(NONE);
     private final JLabel pcLabel = new JLabel(NONE);
+    private final JLabel marLabel = new JLabel(NONE);
     private final JLabel priorityLabel = new JLabel(NONE);
     private final JLabel deadlineLabel = new JLabel(NONE);
     private final JLabel remainingLabel = new JLabel(NONE);
@@ -75,23 +78,26 @@ public class ComputerPanel extends JPanel {
 
         add(buildTopSection(), BorderLayout.NORTH);
         add(buildQueuesSection(), BorderLayout.CENTER);
-        showRunning(null, CpuMode.KERNEL);
+        showIdle();
     }
 
     // ---------- Construcción de la vista ----------
 
     private JPanel buildTopSection() {
         // CPU: dos pares etiqueta-valor por fila para que quepa a lo ancho
-        JPanel cpu = new JPanel(new GridLayout(4, 4, 6, 2));
+        JPanel cpu = new JPanel(new GridLayout(5, 4, 6, 2));
         cpu.setBorder(BorderFactory.createTitledBorder("CPU"));
         addPair(cpu, "Proceso:", processLabel);
         addPair(cpu, "Modo:", modeLabel);
         addPair(cpu, "Tipo:", typeLabel);
-        addPair(cpu, "PC:", pcLabel);
         addPair(cpu, "Prioridad:", priorityLabel);
+        addPair(cpu, "PC:", pcLabel);                          // registros de la CPU, juntos
+        addPair(cpu, "MAR:", marLabel);
         addPair(cpu, "Deadline:", deadlineLabel);
         addPair(cpu, "Instr. rest.:", remainingLabel);
         addPair(cpu, "Memoria:", memoryLabel);
+        cpu.add(new JLabel());                                  // relleno de la última fila
+        cpu.add(new JLabel());
         modeLabel.setFont(modeLabel.getFont().deriveFont(Font.BOLD));
 
         JPanel memory = new JPanel(new BorderLayout());
@@ -127,6 +133,8 @@ public class ComputerPanel extends JPanel {
 
     private static JScrollPane wrapTable(String title, ProcessTableModel model) {
         JTable table = new JTable(model) {
+            private static final long serialVersionUID = 1L;
+
             @Override
             public String getToolTipText(MouseEvent e) {        // texto completo al pasar el mouse
                 int row = rowAtPoint(e.getPoint());
@@ -140,9 +148,18 @@ public class ComputerPanel extends JPanel {
         };
         table.setFillsViewportHeight(true);
         table.setRowSelectionAllowed(false);
+        table.setTableHeader(new JTableHeader(table.getColumnModel()) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public String getToolTipText(MouseEvent e) {        // nombre completo de la columna
+                int col = columnAtPoint(e.getPoint());
+                return col < 0 ? null : ProcessTableModel.COLUMN_TIPS[col];
+            }
+        });
         table.getTableHeader().setReorderingAllowed(false);
         TableColumnModel columns = table.getColumnModel();
-        int[] widths = {55, 90, 75, 45, 45, 65, 60, 60, 230};
+        int[] widths = {55, 90, 75, 40, 45, 50, 50, 45, 230};
         for (int i = 0; i < widths.length; i++) {
             columns.getColumn(i).setPreferredWidth(widths[i]);
         }
@@ -160,29 +177,40 @@ public class ComputerPanel extends JPanel {
     // ---------- Métodos que usa quien alimenta la vista ----------
     // Todos deben llamarse desde el hilo de Swing (SwingUtilities.invokeLater).
 
-    /** Muestra el PCB del proceso en CPU, o la CPU ociosa si running es null. */
-    public void showRunning(Pcb running, CpuMode mode) {
+    /**
+     * Muestra el proceso en CPU con los registros de la CPU.
+     * PC y MAR vienen de la Cpu (no del PCB): el PCB solo guarda el PC al salir de la CPU.
+     *
+     * @param running proceso en CPU, o null si está ociosa
+     * @param mode    modo de la CPU (usuario o kernel)
+     * @param pc      Cpu.getProgramCounter()
+     * @param mar     Cpu.getMemoryAddressRegister()
+     */
+    public void showRunning(Pcb running, CpuMode mode, int pc, int mar) {
         if (running == null) {
-            processLabel.setText("Ociosa");
-            typeLabel.setText(NONE);
-            pcLabel.setText(NONE);
-            priorityLabel.setText(NONE);
-            deadlineLabel.setText(NONE);
-            remainingLabel.setText(NONE);
-            memoryLabel.setText(NONE);
-            modeLabel.setText(NONE);                         // ociosa: no hay modo que mostrar
-            modeLabel.setForeground(getForeground());
+            showIdle();
             return;
         }
         processLabel.setText(running + " (" + running.getName() + ")");
         typeLabel.setText(running.getType().getLabel());
-        pcLabel.setText(String.valueOf(running.getProgramCounter()));
+        pcLabel.setText(String.valueOf(pc));
+        marLabel.setText(String.valueOf(mar));
         priorityLabel.setText(String.valueOf(running.getPriority()));
         deadlineLabel.setText(running.getRemainingDeadline() + " ciclos");
         remainingLabel.setText(String.valueOf(running.getRemainingInstructions()));
         memoryLabel.setText(running.getMemorySize() + " MB");
         modeLabel.setText(mode.getLabel());
         modeLabel.setForeground(mode == CpuMode.USER ? USER_COLOR : KERNEL_COLOR);
+    }
+
+    /** CPU sin proceso: todo en "—". */
+    public void showIdle() {
+        processLabel.setText("Ociosa");
+        for (JLabel label : new JLabel[] {typeLabel, pcLabel, marLabel, priorityLabel, deadlineLabel,
+            remainingLabel, memoryLabel, modeLabel}) {
+            label.setText(NONE);
+        }
+        modeLabel.setForeground(getForeground());
     }
 
     /** Muestra la ocupación de la RAM. */
@@ -225,17 +253,17 @@ public class ComputerPanel extends JPanel {
      * Registra qué hacer cuando el USUARIO cambia la política en el selector.
      * Recibe la etiqueta; el clúster la convierte con PolicyType.fromLabel(...).
      */
-    public void onPolicyChanged(Consumer<String> action) {
+    public void onPolicyChanged(PolicyChangeListener listener) {
         policyCombo.addActionListener(e -> {
             if (!updatingPolicy) {
-                action.accept((String) policyCombo.getSelectedItem());
+                listener.policyChanged((String) policyCombo.getSelectedItem());
             }
         });
     }
 
     /** Deja el panel como recién creado (ej. al reiniciar la simulación). */
     public void clear() {
-        showRunning(null, CpuMode.KERNEL);
+        showIdle();
         showMemory(0, 0);
         memoryBar.setString(NONE);
         newModel.clear();

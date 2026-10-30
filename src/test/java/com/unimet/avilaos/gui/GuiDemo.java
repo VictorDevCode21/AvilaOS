@@ -153,7 +153,14 @@ public final class GuiDemo {
         for (int i = 0; i < computers.length; i++) {
             DemoComputer c = computers[i];
             ComputerPanel panel = window.getComputerPanel(c.id);
-            panel.showRunning(c.running, modes[i]);
+            if (c.running == null) {
+                panel.showIdle();
+            } else {
+                // con la Cpu real: cpu.getProgramCounter() y cpu.getMemoryAddressRegister().
+                // Tras captar, MAR <- PC y PC++, así que MAR = PC - 1.
+                int pc = c.running.getProgramCounter();
+                panel.showRunning(c.running, modes[i], pc, Math.max(0, pc - 1));
+            }
             panel.showMemory(c.usedRam, RAM_MB[c.id - 1]);
             panel.showQueues(c.newQueue.copy(), c.ready.copy(), c.blocked.copy(), c.done.copy());
         }
@@ -201,8 +208,9 @@ public final class GuiDemo {
 
     private static String[] toArray(LinkedList<String> items) {
         String[] result = new String[items.size()];
+        LinkedList<String> walk = items.copy();
         for (int i = 0; i < result.length; i++) {
-            result[i] = items.get(i);
+            result[i] = walk.removeFirst();
         }
         return result;
     }

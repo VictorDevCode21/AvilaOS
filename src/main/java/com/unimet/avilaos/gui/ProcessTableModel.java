@@ -16,16 +16,27 @@ import javax.swing.table.AbstractTableModel;
  *
  * @author NicollPinzon
  */
-public class ProcessTableModel extends AbstractTableModel {
+public final class ProcessTableModel extends AbstractTableModel {
 
+    private static final long serialVersionUID = 1L;
+
+    /** Encabezados cortos para que quepan; el nombre completo sale en COLUMN_TIPS. */
     static final String[] COLUMNS = {
-        "ID", "Nombre", "Tipo", "Prior.", "PC", "Instr. rest.", "Deadline", "Mem. MB", "Estado / motivo"
+        "ID", "Nombre", "Tipo", "Prio", "PC", "Rest.", "Deadl.", "MB", "Estado / motivo"
+    };
+
+    /** Tooltip de cada encabezado (mismo orden que COLUMNS). */
+    static final String[] COLUMN_TIPS = {
+        "ID del proceso (P#-H#: proceso e hilo)", "Nombre del proceso", "Tipo de proceso",
+        "Prioridad (0 = más alta)", "Program counter guardado en el PCB", "Instrucciones restantes",
+        "Ciclos que le quedan antes de su deadline", "Memoria que ocupa (MB)",
+        "Estado, o el motivo si está bloqueado"
     };
 
     /** Columna del motivo de bloqueo: la más ancha, para que no se corte. */
     static final int STATE_COLUMN = 8;
 
-    private Pcb[] rows = new Pcb[0];
+    private transient Pcb[] rows = new Pcb[0];   // la tabla nunca se serializa
 
     /**
      * Reemplaza el contenido de la tabla por los procesos de la copia, en el mismo orden.
@@ -34,9 +45,10 @@ public class ProcessTableModel extends AbstractTableModel {
      * @param snapshot copia de la cola (ver javadoc de la clase)
      */
     public void setProcesses(LinkedList<Pcb> snapshot) {
-        Pcb[] newRows = new Pcb[snapshot.size()];
+        LinkedList<Pcb> walk = snapshot.copy();      // se vacía la copia, no la lista recibida
+        Pcb[] newRows = new Pcb[walk.size()];
         for (int i = 0; i < newRows.length; i++) {
-            newRows[i] = snapshot.get(i);
+            newRows[i] = walk.removeFirst();         // O(1) por elemento; get(i) recorre desde el inicio
         }
         rows = newRows;
         fireTableDataChanged();
