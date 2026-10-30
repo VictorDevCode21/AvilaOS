@@ -1,0 +1,189 @@
+package com.unimet.avilaos.metrics;
+
+import com.unimet.avilaos.datastructures.LinkedList;
+import java.util.concurrent.Semaphore;
+
+/**
+ * Métricas del sistema distribuido completo: junta las de cada computador
+ * y lleva los contadores de producidos/consumidos de cada buffer.
+ *
+ * Los promedios del sistema se calculan sumando los acumulados de todos los
+ * computadores (no promediando los promedios), para que un computador con
+ * pocos procesos no pese lo mismo que uno con muchos.
+ *
+ * @author NicollPinzon
+ */
+public class SystemMetrics {
+
+    private final LinkedList<ComputerMetrics> computers = new LinkedList<>();
+    private final LinkedList<BufferStats> buffers = new LinkedList<>();
+    private final Semaphore mutex = new Semaphore(1, true);
+
+    // ---------- Registro ----------
+
+    public void addComputer(ComputerMetrics metrics) {
+        if (metrics == null) {
+            throw new IllegalArgumentException("Las métricas del computador no pueden ser null");
+        }
+        mutex.acquireUninterruptibly();
+        try {
+            computers.addLast(metrics);
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /**
+     * Se llama al crear un buffer. Los nombres son únicos en todo el clúster
+     * ("B1" siempre es un solo buffer, también en los accesos remotos).
+     *
+     * @throws IllegalArgumentException si ya existe un buffer con ese nombre
+     */
+    public void registerBuffer(String bufferName) {
+        mutex.acquireUninterruptibly();
+        try {
+            if (findBuffer(bufferName) != null) {
+                throw new IllegalArgumentException("Ya existe un buffer llamado " + bufferName.trim());
+            }
+            buffers.addLast(new BufferStats(bufferName));
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /** Un productor insertó un elemento en el buffer. */
+    public void itemProduced(String bufferName) {
+        mutex.acquireUninterruptibly();
+        try {
+            requireBuffer(bufferName).addProduced();
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /** Un consumidor extrajo un elemento del buffer. */
+    public void itemConsumed(String bufferName) {
+        mutex.acquireUninterruptibly();
+        try {
+            requireBuffer(bufferName).addConsumed();
+        } finally {
+            mutex.release();
+        }
+    }
+
+    // ---------- Consultas (GUI) ----------
+
+    public LinkedList<ComputerMetrics> getComputers() {
+        mutex.acquireUninterruptibly();
+        try {
+            return computers.copy();
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /** Copias de los contadores de cada buffer (la GUI no puede modificarlos). */
+    public LinkedList<BufferStats> getBufferStats() {
+        mutex.acquireUninterruptibly();
+        try {
+            LinkedList<BufferStats> result = new LinkedList<>();
+            for (int i = 0; i < buffers.size(); i++) {
+                result.addLast(buffers.get(i).copy());
+            }
+            return result;
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /**
+     * Todas las métricas del sistema tomadas en una sola pasada, para que los valores
+     * de un refresco de la GUI sean consistentes entre sí.
+     * Las fórmulas están solo en ComputerMetrics.Totals.toMetrics(): los getters leen esta foto.
+     */
+    public MetricsSnapshot getSnapshot() {
+        return total().toMetrics();
+    }
+
+    public long getCompletedProcesses() {
+        return getSnapshot().completedProcesses();
+    }
+
+    /** Procesos que terminaron su trabajo (sin vencer su deadline) por ciclo. */
+    public double getThroughput() {
+        return getSnapshot().throughput();
+    }
+
+    public double getCpuUtilization() {
+        return getSnapshot().cpuUtilization();
+    }
+
+    public double getAverageResponseTime() {
+        return getSnapshot().averageResponseTime();
+    }
+
+    public double getAverageTurnaroundTime() {
+        return getSnapshot().averageTurnaroundTime();
+    }
+
+    public double getDeadlineComplianceRate() {
+        return getSnapshot().deadlineComplianceRate();
+    }
+
+    public double getFairnessIndex() {
+        return getSnapshot().fairnessIndex();
+    }
+
+    public double getAverageSemaphoreBlockedTime() {
+        return getSnapshot().averageSemaphoreBlockedTime();
+    }
+
+    // ---------- Internos ----------
+
+    /** Suma los acumulados de todos los computadores. */
+    private ComputerMetrics.Totals total() {
+        LinkedList<ComputerMetrics> list = getComputers();
+        long lastCycle = 0, completed = 0, onTime = 0, responseCount = 0, responseSum = 0, turnaround = 0;
+        long fairnessCount = 0, bufferUsers = 0, blocked = 0, busy = 0, idle = 0;
+        double fairnessSum = 0, fairnessSquareSum = 0;
+        for (int i = 0; i < list.size(); i++) {
+            ComputerMetrics.Totals t = list.get(i).snapshot();
+            lastCycle = Math.max(lastCycle, t.lastCycle());   // el reloj es global: todos van en el mismo ciclo
+            completed += t.completed();
+            onTime += t.onTime();
+            responseCount += t.responseCount();
+            responseSum += t.responseSum();
+            turnaround += t.turnaroundSum();
+            fairnessCount += t.fairnessCount();
+            fairnessSum += t.fairnessSum();
+            fairnessSquareSum += t.fairnessSquareSum();
+            bufferUsers += t.bufferUsers();
+            blocked += t.semaphoreBlockedSum();
+            busy += t.busyCycles();
+            idle += t.idleCycles();
+        }
+        return new ComputerMetrics.Totals(lastCycle, completed, onTime, responseCount, responseSum,
+                turnaround, fairnessCount, fairnessSum, fairnessSquareSum, bufferUsers, blocked, busy, idle);
+    }
+
+    private BufferStats findBuffer(String bufferName) {
+        if (bufferName == null) {
+            return null;
+        }
+        String name = bufferName.trim();                  // " B2 " y "B2" son el mismo buffer
+        for (int i = 0; i < buffers.size(); i++) {
+            if (buffers.get(i).getBufferName().equalsIgnoreCase(name)) {
+                return buffers.get(i);
+            }
+        }
+        return null;
+    }
+
+    private BufferStats requireBuffer(String bufferName) {
+        BufferStats stats = findBuffer(bufferName);
+        if (stats == null) {
+            throw new IllegalArgumentException("No existe el buffer " + (bufferName == null ? "" : bufferName.trim()));
+        }
+        return stats;
+    }
+}
