@@ -19,8 +19,10 @@ import java.util.concurrent.Semaphore;
  * - Tiempo de respuesta: primer ciclo en CPU - ciclo de llegada (Stallings, cap. 9).
  * - Tiempo de retorno: ciclo de fin - ciclo de llegada.
  * - Cumplimiento de deadlines: terminados a tiempo / terminados.
- * - Equidad: índice de Jain sobre la fracción de su tiempo en el sistema que
- *   cada proceso estuvo realmente en la CPU (1 = todos tratados igual).
+ * - Equidad: índice de Jain sobre la fracción del tiempo que el proceso QUERÍA la CPU
+ *   (en CPU o en Listos) que realmente la tuvo: ejecutadas / (ejecutadas + ciclos en Listos).
+ *   El tiempo bloqueado en E/S o semáforos no cuenta: un I/O bound no sale "tratado
+ *   injustamente" por su propia naturaleza (1 = todos tratados igual).
  * - Bloqueo en semáforos: promedio de ciclos bloqueado de productores y consumidores.
  *
  * @author NicollPinzon
@@ -123,7 +125,8 @@ public class ComputerMetrics {
                 responseCount++;
                 responseSum += pcb.getFirstRunCycle() - arrival;
             }
-            double servedRatio = Math.min(1.0, (double) executed / turnaround);
+            long wanted = executed + pcb.getReadyCycles();
+            double servedRatio = wanted == 0 ? 1.0 : (double) executed / wanted;
             fairnessCount++;
             fairnessSum += servedRatio;
             fairnessSquareSum += servedRatio * servedRatio;

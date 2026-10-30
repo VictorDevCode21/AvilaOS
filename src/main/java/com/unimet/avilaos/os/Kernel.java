@@ -355,7 +355,7 @@ public class Kernel implements InterruptHandler {
         countDownNetwork();
         applyAction();
         tickDeadlines();
-        countSemaphoreWaits();
+        countWaits();
     }
 
     /** Latencias de red: las que llegan a 0 vuelven a Listo (ya pagaron su acceso). */
@@ -494,13 +494,19 @@ public class Kernel implements InterruptHandler {
         }
     }
 
-    /** Métrica del productor-consumidor: tiempo bloqueado en semáforos. */
-    private void countSemaphoreWaits() {
+    /**
+     * Métricas de espera, una vez por ciclo y por proceso: tiempo bloqueado en semáforos
+     * (productor-consumidor) y tiempo en Listos (equidad). El que está en CPU está RUNNING,
+     * así que no cuenta como listo.
+     */
+    private void countWaits() {
         LinkedList<ProcessRuntime> all = processes.copy();
         while (!all.isEmpty()) {
             ProcessRuntime rt = all.removeFirst();
             if (rt.pcb.getState() == ProcessState.BLOCKED && rt.pcb.getBlockReason() == BlockReason.SEMAPHORE) {
                 rt.pcb.addBlockedOnSemaphoreCycle();
+            } else if (rt.pcb.getState() == ProcessState.READY) {
+                rt.pcb.addReadyCycle();
             }
         }
     }
