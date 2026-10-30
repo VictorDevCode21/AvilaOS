@@ -33,13 +33,19 @@ public class SystemMetrics {
         }
     }
 
-    /** Se llama al crear un buffer. Si ya existía uno con ese nombre, no hace nada. */
+    /**
+     * Se llama al crear un buffer. Los nombres son únicos en todo el clúster
+     * ("B1" siempre es un solo buffer, también en los accesos remotos).
+     *
+     * @throws IllegalArgumentException si ya existe un buffer con ese nombre
+     */
     public void registerBuffer(String bufferName) {
         mutex.acquireUninterruptibly();
         try {
-            if (findBuffer(bufferName) == null) {
-                buffers.addLast(new BufferStats(bufferName));
+            if (findBuffer(bufferName) != null) {
+                throw new IllegalArgumentException("Ya existe un buffer llamado " + bufferName.trim());
             }
+            buffers.addLast(new BufferStats(bufferName));
         } finally {
             mutex.release();
         }
@@ -90,13 +96,21 @@ public class SystemMetrics {
         }
     }
 
+    /**
+     * Todas las métricas del sistema tomadas en una sola pasada, para que los valores
+     * de un refresco de la GUI sean consistentes entre sí.
+     */
+    public MetricsSnapshot getSnapshot() {
+        return total().toMetrics();
+    }
+
     public long getCompletedProcesses() {
         return total().completed();
     }
 
+    /** Procesos que terminaron su trabajo (sin vencer su deadline) por ciclo. */
     public double getThroughput() {
-        ComputerMetrics.Totals t = total();
-        return t.lastCycle() == 0 ? 0.0 : (double) t.completed() / t.lastCycle();
+        return getSnapshot().throughput();
     }
 
     public double getCpuUtilization() {
@@ -108,6 +122,10 @@ public class SystemMetrics {
     public double getAverageResponseTime() {
         ComputerMetrics.Totals t = total();
         return t.responseCount() == 0 ? 0.0 : (double) t.responseSum() / t.responseCount();
+    }
+
+    public double getAverageTurnaroundTime() {
+        return getSnapshot().averageTurnaroundTime();
     }
 
     public double getDeadlineComplianceRate() {
@@ -130,7 +148,7 @@ public class SystemMetrics {
     /** Suma los acumulados de todos los computadores. */
     private ComputerMetrics.Totals total() {
         LinkedList<ComputerMetrics> list = getComputers();
-        long lastCycle = 0, completed = 0, onTime = 0, responseCount = 0, responseSum = 0;
+        long lastCycle = 0, completed = 0, onTime = 0, responseCount = 0, responseSum = 0, turnaround = 0;
         long fairnessCount = 0, bufferUsers = 0, blocked = 0, busy = 0, idle = 0;
         double fairnessSum = 0, fairnessSquareSum = 0;
         for (int i = 0; i < list.size(); i++) {
@@ -140,6 +158,7 @@ public class SystemMetrics {
             onTime += t.onTime();
             responseCount += t.responseCount();
             responseSum += t.responseSum();
+            turnaround += t.turnaroundSum();
             fairnessCount += t.fairnessCount();
             fairnessSum += t.fairnessSum();
             fairnessSquareSum += t.fairnessSquareSum();
@@ -149,12 +168,16 @@ public class SystemMetrics {
             idle += t.idleCycles();
         }
         return new ComputerMetrics.Totals(lastCycle, completed, onTime, responseCount, responseSum,
-                fairnessCount, fairnessSum, fairnessSquareSum, bufferUsers, blocked, busy, idle);
+                turnaround, fairnessCount, fairnessSum, fairnessSquareSum, bufferUsers, blocked, busy, idle);
     }
 
     private BufferStats findBuffer(String bufferName) {
+        if (bufferName == null) {
+            return null;
+        }
+        String name = bufferName.trim();                  // " B2 " y "B2" son el mismo buffer
         for (int i = 0; i < buffers.size(); i++) {
-            if (buffers.get(i).getBufferName().equals(bufferName)) {
+            if (buffers.get(i).getBufferName().equalsIgnoreCase(name)) {
                 return buffers.get(i);
             }
         }
@@ -164,7 +187,7 @@ public class SystemMetrics {
     private BufferStats requireBuffer(String bufferName) {
         BufferStats stats = findBuffer(bufferName);
         if (stats == null) {
-            throw new IllegalArgumentException("No existe el buffer " + bufferName);
+            throw new IllegalArgumentException("No existe el buffer " + (bufferName == null ? "" : bufferName.trim()));
         }
         return stats;
     }
