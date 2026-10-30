@@ -159,6 +159,7 @@ public final class SimulationController {
             panel.showQueues(kernel.getNewSnapshot(), kernel.getReadySnapshot(),
                     kernel.getBlockedSnapshot(), kernel.getTerminatedSnapshot());
         }
+        window.showBuffers(cluster.getBuffers(), cluster.getSystemMetrics().getBufferStats());
         appendNewLogEntries();
     }
 
