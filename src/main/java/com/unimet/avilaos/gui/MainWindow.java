@@ -73,9 +73,8 @@ public class MainWindow extends JFrame {
         pack();
         setLocationRelativeTo(null);
 
-        // Botones aún sin funcionalidad (llegan en las siguientes ramas)
-        createProcessButton.addActionListener(e -> notImplemented());
-        createBufferButton.addActionListener(e -> notImplemented());
+        // Crear proceso y Crear buffer los conecta quien arma la simulación
+        // (abre ProcessFormDialog / BufferFormDialog). Configuración llega en otra rama.
         configButton.addActionListener(e -> notImplemented());
     }
 

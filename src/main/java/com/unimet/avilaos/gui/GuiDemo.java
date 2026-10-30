@@ -53,9 +53,16 @@ public final class GuiDemo {
         done2.markRunning(0);
         done2.markTerminated(9, false);
 
-        window.getComputerPanel(1).showQueues(new1, ready1, list(blocked1), new LinkedList<>());
+        LinkedList<Pcb> blockedList1 = list(blocked1);
+        LinkedList<Pcb> doneList1 = new LinkedList<>();
+        LinkedList<Pcb> new2 = new LinkedList<>();
+        LinkedList<Pcb> ready2 = new LinkedList<>();
+        LinkedList<Pcb> blockedList2 = list(blocked2);
+        LinkedList<Pcb> doneList2 = list(done2);
+
+        window.getComputerPanel(1).showQueues(new1, ready1, blockedList1, doneList1);
         window.getComputerPanel(1).showMemory(500, 1024);
-        window.getComputerPanel(2).showQueues(new LinkedList<>(), new LinkedList<>(), list(blocked2), list(done2));
+        window.getComputerPanel(2).showQueues(new2, ready2, blockedList2, doneList2);
         window.getComputerPanel(2).showMemory(120, 2048);
         window.getComputerPanel(2).showRunning(null, CpuMode.KERNEL);
 
@@ -91,8 +98,62 @@ public final class GuiDemo {
         window.getCycleDurationSpinner().addChangeListener(e ->
                 timer.setDelay((Integer) window.getCycleDurationSpinner().getValue()));
 
+        // Vista 1: crear buffer y crear proceso (en la demo se agregan a la cola de Nuevos)
+        LinkedList<String> buffers = new LinkedList<>();
+        buffers.addLast("B1");
+        window.getCreateBufferButton().addActionListener(e -> {
+            BufferFormData data = BufferFormDialog.showDialog(window, window.getComputerCount(),
+                    2048, toArray(buffers));
+            if (data != null) {
+                buffers.addLast(data.name());
+                window.appendLog(cycle[0], "Se crea el buffer " + data.name() + " (capacidad "
+                        + data.capacity() + ") en el Computador " + data.hostComputerId());
+            }
+        });
+        window.getCreateProcessButton().addActionListener(e -> {
+            ProcessFormData data = ProcessFormDialog.showDialog(window, window.getComputerCount(),
+                    2048, toArray(buffers));
+            if (data == null) {
+                return;                                     // el usuario canceló
+            }
+            // En la demo, "automático" elige el computador con menos procesos nuevos.
+            // Con el kernel real esta decisión la toma ÁvilaOS, no la GUI.
+            int computerId = data.isAutomatic() ? (new1.size() <= new2.size() ? 1 : 2) : data.computerId();
+            Pcb pcb = toPcb(data, computerId, cycle[0]);
+            LinkedList<Pcb> target = computerId == 1 ? new1 : new2;
+            target.addLast(pcb);
+            if (computerId == 1) {
+                window.getComputerPanel(1).showQueues(new1, ready1, blockedList1, doneList1);
+            } else {
+                window.getComputerPanel(2).showQueues(new2, ready2, blockedList2, doneList2);
+            }
+            window.appendLog(cycle[0], "Se crea el proceso " + pcb + " (" + pcb.getType().getLabel()
+                    + ") en el Computador " + computerId + (data.isAutomatic() ? " (asignación automática)" : ""));
+        });
+
         window.getComputerPanel(1).showRunning(running1, CpuMode.USER);
         window.setVisible(true);
+    }
+
+    /** En la demo la GUI crea el Pcb; con el kernel real lo hará el Cluster con estos mismos datos. */
+    private static Pcb toPcb(ProcessFormData d, int computerId, long arrivalCycle) {
+        return switch (d.type()) {
+            case CPU_BOUND -> Pcb.cpuBound(d.name(), d.priority(), d.memorySize(), d.instructions(),
+                    d.deadline(), computerId, arrivalCycle);
+            case IO_BOUND -> Pcb.ioBound(d.name(), d.priority(), d.memorySize(), d.instructions(),
+                    d.deadline(), computerId, arrivalCycle, d.ioInterval(), d.ioDuration());
+            case PRODUCER, CONSUMER -> Pcb.bufferUser(d.name(), d.type(), d.priority(), d.memorySize(),
+                    d.instructions(), d.deadline(), computerId, arrivalCycle, d.bufferName(),
+                    d.operationInterval(), d.itemsRequired());
+        };
+    }
+
+    private static String[] toArray(LinkedList<String> items) {
+        String[] result = new String[items.size()];
+        for (int i = 0; i < result.length; i++) {
+            result[i] = items.get(i);
+        }
+        return result;
     }
 
     private static Pcb ready(Pcb pcb) {
