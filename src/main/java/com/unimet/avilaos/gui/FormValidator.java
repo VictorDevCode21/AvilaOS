@@ -16,7 +16,7 @@ import javax.swing.event.DocumentListener;
  *
  * @author NicollPinzon
  */
-public class FormValidator {
+public final class FormValidator {
 
     private static final Border ERROR_BORDER = BorderFactory.createLineBorder(Color.RED, 2);
     private static final String ORIGINAL_BORDER = "avilaos.originalBorder";

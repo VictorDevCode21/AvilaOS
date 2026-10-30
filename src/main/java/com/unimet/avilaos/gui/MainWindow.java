@@ -36,7 +36,9 @@ import javax.swing.text.DefaultCaret;
  *
  * @author NicollPinzon
  */
-public class MainWindow extends JFrame {
+public final class MainWindow extends JFrame {
+
+    private static final long serialVersionUID = 1L;
 
     /** Quantum inicial mientras no se cargue la configuración (igual a SimulationConfig.defaults()). */
     public static final int DEFAULT_QUANTUM = 3;
@@ -218,6 +220,8 @@ public class MainWindow extends JFrame {
      * en vez de salirse por la derecha (solo hay scroll vertical si no caben de alto).
      */
     private static final class WidthTrackingPanel extends JPanel implements Scrollable {
+
+        private static final long serialVersionUID = 1L;
 
         WidthTrackingPanel(GridLayout layout) {
             super(layout);
