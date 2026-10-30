@@ -191,7 +191,9 @@ public final class ComputerPanel extends JPanel {
             showIdle();
             return;
         }
-        processLabel.setText(running + " (" + running.getName() + ")");
+        String process = running + " (" + running.getName() + ")";
+        processLabel.setText(process);
+        processLabel.setToolTipText(process);                  // nombres largos se cortan: texto completo aquí
         typeLabel.setText(running.getType().getLabel());
         pcLabel.setText(String.valueOf(pc));
         marLabel.setText(String.valueOf(mar));
@@ -206,6 +208,7 @@ public final class ComputerPanel extends JPanel {
     /** CPU sin proceso: todo en "—". */
     public void showIdle() {
         processLabel.setText("Ociosa");
+        processLabel.setToolTipText(null);
         for (JLabel label : new JLabel[] {typeLabel, pcLabel, marLabel, priorityLabel, deadlineLabel,
             remainingLabel, memoryLabel, modeLabel}) {
             label.setText(NONE);
