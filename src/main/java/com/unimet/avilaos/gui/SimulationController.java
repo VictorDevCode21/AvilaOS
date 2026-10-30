@@ -37,6 +37,7 @@ public final class SimulationController {
     private final Timer refreshTimer;
     private Cluster cluster;
     private long lastLogSequence = -1;
+    private boolean hadWork;              // hubo procesos vivos desde el último arranque o reinicio
 
     public SimulationController(SimulationConfig config) {
         if (config == null) {
@@ -119,6 +120,7 @@ public final class SimulationController {
         cluster = next;
         window.resetView();
         lastLogSequence = -1;
+        hadWork = false;
         showInitialSettings();
         refresh();
     }
@@ -184,6 +186,7 @@ public final class SimulationController {
     // ---------- Refresco ----------
 
     private void refresh() {
+        pauseWhenIdle();
         window.setCycle(cluster.getCurrentCycle());
         for (int id = 1; id <= cluster.getComputerCount(); id++) {
             Computer computer = cluster.getComputer(id);
@@ -204,6 +207,30 @@ public final class SimulationController {
         window.showMetrics(perComputer, cluster.getSystemMetrics().getSnapshot());
         window.showCpuHistory(cluster.getSystemMetrics().getComputers());
         appendNewLogEntries();
+    }
+
+    /**
+     * Pausa la simulación cuando todos los procesos terminaron. Si el reloj siguiera, el
+     * throughput (terminados a tiempo / ciclos) bajaría con cada ciclo ocioso y no se
+     * podrían comparar políticas entre corridas. Solo pausa si antes hubo trabajo: una
+     * simulación sin procesos sigue corriendo (el usuario puede ir creándolos).
+     *
+     * Se revisa en cada refresco (cada REFRESH_MS), así que puede correr algún ciclo
+     * ocioso de más antes de pausar. Iniciar la reanuda normalmente.
+     */
+    private void pauseWhenIdle() {
+        if (!cluster.isRunning() || cluster.isPaused()) {
+            return;
+        }
+        if (cluster.getTotalLoad() > 0) {
+            hadWork = true;
+        } else if (hadWork) {
+            hadWork = false;
+            cluster.pause();
+            window.setRunning(false);
+            cluster.getLog().log(cluster.getCurrentCycle(), "Clúster",
+                    "todos los procesos terminaron: la simulación se pausa");
+        }
     }
 
     /** Agrega solo las entradas que no se han mostrado (cada LogEntry trae su número de secuencia). */

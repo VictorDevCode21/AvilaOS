@@ -279,6 +279,15 @@ public class Cluster implements Interconnect {
         return computers.length;
     }
 
+    /** Procesos que siguen en el sistema en todo el clúster (suma de Computer.getLoad()). */
+    public int getTotalLoad() {
+        int total = 0;
+        for (Computer computer : computers) {
+            total += computer.getLoad();
+        }
+        return total;
+    }
+
     /** Copia de la lista de buffers (para mostrarlos). */
     public LinkedList<BoundedBuffer> getBuffers() {
         buffersMutex.acquireUninterruptibly();
