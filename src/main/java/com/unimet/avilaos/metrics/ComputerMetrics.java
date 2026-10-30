@@ -13,7 +13,8 @@ import java.util.concurrent.Semaphore;
  * de Swing, por eso todo acceso pasa por un mutex.
  *
  * Definiciones (todas medidas en ciclos):
- * - Throughput: procesos terminados / ciclos transcurridos.
+ * - Throughput: procesos que TERMINARON SU TRABAJO a tiempo / ciclos transcurridos
+ *   (los que mató su deadline no cuentan: Stallings, cap. 9).
  * - Utilización de CPU: ciclos ocupada / ciclos totales (contadores de la Cpu).
  * - Tiempo de respuesta: primer ciclo en CPU - ciclo de llegada (Stallings, cap. 9).
  * - Tiempo de retorno: ciclo de fin - ciclo de llegada.
@@ -28,6 +29,9 @@ public class ComputerMetrics {
 
     /** Cada cuántos ciclos se guarda un punto para la gráfica. */
     public static final int DEFAULT_SAMPLE_INTERVAL = 5;
+
+    /** Máximo de puntos guardados: al pasarse se descarta el más viejo (igual que EventLog). */
+    public static final int MAX_SAMPLES = 200;
 
     private final int computerId;
     private final Cpu cpu;
@@ -84,6 +88,9 @@ public class ComputerMetrics {
             if (intervalTotal >= sampleInterval) {
                 double utilization = (double) (busy - busyAtLastSample) / intervalTotal;
                 history.addLast(new UtilizationSample(cycle, utilization));
+                if (history.size() > MAX_SAMPLES) {
+                    history.removeFirst();               // descarta el punto más viejo
+                }
                 busyAtLastSample = busy;
                 totalAtLastSample = total;
             }
@@ -141,11 +148,11 @@ public class ComputerMetrics {
         }
     }
 
-    /** Procesos terminados por ciclo. */
+    /** Procesos que terminaron su trabajo (sin vencer su deadline) por ciclo. */
     public double getThroughput() {
         mutex.acquireUninterruptibly();
         try {
-            return lastCycle == 0 ? 0.0 : (double) completed / lastCycle;
+            return lastCycle == 0 ? 0.0 : (double) onTime / lastCycle;
         } finally {
             mutex.release();
         }

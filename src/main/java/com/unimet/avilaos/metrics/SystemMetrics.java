@@ -94,9 +94,10 @@ public class SystemMetrics {
         return total().completed();
     }
 
+    /** Procesos que terminaron su trabajo (sin vencer su deadline) por ciclo. */
     public double getThroughput() {
         ComputerMetrics.Totals t = total();
-        return t.lastCycle() == 0 ? 0.0 : (double) t.completed() / t.lastCycle();
+        return t.lastCycle() == 0 ? 0.0 : (double) t.onTime() / t.lastCycle();
     }
 
     public double getCpuUtilization() {
