@@ -90,9 +90,11 @@ public final class SimulationController {
 
     private void startOrPause() {
         if (!cluster.isRunning()) {
+            hadWork = cluster.getTotalLoad() > 0;   // un proceso corto puede terminar antes del primer refresco
             cluster.start();
             window.setRunning(true);
         } else if (cluster.isPaused()) {
+            hadWork = cluster.getTotalLoad() > 0;   // un proceso corto puede terminar antes del primer refresco
             cluster.resume();
             window.setRunning(true);
         } else {
