@@ -700,6 +700,20 @@ public class Kernel implements InterruptHandler {
         return memory.getNewProcesses();
     }
 
+    /**
+     * Procesos enviados con submit() que todavía no entran al sistema (lo hacen al inicio
+     * del próximo ciclo). Con la simulación en pausa pueden quedarse aquí un buen rato:
+     * el clúster los revisa antes de reservar la RAM de un buffer nuevo.
+     */
+    public LinkedList<Pcb> getArrivalsSnapshot() {
+        mutex.acquireUninterruptibly();
+        try {
+            return arrivals.copy();
+        } finally {
+            mutex.release();
+        }
+    }
+
     public LinkedList<Pcb> getReadySnapshot() {
         return scheduler.getReadySnapshot();
     }
