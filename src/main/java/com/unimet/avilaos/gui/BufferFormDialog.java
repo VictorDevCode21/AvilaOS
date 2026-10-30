@@ -124,7 +124,9 @@ public final class BufferFormDialog extends JDialog {
             return;
         }
         try {
-            result = new BufferConfig(name, hostId, capacity, memory);   // orden: nombre, anfitrión, capacidad, memoria
+            BufferConfig candidate = new BufferConfig(name, hostId, capacity, memory);   // nombre, anfitrión, capacidad, memoria
+            config.checkBuffer(candidate);     // misma regla que addBuffer: el error se ve aquí, con el formulario abierto
+            result = candidate;
         } catch (IllegalArgumentException ex) {
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Datos inválidos", JOptionPane.WARNING_MESSAGE);
             return;
