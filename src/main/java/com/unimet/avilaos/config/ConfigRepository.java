@@ -38,6 +38,7 @@ public class ConfigRepository {
     private static final String COMPUTER = "computer";
     private static final String BUFFER = "buffer";
     private static final String PROCESS = "process";
+    private static final String BOM = "\uFEFF";
 
     // ---------- Guardar ----------
 
@@ -102,9 +103,16 @@ public class ConfigRepository {
             int number = 0;
             while ((text = in.readLine()) != null) {
                 number++;
+                if (number == 1 && text.startsWith(BOM)) {
+                    text = text.substring(1);              // Excel y el Bloc de notas de Windows lo agregan
+                }
                 String trimmed = text.trim();
                 if (trimmed.isEmpty() || trimmed.startsWith("#")) {
                     continue;
+                }
+                if (trimmed.indexOf(',') < 0 && trimmed.indexOf(';') >= 0) {
+                    throw new IllegalArgumentException("Línea " + number + ": el separador debe ser la coma (,)."
+                            + " Si lo guardaste con Excel en español, cambia el separador a coma.");
                 }
                 Row row = new Row(number, trimmed.split(",", -1));
                 switch (row.cell(0).toLowerCase()) {
@@ -150,24 +158,40 @@ public class ConfigRepository {
 
     // ---------- Internos ----------
 
-    /** Crea la configuración con los 3 ajustes obligatorios. */
+    /** Crea la configuración con los 3 ajustes obligatorios (cada uno exactamente una vez). */
     private SimulationConfig buildBase(LinkedList<Row> settings) {
-        long cycle = -1;
-        int quantum = -1;
-        int latency = -1;
-        for (int i = 0; i < settings.size(); i++) {
-            Row r = settings.get(i);
+        long cycle = 0;
+        int quantum = 0;
+        int latency = 0;
+        boolean hasCycle = false;
+        boolean hasQuantum = false;
+        boolean hasLatency = false;
+        LinkedList<Row> all = settings.copy();
+        while (!all.isEmpty()) {
+            Row r = all.removeFirst();
             r.expect(3, "setting,clave,valor");
             switch (r.cell(1)) {
-                case "cycleDurationMs" -> cycle = r.number(2, "duración del ciclo");
-                case "quantum" -> quantum = r.integer(2, "quantum");
-                case "networkLatency" -> latency = r.integer(2, "latencia de red");
+                case "cycleDurationMs" -> {
+                    r.requireFirst(hasCycle);
+                    cycle = r.number(2, "duración del ciclo");
+                    hasCycle = true;
+                }
+                case "quantum" -> {
+                    r.requireFirst(hasQuantum);
+                    quantum = r.integer(2, "quantum");
+                    hasQuantum = true;
+                }
+                case "networkLatency" -> {
+                    r.requireFirst(hasLatency);
+                    latency = r.integer(2, "latencia de red");
+                    hasLatency = true;
+                }
                 default -> throw r.error("ajuste desconocido '" + r.cell(1) + "'");
             }
         }
-        if (cycle < 0 || quantum < 0 || latency < 0) {
-            throw new IllegalArgumentException(
-                    "Faltan ajustes: el archivo debe tener cycleDurationMs, quantum y networkLatency");
+        if (!hasCycle || !hasQuantum || !hasLatency) {
+            throw new IllegalArgumentException("Faltan ajustes:" + (hasCycle ? "" : " cycleDurationMs")
+                    + (hasQuantum ? "" : " quantum") + (hasLatency ? "" : " networkLatency"));
         }
         return new SimulationConfig(cycle, quantum, latency);
     }
@@ -221,6 +245,12 @@ public class ConfigRepository {
             }
         }
 
+        void requireFirst(boolean alreadySeen) {
+            if (alreadySeen) {
+                throw error("el ajuste '" + cell(1) + "' está repetido");
+            }
+        }
+
         void expect(int columns, String format) {
             if (cells.length != columns) {
                 throw error("se esperaban " + columns + " columnas (" + format + ") y hay " + cells.length);
@@ -230,7 +260,7 @@ public class ConfigRepository {
         long number(int index, String field) {
             String value = cell(index);
             if (value.isEmpty()) {
-                return 0;
+                throw error("falta el valor de " + field + " (los campos que no aplican se escriben como 0)");
             }
             try {
                 return Long.parseLong(value);
