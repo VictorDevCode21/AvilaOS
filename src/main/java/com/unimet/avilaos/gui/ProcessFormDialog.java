@@ -45,7 +45,8 @@ public class ProcessFormDialog extends JDialog {
     private static final String CARD_IO = "io";
     private static final String CARD_BUFFER = "buffer";
 
-    private final int maxMemoryMb;
+    private final int[] ramPerComputer;     // RAM de cada computador (índice 0 = Computador 1)
+    private final int maxMemoryMb;          // RAM del computador más grande (para "Automático")
 
     // ---------- Campos comunes ----------
     private final JTextField nameField = new JTextField(15);
@@ -74,26 +75,26 @@ public class ProcessFormDialog extends JDialog {
      * Abre el formulario y espera a que el usuario lo cierre.
      *
      * @param owner         ventana principal
-     * @param computerCount cuántos computadores tiene el clúster
-     * @param maxMemoryMb   memoria máxima que puede pedir un proceso (RAM del computador más grande)
+     * @param ramPerComputer RAM en MB de cada computador (índice 0 = Computador 1)
      * @param bufferNames   buffers existentes, para productores y consumidores
      * @return los datos validados, o null si el usuario canceló
      */
-    public static ProcessFormData showDialog(Frame owner, int computerCount, int maxMemoryMb,
+    public static ProcessFormData showDialog(Frame owner, int[] ramPerComputer,
             String[] bufferNames) {
-        ProcessFormDialog dialog = new ProcessFormDialog(owner, computerCount, maxMemoryMb, bufferNames);
+        ProcessFormDialog dialog = new ProcessFormDialog(owner, ramPerComputer, bufferNames);
         dialog.setVisible(true);          // es modal: se queda aquí hasta que se cierre
         return dialog.result;
     }
 
-    private ProcessFormDialog(Frame owner, int computerCount, int maxMemoryMb, String[] bufferNames) {
+    private ProcessFormDialog(Frame owner, int[] ramPerComputer, String[] bufferNames) {
         super(owner, "Crear proceso", true);
-        this.maxMemoryMb = maxMemoryMb;
+        this.ramPerComputer = ramPerComputer.clone();
+        this.maxMemoryMb = FormValidator.max(ramPerComputer);
         this.bufferCombo = new JComboBox<>(bufferNames);
 
         computerCombo.addItem("Automático (ÁvilaOS decide)");
-        for (int i = 1; i <= computerCount; i++) {
-            computerCombo.addItem("Computador " + i);
+        for (int i = 1; i <= ramPerComputer.length; i++) {
+            computerCombo.addItem("Computador " + i + " (" + ramPerComputer[i - 1] + " MB)");
         }
         typeCombo.setRenderer(new DefaultListCellRenderer() {   // muestra "Productor" y no "PRODUCER"
             @Override
@@ -128,7 +129,7 @@ public class ProcessFormDialog extends JDialog {
         addRow(panel, "Nombre (máx. " + NAME_MAX_LENGTH + "):", nameField);
         addRow(panel, "Tipo:", typeCombo);
         addRow(panel, "Instrucciones (1-" + MAX_INSTRUCTIONS + "):", instructionsField);
-        addRow(panel, "Memoria MB (1-" + maxMemoryMb + "):", memoryField);
+        addRow(panel, "Memoria MB (hasta la RAM del computador):", memoryField);
         addRow(panel, "Prioridad (0 = más alta, 0-" + MAX_PRIORITY + "):", priorityField);
         addRow(panel, "Deadline en ciclos (1-" + MAX_DEADLINE + "):", deadlineField);
         addRow(panel, "Computador:", computerCombo);
@@ -198,10 +199,16 @@ public class ProcessFormDialog extends JDialog {
 
         String name = v.text(nameField, "Nombre", NAME_MAX_LENGTH);
         int instructions = v.integer(instructionsField, "Instrucciones", 1, MAX_INSTRUCTIONS);
-        int memory = v.integer(memoryField, "Memoria", 1, maxMemoryMb);
+        int computerId = computerCombo.getSelectedIndex();   // 0 = automático, 1..N = computador
+        // La memoria se valida contra la RAM del computador elegido; si es automático,
+        // contra el más grande (ÁvilaOS lo pondrá donde quepa).
+        int ramLimit = computerId == ProcessFormData.AUTOMATIC ? maxMemoryMb : ramPerComputer[computerId - 1];
+        String ramOwner = computerId == ProcessFormData.AUTOMATIC
+                ? "ningún computador tiene más de " + maxMemoryMb + " MB"
+                : "el Computador " + computerId + " tiene " + ramLimit + " MB";
+        int memory = v.integer(memoryField, "Memoria (" + ramOwner + ")", 1, ramLimit);
         int priority = v.integer(priorityField, "Prioridad", 0, MAX_PRIORITY);
         int deadline = v.integer(deadlineField, "Deadline", 1, MAX_DEADLINE);
-        int computerId = computerCombo.getSelectedIndex();   // 0 = automático, 1..N = computador
 
         int ioInterval = 0;
         int ioDuration = 0;

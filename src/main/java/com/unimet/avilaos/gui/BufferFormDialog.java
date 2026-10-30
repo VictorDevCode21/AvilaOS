@@ -27,7 +27,7 @@ public class BufferFormDialog extends JDialog {
     public static final int NAME_MAX_LENGTH = 10;
     public static final int MAX_CAPACITY = 1_000;
 
-    private final int maxMemoryMb;
+    private final int[] ramPerComputer;     // RAM de cada computador (índice 0 = Computador 1)
     private final String[] existingNames;
 
     private final JTextField nameField = new JTextField(10);
@@ -41,25 +41,24 @@ public class BufferFormDialog extends JDialog {
      * Abre el formulario y espera a que el usuario lo cierre.
      *
      * @param owner         ventana principal
-     * @param computerCount cuántos computadores tiene el clúster
-     * @param maxMemoryMb   memoria máxima que puede ocupar el buffer
+     * @param ramPerComputer RAM en MB de cada computador (el buffer ocupa la de su anfitrión)
      * @param existingNames nombres de los buffers que ya existen (no se pueden repetir)
      * @return los datos validados, o null si el usuario canceló
      */
-    public static BufferFormData showDialog(Frame owner, int computerCount, int maxMemoryMb,
+    public static BufferFormData showDialog(Frame owner, int[] ramPerComputer,
             String[] existingNames) {
-        BufferFormDialog dialog = new BufferFormDialog(owner, computerCount, maxMemoryMb, existingNames);
+        BufferFormDialog dialog = new BufferFormDialog(owner, ramPerComputer, existingNames);
         dialog.setVisible(true);
         return dialog.result;
     }
 
-    private BufferFormDialog(Frame owner, int computerCount, int maxMemoryMb, String[] existingNames) {
+    private BufferFormDialog(Frame owner, int[] ramPerComputer, String[] existingNames) {
         super(owner, "Crear buffer", true);
-        this.maxMemoryMb = maxMemoryMb;
+        this.ramPerComputer = ramPerComputer.clone();
         this.existingNames = existingNames;
         nameField.setText("B" + (existingNames.length + 1));       // sugerencia: B1, B2, ...
-        for (int i = 1; i <= computerCount; i++) {
-            hostCombo.addItem("Computador " + i);
+        for (int i = 1; i <= ramPerComputer.length; i++) {
+            hostCombo.addItem("Computador " + i + " (" + ramPerComputer[i - 1] + " MB)");
         }
         FormValidator.clearErrorOnEdit(nameField, capacityField, memoryField);
 
@@ -67,7 +66,7 @@ public class BufferFormDialog extends JDialog {
         fields.setBorder(BorderFactory.createTitledBorder("Datos del buffer"));
         addRow(fields, "Nombre (letras y números, máx. " + NAME_MAX_LENGTH + "):", nameField);
         addRow(fields, "Capacidad en elementos (1-" + MAX_CAPACITY + "):", capacityField);
-        addRow(fields, "Memoria que ocupa MB (1-" + maxMemoryMb + "):", memoryField);
+        addRow(fields, "Memoria que ocupa MB (hasta la RAM del anfitrión):", memoryField);
         addRow(fields, "Computador anfitrión:", hostCombo);
 
         JButton create = new JButton("Crear");
@@ -103,8 +102,10 @@ public class BufferFormDialog extends JDialog {
             v.addError(nameField, "Nombre: ya existe un buffer llamado " + name + ".");
         }
         int capacity = v.integer(capacityField, "Capacidad", 1, MAX_CAPACITY);
-        int memory = v.integer(memoryField, "Memoria", 1, maxMemoryMb);
         int hostId = hostCombo.getSelectedIndex() + 1;
+        int hostRam = ramPerComputer[hostId - 1];
+        int memory = v.integer(memoryField, "Memoria (el Computador " + hostId + " tiene " + hostRam + " MB)",
+                1, hostRam);
 
         if (v.hasErrors()) {
             JOptionPane.showMessageDialog(this, "Corrige estos datos:\n\n" + v.getMessage(),

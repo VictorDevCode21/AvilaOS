@@ -26,7 +26,8 @@ import javax.swing.UIManager;
 public final class GuiDemo {
 
     private static final String[] POLICIES = {"FCFS", "Round Robin", "EDF", "Prioridades apropiativas"};
-    private static final int RAM_MB = 1024;
+    /** RAM de cada computador: distinta a propósito para probar la validación por computador. */
+    private static final int[] RAM_MB = {1024, 2048};
 
     private final MainWindow window = new MainWindow(2, POLICIES);
     private final EventLog eventLog = new EventLog();
@@ -150,7 +151,7 @@ public final class GuiDemo {
             DemoComputer c = computers[i];
             ComputerPanel panel = window.getComputerPanel(c.id);
             panel.showRunning(c.running, modes[i]);
-            panel.showMemory(c.usedRam, RAM_MB);
+            panel.showMemory(c.usedRam, RAM_MB[c.id - 1]);
             panel.showQueues(c.newQueue.copy(), c.ready.copy(), c.blocked.copy(), c.done.copy());
         }
     }
@@ -158,7 +159,7 @@ public final class GuiDemo {
     // ---------- Vista 1 ----------
 
     private void createBuffer() {
-        BufferFormData data = BufferFormDialog.showDialog(window, window.getComputerCount(), RAM_MB,
+        BufferFormData data = BufferFormDialog.showDialog(window, RAM_MB,
                 toArray(buffers));
         if (data != null) {
             buffers.addLast(data.name());
@@ -168,21 +169,31 @@ public final class GuiDemo {
     }
 
     private void createProcess() {
-        ProcessFormData data = ProcessFormDialog.showDialog(window, window.getComputerCount(), RAM_MB,
+        ProcessFormData data = ProcessFormDialog.showDialog(window, RAM_MB,
                 toArray(buffers));
         if (data == null) {
             return;                                     // el usuario canceló
         }
-        // "Automático": en la demo, el computador con menos procesos pendientes.
+        // "Automático": en la demo, el computador con menos procesos pendientes donde quepa.
         // Con el kernel real esta decisión la toma ÁvilaOS, no la GUI.
-        int computerId = data.isAutomatic()
-                ? (computers[0].pending() <= computers[1].pending() ? 1 : 2) : data.computerId();
+        int computerId = data.isAutomatic() ? leastLoadedThatFits(data.memorySize()) : data.computerId();
         Pcb pcb = toPcb(data, computerId, cycle);
         computers[computerId - 1].add(pcb);
         eventLog.log(cycle, "Computador " + computerId, "se crea el proceso " + pcb + " ("
                 + pcb.getType().getLabel() + ")" + (data.isAutomatic() ? " por asignación automática" : ""));
         window.getStartPauseButton().setEnabled(true);  // hay trabajo nuevo: se puede volver a iniciar
         refresh(CpuMode.KERNEL, CpuMode.KERNEL);
+    }
+
+    /** Computador con menos procesos pendientes cuya RAM alcanza para el proceso. */
+    private int leastLoadedThatFits(int memoryMb) {
+        int best = -1;
+        for (DemoComputer c : computers) {
+            if (memoryMb <= RAM_MB[c.id - 1] && (best < 0 || c.pending() < computers[best - 1].pending())) {
+                best = c.id;
+            }
+        }
+        return best;                                    // el formulario ya garantizó que cabe en alguno
     }
 
     /** En la demo la GUI crea el Pcb; con el kernel real lo hará el Cluster con estos mismos datos. */
@@ -279,7 +290,7 @@ public final class GuiDemo {
 
         /** Nuevo → Listo solo si hay RAM, en orden de llegada. */
         private void admit() {
-            while (!newQueue.isEmpty() && usedRam + newQueue.peekFirst().getMemorySize() <= RAM_MB) {
+            while (!newQueue.isEmpty() && usedRam + newQueue.peekFirst().getMemorySize() <= RAM_MB[id - 1]) {
                 Pcb p = newQueue.removeFirst();
                 usedRam += p.getMemorySize();
                 p.markReady();
