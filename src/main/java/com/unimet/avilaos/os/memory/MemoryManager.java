@@ -20,8 +20,9 @@ import java.util.concurrent.Semaphore;
  *
  * Los buffers que viven en este computador también ocupan su RAM, y la ocupan
  * durante toda la simulación: se reservan con reserveBuffer() en la MISMA
- * MainMemory, así la barra de memoria de la GUI los incluye y un proceso que
- * nunca podría caber se rechaza al crearlo (misma regla que SimulationConfig).
+ * MainMemory, así la barra de memoria de la GUI los incluye. La regla es la de
+ * SimulationConfig en los dos sentidos: un proceso que nunca cabría se rechaza
+ * al crearlo, y un buffer que dejaría sin espacio a un proceso de Nuevos también.
  *
  * Este administrador NO cambia estados ni escribe el log: eso lo hace el kernel
  * (un solo lugar para las transiciones). Aquí solo se decide quién cabe.
@@ -165,8 +166,13 @@ public class MemoryManager {
      * Reserva la RAM de un buffer que vive en este computador, para toda la simulación.
      * Un buffer no puede esperar en Nuevos como un proceso: o hay RAM libre ahora, o no se crea.
      *
+     * Como esa RAM ya no vuelve, el límite para procesos baja. Si algún proceso que
+     * espera en Nuevos dejaría de caber para siempre, el buffer se rechaza (misma
+     * regla que SimulationConfig.addBuffer): primero se valida y después se reserva.
+     *
      * @param memorySize MB que ocupa el buffer (mayor que 0)
      * @return true si se reservó; false si no hay RAM libre suficiente en este momento
+     * @throws IllegalArgumentException si dejaría a un proceso de Nuevos sin poder entrar nunca
      */
     public boolean reserveBuffer(int memorySize) {
         if (memorySize <= 0) {
@@ -174,6 +180,16 @@ public class MemoryManager {
         }
         mutex.acquireUninterruptibly();
         try {
+            int newLimit = memory.getTotalSize() - bufferMemory - memorySize;
+            LinkedList<Pcb> waiting = newQueue.copy();
+            while (!waiting.isEmpty()) {
+                Pcb pcb = waiting.removeFirst();
+                if (pcb.getState() == ProcessState.NEW && pcb.getMemorySize() > newLimit) {
+                    throw new IllegalArgumentException("El buffer dejaría a " + pcb + " (" + pcb.getMemorySize()
+                            + " MB) sin poder entrar nunca: el límite para procesos del computador "
+                            + computerId + " bajaría a " + newLimit + " MB");
+                }
+            }
             if (!memory.allocate(memorySize)) {
                 return false;
             }
