@@ -99,13 +99,14 @@ public class SystemMetrics {
     /**
      * Todas las métricas del sistema tomadas en una sola pasada, para que los valores
      * de un refresco de la GUI sean consistentes entre sí.
+     * Las fórmulas están solo en ComputerMetrics.Totals.toMetrics(): los getters leen esta foto.
      */
     public MetricsSnapshot getSnapshot() {
         return total().toMetrics();
     }
 
     public long getCompletedProcesses() {
-        return total().completed();
+        return getSnapshot().completedProcesses();
     }
 
     /** Procesos que terminaron su trabajo (sin vencer su deadline) por ciclo. */
@@ -114,14 +115,11 @@ public class SystemMetrics {
     }
 
     public double getCpuUtilization() {
-        ComputerMetrics.Totals t = total();
-        long cycles = t.busyCycles() + t.idleCycles();
-        return cycles == 0 ? 0.0 : (double) t.busyCycles() / cycles;
+        return getSnapshot().cpuUtilization();
     }
 
     public double getAverageResponseTime() {
-        ComputerMetrics.Totals t = total();
-        return t.responseCount() == 0 ? 0.0 : (double) t.responseSum() / t.responseCount();
+        return getSnapshot().averageResponseTime();
     }
 
     public double getAverageTurnaroundTime() {
@@ -129,18 +127,15 @@ public class SystemMetrics {
     }
 
     public double getDeadlineComplianceRate() {
-        ComputerMetrics.Totals t = total();
-        return t.completed() == 0 ? 0.0 : (double) t.onTime() / t.completed();
+        return getSnapshot().deadlineComplianceRate();
     }
 
     public double getFairnessIndex() {
-        ComputerMetrics.Totals t = total();
-        return ComputerMetrics.jain(t.fairnessCount(), t.fairnessSum(), t.fairnessSquareSum());
+        return getSnapshot().fairnessIndex();
     }
 
     public double getAverageSemaphoreBlockedTime() {
-        ComputerMetrics.Totals t = total();
-        return t.bufferUsers() == 0 ? 0.0 : (double) t.semaphoreBlockedSum() / t.bufferUsers();
+        return getSnapshot().averageSemaphoreBlockedTime();
     }
 
     // ---------- Internos ----------
