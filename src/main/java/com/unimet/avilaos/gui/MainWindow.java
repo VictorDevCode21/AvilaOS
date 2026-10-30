@@ -5,6 +5,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.Rectangle;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
@@ -15,6 +16,8 @@ import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
+import javax.swing.JViewport;
+import javax.swing.Scrollable;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.text.DefaultCaret;
 
@@ -32,10 +35,13 @@ import javax.swing.text.DefaultCaret;
  */
 public class MainWindow extends JFrame {
 
+    /** Quantum inicial mientras no se cargue la configuración (igual a SimulationConfig.defaults()). */
+    public static final int DEFAULT_QUANTUM = 3;
+
     private final JLabel cycleLabel = new JLabel("Ciclo: 0");
     private final JButton startPauseButton = new JButton("Iniciar");
     private final JSpinner cycleDurationSpinner = new JSpinner(new SpinnerNumberModel(500, 10, 10_000, 50));
-    private final JSpinner quantumSpinner = new JSpinner(new SpinnerNumberModel(4, 1, 100, 1));
+    private final JSpinner quantumSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_QUANTUM, 1, 100, 1));
     private final JButton createProcessButton = new JButton("Crear proceso");
     private final JButton createBufferButton = new JButton("Crear buffer");
     private final JButton configButton = new JButton("Configuración");
@@ -66,10 +72,10 @@ public class MainWindow extends JFrame {
 
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
                 buildComputersArea(), buildBottomArea());
-        split.setResizeWeight(0.7);
+        split.setResizeWeight(0.75);
         add(split, BorderLayout.CENTER);
 
-        setPreferredSize(new Dimension(1400, 900));
+        setPreferredSize(new Dimension(1440, 900));
         pack();
         setLocationRelativeTo(null);
 
@@ -96,7 +102,8 @@ public class MainWindow extends JFrame {
     }
 
     private JScrollPane buildComputersArea() {
-        JPanel grid = new JPanel(new GridLayout(0, 1, 8, 8));   // un computador debajo del otro
+        // Uno al lado del otro, como el boceto del enunciado
+        JPanel grid = new WidthTrackingPanel(new GridLayout(1, 0, 8, 8));
         for (ComputerPanel panel : computerPanels) {
             grid.add(panel);
         }
@@ -110,13 +117,15 @@ public class MainWindow extends JFrame {
         bufferArea.add(new JLabel("Aquí irá el estado de los buffers", JLabel.CENTER));
 
         logArea.setEditable(false);
+        logArea.setLineWrap(true);                      // las líneas largas no se cortan a la derecha
+        logArea.setWrapStyleWord(true);
         logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         ((DefaultCaret) logArea.getCaret()).setUpdatePolicy(DefaultCaret.ALWAYS_UPDATE); // autoscroll
         JScrollPane logScroll = new JScrollPane(logArea);
         logScroll.setBorder(BorderFactory.createTitledBorder("Log de eventos"));
 
         JSplitPane bottom = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bufferArea, logScroll);
-        bottom.setResizeWeight(0.5);
+        bottom.setResizeWeight(0.4);
         return bottom;
     }
 
@@ -134,6 +143,10 @@ public class MainWindow extends JFrame {
     /** Agrega una línea al log con el número de ciclo. */
     public void appendLog(long cycle, String message) {
         logArea.append("[Ciclo " + cycle + "] " + message + "\n");
+    }
+
+    public void setQuantum(int quantum) {
+        quantumSpinner.setValue(quantum);
     }
 
     public ComputerPanel getComputerPanel(int computerId) {
@@ -166,5 +179,43 @@ public class MainWindow extends JFrame {
 
     public JButton getConfigButton() {
         return configButton;
+    }
+
+    /**
+     * Panel que siempre usa el ancho visible: los computadores se reparten la ventana
+     * en vez de salirse por la derecha (solo hay scroll vertical si no caben de alto).
+     */
+    private static final class WidthTrackingPanel extends JPanel implements Scrollable {
+
+        WidthTrackingPanel(GridLayout layout) {
+            super(layout);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+            return 160;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        /** Si sobra alto, las tablas lo usan; si falta, aparece el scroll vertical. */
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return getParent() instanceof JViewport viewport
+                    && viewport.getHeight() > getPreferredSize().height;
+        }
     }
 }
