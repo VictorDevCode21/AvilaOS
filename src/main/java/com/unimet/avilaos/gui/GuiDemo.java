@@ -1,6 +1,7 @@
 package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.datastructures.LinkedList;
+import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.hardware.CpuMode;
 import com.unimet.avilaos.os.process.BlockReason;
 import com.unimet.avilaos.os.process.Pcb;
@@ -34,6 +35,8 @@ public final class GuiDemo {
         }
 
         MainWindow window = new MainWindow(2, POLICIES);
+        EventLog eventLog = new EventLog();
+        eventLog.addListener(entry -> SwingUtilities.invokeLater(() -> window.appendLog(entry)));
 
         // ----- Computador 1 -----
         Pcb running1 = ready(Pcb.cpuBound("Navegador", 1, 200, 50, 80, 1, 0));
@@ -43,7 +46,7 @@ public final class GuiDemo {
                 ready(Pcb.cpuBound("Compilador", 1, 150, 70, 120, 1, 0)));
         Pcb blocked1 = ready(Pcb.bufferUser("Prod", ProcessType.PRODUCER, 2, 50, 20, 100, 1, 0, "B1", 2, 5));
         blocked1.markRunning(0);
-        blocked1.markBlocked(BlockReason.SEMAPHORE, "semáforo 'e' del buffer B1");
+        blocked1.markBlocked(BlockReason.SEMAPHORE, "'vacíos' de B1");
 
         // ----- Computador 2 -----
         Pcb blocked2 = ready(Pcb.ioBound("Backup", 2, 120, 30, 70, 2, 0, 4, 6));
@@ -69,7 +72,7 @@ public final class GuiDemo {
         for (int id = 1; id <= window.getComputerCount(); id++) {
             int computer = id;
             window.getComputerPanel(id).onPolicyChanged(policy ->
-                    window.appendLog(0, "Computador " + computer + " cambia su política a " + policy));
+                    eventLog.log(0, "Computador " + computer, "cambia su política a " + policy));
         }
 
         // "Reloj" de mentira: avanza el PC del proceso en CPU para ver la vista en tiempo real
@@ -83,7 +86,7 @@ public final class GuiDemo {
             window.setCycle(cycle[0]);
             window.getComputerPanel(1).showRunning(running1, mode);
             if (cycle[0] % 5 == 0) {
-                window.appendLog(cycle[0], "Computador 1 ejecuta código del SO (planificador)");
+                eventLog.log(cycle[0], "Computador 1", "ejecuta código del SO (planificador)");
             }
         });
         window.getStartPauseButton().addActionListener(e -> {
@@ -106,7 +109,7 @@ public final class GuiDemo {
                     2048, toArray(buffers));
             if (data != null) {
                 buffers.addLast(data.name());
-                window.appendLog(cycle[0], "Se crea el buffer " + data.name() + " (capacidad "
+                eventLog.log(cycle[0], "ÁvilaOS", "Se crea el buffer " + data.name() + " (capacidad "
                         + data.capacity() + ") en el Computador " + data.hostComputerId());
             }
         });
@@ -127,7 +130,7 @@ public final class GuiDemo {
             } else {
                 window.getComputerPanel(2).showQueues(new2, ready2, blockedList2, doneList2);
             }
-            window.appendLog(cycle[0], "Se crea el proceso " + pcb + " (" + pcb.getType().getLabel()
+            eventLog.log(cycle[0], "ÁvilaOS", "Se crea el proceso " + pcb + " (" + pcb.getType().getLabel()
                     + ") en el Computador " + computerId + (data.isAutomatic() ? " (asignación automática)" : ""));
         });
 
