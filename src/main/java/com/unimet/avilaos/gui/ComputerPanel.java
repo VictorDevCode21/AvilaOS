@@ -98,7 +98,7 @@ public final class ComputerPanel extends JPanel {
         addPair(cpu, "Memoria:", memoryLabel);
         cpu.add(new JLabel());                                  // relleno de la última fila
         cpu.add(new JLabel());
-        // El MAR va un paso detrás del PC: los dos suben 1 por ciclo (ver showRunning)
+        // Tras el primer ciclo el MAR va un paso detrás del PC; al cargar un proceso son iguales (ver showRunning)
         pcLabel.setToolTipText("Program counter: dirección de la PRÓXIMA instrucción");
         marLabel.setToolTipText("Memory address register: dirección de la instrucción de este ciclo (MAR ← PC)");
         modeLabel.setFont(modeLabel.getFont().deriveFont(Font.BOLD));
@@ -189,10 +189,15 @@ public final class ComputerPanel extends JPanel {
      * la instrucción que se acaba de ejecutar y el PC ya apunta a la siguiente. Los dos suben
      * exactamente 1 por ciclo, como pide el enunciado; solo están desfasados un paso.
      *
+     * Excepción: justo después de un cambio de contexto (Cpu.loadContext) PC == MAR, porque
+     * loadContext pone los dos en el PC guardado en el PCB; el desfase aparece desde el primer
+     * ciclo. Por eso quien alimenta la vista debe pasar los valores reales de la Cpu y NUNCA
+     * calcular el MAR como pc - 1.
+     *
      * @param running proceso en CPU, o null si está ociosa
      * @param mode    modo de la CPU (usuario o kernel)
      * @param pc      Cpu.getProgramCounter()
-     * @param mar     Cpu.getMemoryAddressRegister()
+     * @param mar     Cpu.getMemoryAddressRegister() (no pc - 1)
      */
     public void showRunning(Pcb running, CpuMode mode, int pc, int mar) {
         if (running == null) {
