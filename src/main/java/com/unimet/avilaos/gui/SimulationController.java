@@ -8,6 +8,7 @@ import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.LogEntry;
 import com.unimet.avilaos.hardware.Cpu;
+import com.unimet.avilaos.metrics.MetricsSnapshot;
 import com.unimet.avilaos.os.Kernel;
 import com.unimet.avilaos.os.scheduling.PolicyType;
 import javax.swing.JOptionPane;
@@ -160,6 +161,12 @@ public final class SimulationController {
                     kernel.getBlockedSnapshot(), kernel.getTerminatedSnapshot());
         }
         window.showBuffers(cluster.getBuffers(), cluster.getSystemMetrics().getBufferStats());
+        MetricsSnapshot[] perComputer = new MetricsSnapshot[cluster.getComputerCount()];
+        for (int id = 1; id <= perComputer.length; id++) {
+            perComputer[id - 1] = cluster.getComputer(id).getMetrics().getSnapshot();
+        }
+        window.showMetrics(perComputer, cluster.getSystemMetrics().getSnapshot());
+        window.showCpuHistory(cluster.getSystemMetrics().getComputers());
         appendNewLogEntries();
     }
 
