@@ -18,6 +18,7 @@ import javax.swing.Timer;
  * Une la ventana con el clúster. La ventana solo muestra y reenvía clics; el clúster
  * simula. Este controlador:
  *  - conecta los botones, los selectores de política y los spinners con el clúster,
+ *  - abre la vista de configuración y, si se acepta, reinicia todo con la nueva,
  *  - refresca la vista con un javax.swing.Timer (REFRESH_MS) que LEE el estado:
  *    la simulación nunca espera a la GUI y la GUI nunca toca el SO.
  *
@@ -63,6 +64,7 @@ public final class SimulationController {
         window.setResetAction(e -> reset());
         window.setCreateProcessAction(e -> createProcess());
         window.setCreateBufferAction(e -> createBuffer());
+        window.setConfigAction(e -> configure());
         window.getCycleDurationSpinner().addChangeListener(e -> cluster.setCycleDurationMs(
                 ((Number) window.getCycleDurationSpinner().getValue()).longValue()));
         window.getQuantumSpinner().addChangeListener(e -> cluster.setQuantum(
@@ -139,6 +141,22 @@ public final class SimulationController {
             showError("No se pudo crear el buffer", ex);
         }
         refresh();
+    }
+
+    /**
+     * Abre la vista de configuración. Si el usuario acepta, se aplica reemplazando la
+     * simulación completa: el número de computadores fija la ventana, así que se detiene
+     * el clúster, se cierra esta ventana y se abre un controlador nuevo con la configuración.
+     */
+    private void configure() {
+        SimulationConfig newConfig = ConfigDialog.showDialog(window, config);
+        if (newConfig == null) {
+            return;
+        }
+        refreshTimer.stop();
+        cluster.shutdown();
+        window.dispose();
+        new SimulationController(newConfig).show();
     }
 
     private void showError(String title, IllegalArgumentException ex) {
