@@ -4,13 +4,17 @@ import com.unimet.avilaos.datastructures.LinkedList;
 import java.util.concurrent.Semaphore;
 
 /**
- * Log de eventos del sistema distribuido. Lo escriben los kernels de todos los
- * computadores (desde hilos distintos) y lo observa la GUI.
+ * Log de eventos de la simulación (sujeto del patrón Observer).
  *
- * - Guarda como máximo 'capacity' entradas: al pasarse, descarta la más antigua,
- *   para que una simulación larga no llene la memoria.
- * - Avisa a los observadores FUERA del mutex (misma regla que IoDevice y Cpu:
- *   nunca llamar código ajeno con un candado tomado).
+ * Guarda las últimas entradas (descarta las más viejas al pasar la capacidad)
+ * y avisa a los observadores registrados. Lo escriben los hilos de los
+ * computadores y lo lee la GUI, por eso todo pasa por un mutex.
+ *
+ * Reglas de concurrencia:
+ * - Los observadores se notifican FUERA del mutex: nunca se llama código ajeno
+ *   con un candado tomado.
+ * - Si un observador lanza una excepción, se aísla: un error de la GUI nunca
+ *   debe cortar el tick de un computador ni dejar sin aviso a los demás.
  *
  * @author victor1102
  */
@@ -22,6 +26,7 @@ public class EventLog {
     private final LinkedList<LogEntry> entries = new LinkedList<>();
     private final LinkedList<SimulationListener> listeners = new LinkedList<>();
     private final Semaphore mutex = new Semaphore(1, true);
+    private long nextSequence = 1;
 
     public EventLog() {
         this(DEFAULT_CAPACITY);
@@ -48,43 +53,56 @@ public class EventLog {
         }
     }
 
-    public void removeListener(SimulationListener listener) {
+    public boolean removeListener(SimulationListener listener) {
         mutex.acquireUninterruptibly();
         try {
-            listeners.remove(listener);
+            return listeners.remove(listener);
         } finally {
             mutex.release();
         }
     }
 
-    // ---------- Escritura ----------
+    // ---------- Registro ----------
 
     /**
-     * Registra un evento y avisa a los observadores.
+     * Agrega una entrada y avisa a los observadores.
      *
-     * @param cycle   ciclo actual
-     * @param source  quién lo genera (ej. "Computador 1")
-     * @param message descripción en español
+     * @throws IllegalArgumentException si el ciclo es negativo o el origen/mensaje están vacíos
      */
     public void log(long cycle, String source, String message) {
-        LogEntry entry = new LogEntry(cycle, source, message);
+        if (cycle < 0) {
+            throw new IllegalArgumentException("El ciclo no puede ser negativo");
+        }
+        if (source == null || source.isBlank()) {
+            throw new IllegalArgumentException("El evento debe indicar quién lo generó");
+        }
+        if (message == null || message.isBlank()) {
+            throw new IllegalArgumentException("El evento debe tener un mensaje");
+        }
+        LogEntry entry;
         LinkedList<SimulationListener> toNotify;
         mutex.acquireUninterruptibly();
         try {
+            entry = new LogEntry(nextSequence++, cycle, source.trim(), message.trim());
             entries.addLast(entry);
             if (entries.size() > capacity) {
-                entries.removeFirst();               // descarta la más antigua
+                entries.removeFirst();               // descarta la más vieja
             }
-            toNotify = listeners.copy();             // copia para avisar sin el candado
+            toNotify = listeners.copy();             // foto de los observadores
         } finally {
             mutex.release();
         }
-        for (int i = 0; i < toNotify.size(); i++) {
-            toNotify.get(i).onLogEntry(entry);       // FUERA del mutex
+        for (int i = 0; i < toNotify.size(); i++) { // FUERA del mutex
+            SimulationListener listener = toNotify.get(i);
+            try {
+                listener.onLogEntry(entry);
+            } catch (RuntimeException e) {
+                reportFailure(listener, e);
+            }
         }
     }
 
-    /** Avisa a los observadores que terminó un ciclo (lo llamará el clúster). */
+    /** Lo llama el computador/clúster al terminar cada ciclo. */
     public void cycleCompleted(long cycle) {
         LinkedList<SimulationListener> toNotify;
         mutex.acquireUninterruptibly();
@@ -94,13 +112,18 @@ public class EventLog {
             mutex.release();
         }
         for (int i = 0; i < toNotify.size(); i++) {
-            toNotify.get(i).onCycleCompleted(cycle);
+            SimulationListener listener = toNotify.get(i);
+            try {
+                listener.onCycleCompleted(cycle);
+            } catch (RuntimeException e) {
+                reportFailure(listener, e);
+            }
         }
     }
 
-    // ---------- Lectura ----------
+    // ---------- Consultas ----------
 
-    /** Copia de las entradas, de la más antigua a la más reciente. */
+    /** Copia de las entradas guardadas, en el orden en que llegaron. */
     public LinkedList<LogEntry> getEntries() {
         mutex.acquireUninterruptibly();
         try {
@@ -126,5 +149,15 @@ public class EventLog {
         } finally {
             mutex.release();
         }
+    }
+
+    // ---------- Internos ----------
+
+    /**
+     * Se informa por la consola de errores y NO con log(): si el observador que
+     * falló vuelve a recibir el aviso y vuelve a fallar, se crearía un ciclo infinito.
+     */
+    private void reportFailure(SimulationListener listener, RuntimeException e) {
+        System.err.println("Observador del log falló (" + listener.getClass().getSimpleName() + "): " + e);
     }
 }
