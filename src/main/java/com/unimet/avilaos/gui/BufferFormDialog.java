@@ -1,6 +1,7 @@
 package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.config.BufferConfig;
+import com.unimet.avilaos.config.SimulationConfig;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.Frame;
@@ -31,8 +32,8 @@ public final class BufferFormDialog extends JDialog {
     private static final int NAME_MAX_LENGTH = BufferConfig.NAME_MAX_LENGTH;
     private static final int MAX_CAPACITY = BufferConfig.MAX_CAPACITY;
 
-    private final int[] ramPerComputer;     // RAM de cada computador (índice 0 = Computador 1)
-    private final String[] existingNames;
+    /** Solo se lee: de aquí salen la RAM libre del anfitrión y los nombres (la misma fuente que valida addBuffer). */
+    private final transient SimulationConfig config;
 
     private final JTextField nameField = new JTextField(10);
     private final JTextField capacityField = new JTextField("5");
@@ -44,25 +45,24 @@ public final class BufferFormDialog extends JDialog {
     /**
      * Abre el formulario y espera a que el usuario lo cierre.
      *
-     * @param owner         ventana principal
-     * @param ramPerComputer RAM en MB de cada computador (el buffer ocupa la de su anfitrión)
-     * @param existingNames nombres de los buffers que ya existen (no se pueden repetir)
+     * El formulario NO agrega el buffer: quien lo llama hace config.addBuffer(resultado).
+     *
+     * @param owner  ventana principal
+     * @param config configuración actual (computadores, buffers existentes y su memoria)
      * @return la configuración del buffer, o null si el usuario canceló
      */
-    public static BufferConfig showDialog(Frame owner, int[] ramPerComputer,
-            String[] existingNames) {
-        BufferFormDialog dialog = new BufferFormDialog(owner, ramPerComputer, existingNames);
+    public static BufferConfig showDialog(Frame owner, SimulationConfig config) {
+        BufferFormDialog dialog = new BufferFormDialog(owner, config);
         dialog.setVisible(true);
         return dialog.result;
     }
 
-    private BufferFormDialog(Frame owner, int[] ramPerComputer, String[] existingNames) {
+    private BufferFormDialog(Frame owner, SimulationConfig config) {
         super(owner, "Crear buffer", true);
-        this.ramPerComputer = ramPerComputer.clone();
-        this.existingNames = existingNames;
-        nameField.setText("B" + (existingNames.length + 1));       // sugerencia: B1, B2, ...
-        for (int i = 1; i <= ramPerComputer.length; i++) {
-            hostCombo.addItem("Computador " + i + " (" + ramPerComputer[i - 1] + " MB)");
+        this.config = config;
+        nameField.setText("B" + (config.getBuffers().size() + 1));  // sugerencia: B1, B2, ...
+        for (int id = 1; id <= config.getComputerCount(); id++) {
+            hostCombo.addItem("Computador " + id + " (" + config.processMemoryLimit(id) + " MB libres)");
         }
         FormValidator.clearErrorOnEdit(nameField, capacityField, memoryField);
 
@@ -70,7 +70,7 @@ public final class BufferFormDialog extends JDialog {
         fields.setBorder(BorderFactory.createTitledBorder("Datos del buffer"));
         addRow(fields, "Nombre (letras y números, máx. " + NAME_MAX_LENGTH + "):", nameField);
         addRow(fields, "Capacidad en elementos (1-" + MAX_CAPACITY + "):", capacityField);
-        addRow(fields, "Memoria que ocupa MB (hasta la RAM del anfitrión):", memoryField);
+        addRow(fields, "Memoria que ocupa MB (hasta la RAM libre del anfitrión):", memoryField);
         addRow(fields, "Computador anfitrión:", hostCombo);
 
         JButton create = new JButton("Crear");
@@ -102,14 +102,20 @@ public final class BufferFormDialog extends JDialog {
     private void onCreate() {
         FormValidator v = new FormValidator();
         String name = v.code(nameField, "Nombre", NAME_MAX_LENGTH);
-        if (name != null && exists(name)) {
+        if (name != null && config.findBuffer(name) != null) {
             v.addError(nameField, "Nombre: ya existe un buffer llamado " + name + ".");
         }
         int capacity = v.integer(capacityField, "Capacidad", 1, MAX_CAPACITY);
         int hostId = hostCombo.getSelectedIndex() + 1;
-        int hostRam = ramPerComputer[hostId - 1];
-        int memory = v.integer(memoryField, "Memoria (el Computador " + hostId + " tiene " + hostRam + " MB)",
-                1, hostRam);
+        // Mismo límite que SimulationConfig.addBuffer: la RAM que no ocupan los otros buffers
+        int free = config.processMemoryLimit(hostId);
+        String freeText = "el Computador " + hostId + " tiene " + free + " MB libres, descontando sus buffers";
+        int memory = -1;
+        if (free < 1) {
+            v.addError(memoryField, "Memoria: " + freeText + ", no cabe otro buffer.");
+        } else {
+            memory = v.integer(memoryField, "Memoria (" + freeText + ")", 1, free);
+        }
 
         if (v.hasErrors()) {
             JOptionPane.showMessageDialog(this, "Corrige estos datos:\n\n" + v.getMessage(),
@@ -123,15 +129,5 @@ public final class BufferFormDialog extends JDialog {
             return;
         }
         dispose();
-    }
-
-    /** Compara igual que la configuración: "b1" y "B1" serían el mismo buffer. */
-    private boolean exists(String name) {
-        for (String existing : existingNames) {
-            if (BufferConfig.sameName(existing, name)) {
-                return true;
-            }
-        }
-        return false;
     }
 }

@@ -133,18 +133,6 @@ public final class FormValidator {
         }
     }
 
-    /** El mayor valor del arreglo (ej. la RAM del computador más grande). */
-    public static int max(int[] values) {
-        if (values == null || values.length == 0) {
-            throw new IllegalArgumentException("Se necesita al menos un valor");
-        }
-        int result = values[0];
-        for (int value : values) {
-            result = Math.max(result, value);
-        }
-        return result;
-    }
-
     // ---------- Internos ----------
 
     private String fail(JTextField field, String message) {

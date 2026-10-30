@@ -2,12 +2,14 @@ package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.config.BufferConfig;
 import com.unimet.avilaos.config.ProcessConfig;
+import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.hardware.CpuMode;
 import com.unimet.avilaos.os.process.BlockReason;
 import com.unimet.avilaos.os.process.Pcb;
 import com.unimet.avilaos.os.process.PidGenerator;
+import com.unimet.avilaos.os.scheduling.PolicyType;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.UIManager;
@@ -28,14 +30,14 @@ import javax.swing.UIManager;
  */
 public final class GuiDemo {
 
-    private static final String[] POLICIES = {"FCFS", "Round Robin", "EDF", "Prioridades apropiativas"};
     /** RAM de cada computador: distinta a propósito para probar la validación por computador. */
     private static final int[] RAM_MB = {1024, 2048};
 
-    private final MainWindow window = new MainWindow(2, POLICIES);
+    private final MainWindow window = new MainWindow(RAM_MB.length, PolicyType.labels());
     private final EventLog eventLog = new EventLog();
     private final DemoComputer[] computers = new DemoComputer[2];
-    private final LinkedList<String> buffers = new LinkedList<>();
+    /** Computadores y buffers: los formularios toman sus límites de aquí, igual que con el CSV. */
+    private SimulationConfig config;
     private final Timer timer;
     private long cycle;
 
@@ -66,11 +68,13 @@ public final class GuiDemo {
         PidGenerator.reset();                       // los IDs vuelven a empezar en P1
         eventLog.clear();
         window.resetView();
-        buffers.clear();
-        buffers.addLast("B1");
+        config = new SimulationConfig(500, MainWindow.DEFAULT_QUANTUM, 2);
         for (int i = 0; i < computers.length; i++) {
+            config.addComputer(RAM_MB[i], PolicyType.FCFS);
             computers[i] = new DemoComputer(i + 1);
+            window.getComputerPanel(i + 1).showPolicy(PolicyType.FCFS.getLabel());
         }
+        config.addBuffer(new BufferConfig("B1", 1, 5, 10));           // 10 MB del Computador 1
 
         DemoComputer c1 = computers[0];
         c1.add(Pcb.cpuBound("Navegador", 1, 200, 12, 40, 1, 0));
@@ -161,7 +165,8 @@ public final class GuiDemo {
                 int pc = c.running.getProgramCounter();
                 panel.showRunning(c.running, modes[i], pc, Math.max(0, pc - 1));
             }
-            panel.showMemory(c.usedRam, RAM_MB[c.id - 1]);
+            // los buffers ocupan su RAM toda la simulación: se suman a la de los procesos
+            panel.showMemory(c.usedRam + config.bufferMemoryOn(c.id), RAM_MB[c.id - 1]);
             panel.showQueues(c.newQueue.copy(), c.ready.copy(), c.blocked.copy(), c.done.copy());
         }
     }
@@ -169,20 +174,19 @@ public final class GuiDemo {
     // ---------- Vista 1 ----------
 
     private void createBuffer() {
-        BufferConfig data = BufferFormDialog.showDialog(window, RAM_MB,
-                toArray(buffers));
-        if (data != null) {
-            buffers.addLast(data.name());
+        BufferConfig data = BufferFormDialog.showDialog(window, config);
+        if (data != null && add(() -> config.addBuffer(data))) {
             eventLog.log(cycle, "Computador " + data.hostComputerId(),
-                    "se crea el buffer " + data.name() + " (capacidad " + data.capacity() + ")");
+                    "se crea el buffer " + data.name() + " (capacidad " + data.capacity() + ", "
+                    + data.memorySize() + " MB)");
+            refresh(CpuMode.KERNEL, CpuMode.KERNEL);
         }
     }
 
     private void createProcess() {
-        ProcessConfig data = ProcessFormDialog.showDialog(window, RAM_MB,
-                toArray(buffers));
-        if (data == null) {
-            return;                                     // el usuario canceló
+        ProcessConfig data = ProcessFormDialog.showDialog(window, config);
+        if (data == null || !add(() -> config.addProcess(data))) {
+            return;                                     // el usuario canceló (o la config lo rechazó)
         }
         // "Automático": en la demo, el computador con menos procesos pendientes donde quepa.
         // Con el kernel real esta decisión la toma ÁvilaOS, no la GUI.
@@ -199,20 +203,26 @@ public final class GuiDemo {
     private int leastLoadedThatFits(int memoryMb) {
         int best = -1;
         for (DemoComputer c : computers) {
-            if (memoryMb <= RAM_MB[c.id - 1] && (best < 0 || c.pending() < computers[best - 1].pending())) {
+            if (memoryMb <= config.processMemoryLimit(c.id) && (best < 0 || c.pending() < computers[best - 1].pending())) {
                 best = c.id;
             }
         }
         return best;                                    // el formulario ya garantizó que cabe en alguno
     }
 
-    private static String[] toArray(LinkedList<String> items) {
-        String[] result = new String[items.size()];
-        LinkedList<String> walk = items.copy();
-        for (int i = 0; i < result.length; i++) {
-            result[i] = walk.removeFirst();
+    /**
+     * Agrega a la configuración. Los formularios usan los mismos límites, así que no debería
+     * fallar; si falla, se avisa en vez de seguir con datos que la config no aceptó.
+     */
+    private boolean add(Runnable addToConfig) {
+        try {
+            addToConfig.run();
+            return true;
+        } catch (IllegalArgumentException ex) {
+            javax.swing.JOptionPane.showMessageDialog(window, ex.getMessage(), "No se pudo agregar",
+                    javax.swing.JOptionPane.ERROR_MESSAGE);
+            return false;
         }
-        return result;
     }
 
     // ---------- Computador de mentira (FCFS) ----------
@@ -288,7 +298,8 @@ public final class GuiDemo {
 
         /** Nuevo → Listo solo si hay RAM, en orden de llegada. */
         private void admit() {
-            while (!newQueue.isEmpty() && usedRam + newQueue.peekFirst().getMemorySize() <= RAM_MB[id - 1]) {
+            while (!newQueue.isEmpty()
+                    && usedRam + newQueue.peekFirst().getMemorySize() <= config.processMemoryLimit(id)) {
                 Pcb p = newQueue.removeFirst();
                 usedRam += p.getMemorySize();
                 p.markReady();

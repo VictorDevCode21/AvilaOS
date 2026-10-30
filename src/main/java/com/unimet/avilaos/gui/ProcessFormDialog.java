@@ -1,6 +1,9 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.config.BufferConfig;
 import com.unimet.avilaos.config.ProcessConfig;
+import com.unimet.avilaos.config.SimulationConfig;
+import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.os.process.ProcessType;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
@@ -48,8 +51,8 @@ public final class ProcessFormDialog extends JDialog {
     private static final String CARD_IO = "io";
     private static final String CARD_BUFFER = "buffer";
 
-    private final int[] ramPerComputer;     // RAM de cada computador (índice 0 = Computador 1)
-    private final int maxMemoryMb;          // RAM del computador más grande (para "Automático")
+    /** Solo se lee: de aquí salen los límites de RAM y los buffers (la misma fuente que valida addProcess). */
+    private final transient SimulationConfig config;
 
     // ---------- Campos comunes ----------
     private final JTextField nameField = new JTextField(15);
@@ -77,27 +80,27 @@ public final class ProcessFormDialog extends JDialog {
     /**
      * Abre el formulario y espera a que el usuario lo cierre.
      *
-     * @param owner         ventana principal
-     * @param ramPerComputer RAM en MB de cada computador (índice 0 = Computador 1)
-     * @param bufferNames   buffers existentes, para productores y consumidores
+     * El formulario NO agrega el proceso: quien lo llama hace config.addProcess(resultado).
+     * Como los límites salen del mismo config, addProcess ya no debería rechazarlo.
+     *
+     * @param owner  ventana principal
+     * @param config configuración actual (computadores, RAM libre para procesos y buffers)
      * @return la configuración del proceso (computerId 0 = automático), o null si el usuario canceló
      */
-    public static ProcessConfig showDialog(Frame owner, int[] ramPerComputer,
-            String[] bufferNames) {
-        ProcessFormDialog dialog = new ProcessFormDialog(owner, ramPerComputer, bufferNames);
+    public static ProcessConfig showDialog(Frame owner, SimulationConfig config) {
+        ProcessFormDialog dialog = new ProcessFormDialog(owner, config);
         dialog.setVisible(true);          // es modal: se queda aquí hasta que se cierre
         return dialog.result;
     }
 
-    private ProcessFormDialog(Frame owner, int[] ramPerComputer, String[] bufferNames) {
+    private ProcessFormDialog(Frame owner, SimulationConfig config) {
         super(owner, "Crear proceso", true);
-        this.ramPerComputer = ramPerComputer.clone();
-        this.maxMemoryMb = FormValidator.max(ramPerComputer);
-        this.bufferCombo = new JComboBox<>(bufferNames);
+        this.config = config;
+        this.bufferCombo = new JComboBox<>(bufferNames(config));
 
         computerCombo.addItem("Automático (ÁvilaOS decide)");
-        for (int i = 1; i <= ramPerComputer.length; i++) {
-            computerCombo.addItem("Computador " + i + " (" + ramPerComputer[i - 1] + " MB)");
+        for (int id = 1; id <= config.getComputerCount(); id++) {
+            computerCombo.addItem("Computador " + id + " (" + config.processMemoryLimit(id) + " MB libres)");
         }
         typeCombo.setRenderer(new DefaultListCellRenderer() {   // muestra "Productor" y no "PRODUCER"
             private static final long serialVersionUID = 1L;
@@ -134,7 +137,7 @@ public final class ProcessFormDialog extends JDialog {
         addRow(panel, "Nombre (máx. " + NAME_MAX_LENGTH + "):", nameField);
         addRow(panel, "Tipo:", typeCombo);
         addRow(panel, "Instrucciones (1-" + MAX_INSTRUCTIONS + "):", instructionsField);
-        addRow(panel, "Memoria MB (hasta la RAM del computador):", memoryField);
+        addRow(panel, "Memoria MB (hasta la RAM libre del computador):", memoryField);
         addRow(panel, "Prioridad (0 = más alta, 0-" + MAX_PRIORITY + "):", priorityField);
         addRow(panel, "Deadline en ciclos (1-" + MAX_DEADLINE + "):", deadlineField);
         addRow(panel, "Computador:", computerCombo);
@@ -205,13 +208,19 @@ public final class ProcessFormDialog extends JDialog {
         String name = v.text(nameField, "Nombre", NAME_MAX_LENGTH);
         int instructions = v.integer(instructionsField, "Instrucciones", 1, MAX_INSTRUCTIONS);
         int computerId = computerCombo.getSelectedIndex();   // 0 = automático, 1..N = computador
-        // La memoria se valida contra la RAM del computador elegido; si es automático,
-        // contra el más grande (ÁvilaOS lo pondrá donde quepa).
-        int ramLimit = computerId == ProcessConfig.AUTOMATIC ? maxMemoryMb : ramPerComputer[computerId - 1];
-        String ramOwner = computerId == ProcessConfig.AUTOMATIC
-                ? "ningún computador tiene más de " + maxMemoryMb + " MB"
-                : "el Computador " + computerId + " tiene " + ramLimit + " MB";
-        int memory = v.integer(memoryField, "Memoria (" + ramOwner + ")", 1, ramLimit);
+        // Mismo límite que SimulationConfig.addProcess: la RAM menos la de sus buffers.
+        // Si es automático, el computador con más RAM libre (ÁvilaOS lo pondrá donde quepa).
+        boolean automatic = computerId == ProcessConfig.AUTOMATIC;
+        int ramLimit = automatic ? config.maxProcessMemoryLimit() : config.processMemoryLimit(computerId);
+        String ramOwner = automatic
+                ? "ningún computador tiene más de " + ramLimit + " MB libres"
+                : "el Computador " + computerId + " tiene " + ramLimit + " MB libres, descontando sus buffers";
+        int memory = -1;
+        if (ramLimit < 1) {
+            v.addError(memoryField, "Memoria: " + ramOwner + ", no cabe ningún proceso.");
+        } else {
+            memory = v.integer(memoryField, "Memoria (" + ramOwner + ")", 1, ramLimit);
+        }
         int priority = v.integer(priorityField, "Prioridad", 0, MAX_PRIORITY);
         int deadline = v.integer(deadlineField, "Deadline", 1, MAX_DEADLINE);
 
@@ -250,5 +259,15 @@ public final class ProcessFormDialog extends JDialog {
             return;
         }
         dispose();
+    }
+
+    /** Nombres de los buffers de la configuración, para el selector de productor/consumidor. */
+    private static String[] bufferNames(SimulationConfig config) {
+        LinkedList<BufferConfig> buffers = config.getBuffers();      // ya es una copia
+        String[] names = new String[buffers.size()];
+        for (int i = 0; i < names.length; i++) {
+            names[i] = buffers.removeFirst().name();
+        }
+        return names;
     }
 }
