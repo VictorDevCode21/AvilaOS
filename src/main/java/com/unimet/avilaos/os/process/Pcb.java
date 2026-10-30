@@ -254,8 +254,16 @@ public class Pcb {
         itemsDone++;
     }
 
+    /**
+     * CPU bound / I/O bound: terminó sus instrucciones.
+     * Productor / consumidor: completó sus elementos o agotó sus instrucciones,
+     * lo que ocurra primero (el anexo dice que repite su ciclo "mientras le queden instrucciones").
+     */
     public boolean isFinished() {
-        return type.usesBuffer() ? itemsDone >= itemsRequired : remainingInstructions == 0;
+        if (remainingInstructions == 0) {
+            return true;
+        }
+        return type.usesBuffer() && itemsDone >= itemsRequired;
     }
 
     // ---------- Cambio de contexto ----------
