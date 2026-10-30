@@ -1,5 +1,6 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.config.ProcessConfig;
 import com.unimet.avilaos.os.process.ProcessType;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
@@ -30,16 +31,18 @@ import javax.swing.KeyStroke;
  *
  * @author NicollPinzon
  */
-public class ProcessFormDialog extends JDialog {
+public final class ProcessFormDialog extends JDialog {
 
-    // ---------- Rangos permitidos ----------
-    public static final int NAME_MAX_LENGTH = 30;
-    public static final int MAX_INSTRUCTIONS = 100_000;
-    public static final int MAX_PRIORITY = 99;
-    public static final int MAX_DEADLINE = 1_000_000;
-    public static final int MAX_IO_DURATION = 1_000;
-    public static final int MAX_OPERATION_INTERVAL = 1_000;
-    public static final int MAX_ITEMS = 10_000;
+    private static final long serialVersionUID = 1L;
+
+    // ---------- Rangos permitidos: los MISMOS que ProcessConfig (formulario y CSV validan igual) ----------
+    private static final int NAME_MAX_LENGTH = ProcessConfig.NAME_MAX_LENGTH;
+    private static final int MAX_INSTRUCTIONS = ProcessConfig.MAX_INSTRUCTIONS;
+    private static final int MAX_PRIORITY = ProcessConfig.MAX_PRIORITY;
+    private static final int MAX_DEADLINE = (int) ProcessConfig.MAX_DEADLINE;
+    private static final int MAX_IO_DURATION = ProcessConfig.MAX_IO_DURATION;
+    private static final int MAX_OPERATION_INTERVAL = ProcessConfig.MAX_OPERATION_INTERVAL;
+    private static final int MAX_ITEMS = ProcessConfig.MAX_ITEMS;
 
     private static final String CARD_CPU = "cpu";
     private static final String CARD_IO = "io";
@@ -69,7 +72,7 @@ public class ProcessFormDialog extends JDialog {
     private final CardLayout cards = new CardLayout();
     private final JPanel extraPanel = new JPanel(cards);
 
-    private ProcessFormData result;
+    private transient ProcessConfig result;
 
     /**
      * Abre el formulario y espera a que el usuario lo cierre.
@@ -77,9 +80,9 @@ public class ProcessFormDialog extends JDialog {
      * @param owner         ventana principal
      * @param ramPerComputer RAM en MB de cada computador (índice 0 = Computador 1)
      * @param bufferNames   buffers existentes, para productores y consumidores
-     * @return los datos validados, o null si el usuario canceló
+     * @return la configuración del proceso (computerId 0 = automático), o null si el usuario canceló
      */
-    public static ProcessFormData showDialog(Frame owner, int[] ramPerComputer,
+    public static ProcessConfig showDialog(Frame owner, int[] ramPerComputer,
             String[] bufferNames) {
         ProcessFormDialog dialog = new ProcessFormDialog(owner, ramPerComputer, bufferNames);
         dialog.setVisible(true);          // es modal: se queda aquí hasta que se cierre
@@ -97,6 +100,8 @@ public class ProcessFormDialog extends JDialog {
             computerCombo.addItem("Computador " + i + " (" + ramPerComputer[i - 1] + " MB)");
         }
         typeCombo.setRenderer(new DefaultListCellRenderer() {   // muestra "Productor" y no "PRODUCER"
+            private static final long serialVersionUID = 1L;
+
             @Override
             public java.awt.Component getListCellRendererComponent(JList<?> list, Object value,
                     int index, boolean selected, boolean focus) {
@@ -202,8 +207,8 @@ public class ProcessFormDialog extends JDialog {
         int computerId = computerCombo.getSelectedIndex();   // 0 = automático, 1..N = computador
         // La memoria se valida contra la RAM del computador elegido; si es automático,
         // contra el más grande (ÁvilaOS lo pondrá donde quepa).
-        int ramLimit = computerId == ProcessFormData.AUTOMATIC ? maxMemoryMb : ramPerComputer[computerId - 1];
-        String ramOwner = computerId == ProcessFormData.AUTOMATIC
+        int ramLimit = computerId == ProcessConfig.AUTOMATIC ? maxMemoryMb : ramPerComputer[computerId - 1];
+        String ramOwner = computerId == ProcessConfig.AUTOMATIC
                 ? "ningún computador tiene más de " + maxMemoryMb + " MB"
                 : "el Computador " + computerId + " tiene " + ramLimit + " MB";
         int memory = v.integer(memoryField, "Memoria (" + ramOwner + ")", 1, ramLimit);
@@ -236,8 +241,14 @@ public class ProcessFormDialog extends JDialog {
             return;                       // el formulario sigue abierto con los campos en rojo
         }
 
-        result = new ProcessFormData(name, type, instructions, memory, priority, deadline, computerId,
-                ioInterval, ioDuration, bufferName, operationInterval, items);
+        try {
+            // ProcessConfig vuelve a validar (las mismas reglas que al leer el CSV)
+            result = new ProcessConfig(name, type, priority, memory, instructions, deadline, computerId,
+                    ioInterval, ioDuration, bufferName, operationInterval, items);
+        } catch (IllegalArgumentException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Datos inválidos", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
         dispose();
     }
 }

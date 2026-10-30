@@ -1,5 +1,6 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.config.BufferConfig;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.Frame;
@@ -22,10 +23,13 @@ import javax.swing.KeyStroke;
  *
  * @author NicollPinzon
  */
-public class BufferFormDialog extends JDialog {
+public final class BufferFormDialog extends JDialog {
 
-    public static final int NAME_MAX_LENGTH = 10;
-    public static final int MAX_CAPACITY = 1_000;
+    private static final long serialVersionUID = 1L;
+
+    // Los MISMOS límites que BufferConfig (formulario y CSV validan igual)
+    private static final int NAME_MAX_LENGTH = BufferConfig.NAME_MAX_LENGTH;
+    private static final int MAX_CAPACITY = BufferConfig.MAX_CAPACITY;
 
     private final int[] ramPerComputer;     // RAM de cada computador (índice 0 = Computador 1)
     private final String[] existingNames;
@@ -35,7 +39,7 @@ public class BufferFormDialog extends JDialog {
     private final JTextField memoryField = new JTextField("10");
     private final JComboBox<String> hostCombo = new JComboBox<>();
 
-    private BufferFormData result;
+    private transient BufferConfig result;
 
     /**
      * Abre el formulario y espera a que el usuario lo cierre.
@@ -43,9 +47,9 @@ public class BufferFormDialog extends JDialog {
      * @param owner         ventana principal
      * @param ramPerComputer RAM en MB de cada computador (el buffer ocupa la de su anfitrión)
      * @param existingNames nombres de los buffers que ya existen (no se pueden repetir)
-     * @return los datos validados, o null si el usuario canceló
+     * @return la configuración del buffer, o null si el usuario canceló
      */
-    public static BufferFormData showDialog(Frame owner, int[] ramPerComputer,
+    public static BufferConfig showDialog(Frame owner, int[] ramPerComputer,
             String[] existingNames) {
         BufferFormDialog dialog = new BufferFormDialog(owner, ramPerComputer, existingNames);
         dialog.setVisible(true);
@@ -112,14 +116,19 @@ public class BufferFormDialog extends JDialog {
                     "Datos inválidos", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        result = new BufferFormData(name, capacity, memory, hostId);
+        try {
+            result = new BufferConfig(name, hostId, capacity, memory);   // orden: nombre, anfitrión, capacidad, memoria
+        } catch (IllegalArgumentException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Datos inválidos", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
         dispose();
     }
 
-    /** Compara sin distinguir mayúsculas: "b1" y "B1" serían el mismo buffer. */
+    /** Compara igual que la configuración: "b1" y "B1" serían el mismo buffer. */
     private boolean exists(String name) {
         for (String existing : existingNames) {
-            if (existing.equalsIgnoreCase(name)) {
+            if (BufferConfig.sameName(existing, name)) {
                 return true;
             }
         }

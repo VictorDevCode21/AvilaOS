@@ -1,5 +1,7 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.config.BufferConfig;
+import com.unimet.avilaos.config.ProcessConfig;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.hardware.CpuMode;
@@ -11,8 +13,9 @@ import javax.swing.Timer;
 import javax.swing.UIManager;
 
 /**
- * Demo TEMPORAL de la interfaz mientras el kernel no existe. Se elimina cuando la GUI
- * se conecte al Cluster real.
+ * Demo TEMPORAL de la interfaz mientras el kernel no existe. Está en Test Packages
+ * (no entra en el programa entregado) y se elimina cuando la GUI se conecte al Cluster real.
+ * En NetBeans: clic derecho sobre este archivo → Run File.
  *
  * Para poder probar la GUI, imita de forma muy simple lo que hará el kernel
  * (FCFS, admisión por RAM, deadline y terminación). Esta lógica NO es parte de la GUI:
@@ -159,7 +162,7 @@ public final class GuiDemo {
     // ---------- Vista 1 ----------
 
     private void createBuffer() {
-        BufferFormData data = BufferFormDialog.showDialog(window, RAM_MB,
+        BufferConfig data = BufferFormDialog.showDialog(window, RAM_MB,
                 toArray(buffers));
         if (data != null) {
             buffers.addLast(data.name());
@@ -169,7 +172,7 @@ public final class GuiDemo {
     }
 
     private void createProcess() {
-        ProcessFormData data = ProcessFormDialog.showDialog(window, RAM_MB,
+        ProcessConfig data = ProcessFormDialog.showDialog(window, RAM_MB,
                 toArray(buffers));
         if (data == null) {
             return;                                     // el usuario canceló
@@ -177,7 +180,7 @@ public final class GuiDemo {
         // "Automático": en la demo, el computador con menos procesos pendientes donde quepa.
         // Con el kernel real esta decisión la toma ÁvilaOS, no la GUI.
         int computerId = data.isAutomatic() ? leastLoadedThatFits(data.memorySize()) : data.computerId();
-        Pcb pcb = toPcb(data, computerId, cycle);
+        Pcb pcb = data.toPcb(computerId, cycle);          // el mismo método que usa la configuración
         computers[computerId - 1].add(pcb);
         eventLog.log(cycle, "Computador " + computerId, "se crea el proceso " + pcb + " ("
                 + pcb.getType().getLabel() + ")" + (data.isAutomatic() ? " por asignación automática" : ""));
@@ -194,19 +197,6 @@ public final class GuiDemo {
             }
         }
         return best;                                    // el formulario ya garantizó que cabe en alguno
-    }
-
-    /** En la demo la GUI crea el Pcb; con el kernel real lo hará el Cluster con estos mismos datos. */
-    private static Pcb toPcb(ProcessFormData d, int computerId, long arrivalCycle) {
-        return switch (d.type()) {
-            case CPU_BOUND -> Pcb.cpuBound(d.name(), d.priority(), d.memorySize(), d.instructions(),
-                    d.deadline(), computerId, arrivalCycle);
-            case IO_BOUND -> Pcb.ioBound(d.name(), d.priority(), d.memorySize(), d.instructions(),
-                    d.deadline(), computerId, arrivalCycle, d.ioInterval(), d.ioDuration());
-            case PRODUCER, CONSUMER -> Pcb.bufferUser(d.name(), d.type(), d.priority(), d.memorySize(),
-                    d.instructions(), d.deadline(), computerId, arrivalCycle, d.bufferName(),
-                    d.operationInterval(), d.itemsRequired());
-        };
     }
 
     private static String[] toArray(LinkedList<String> items) {
