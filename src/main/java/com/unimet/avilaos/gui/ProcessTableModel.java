@@ -92,6 +92,14 @@ public final class ProcessTableModel extends AbstractTableModel {
         };
     }
 
+    /** Todo el PCB de una fila en una línea (tooltip cuando la tabla oculta columnas). */
+    public String describe(int rowIndex) {
+        Pcb p = rows[rowIndex];
+        return p + " · " + p.getName() + " · " + p.getType().getLabel() + " · prioridad " + p.getPriority()
+                + " · PC " + p.getProgramCounter() + " · " + p.getRemainingInstructions() + " instr. restantes"
+                + " · deadline " + p.getRemainingDeadline() + " · " + p.getMemorySize() + " MB · " + stateText(p);
+    }
+
     /** Estado, o el motivo completo si está bloqueado (ej. "Esperando semáforo: 'vacíos' de B1"). */
     static String stateText(Pcb p) {
         if (p.getBlockReason() != null) {
