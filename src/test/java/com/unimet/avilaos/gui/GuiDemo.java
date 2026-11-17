@@ -33,7 +33,7 @@ public final class GuiDemo {
     /** RAM de cada computador: distinta a propósito para probar la validación por computador. */
     private static final int[] RAM_MB = {1024, 2048};
 
-    private final MainWindow window = new MainWindow(RAM_MB.length, PolicyType.labels());
+    private final MainWindow window = new MainWindow(RAM_MB.length);
     private final EventLog eventLog = new EventLog();
     private final DemoComputer[] computers = new DemoComputer[2];
     /** Computadores y buffers: los formularios toman sus límites de aquí, igual que con el CSV. */
@@ -72,7 +72,7 @@ public final class GuiDemo {
         for (int i = 0; i < computers.length; i++) {
             config.addComputer(RAM_MB[i], PolicyType.FCFS);
             computers[i] = new DemoComputer(i + 1);
-            window.getComputerPanel(i + 1).showPolicy(PolicyType.FCFS.getLabel());
+            window.getComputerPanel(i + 1).showPolicy(PolicyType.FCFS.getLabel(), 0);
         }
         config.addBuffer(new BufferConfig("B1", 1, 5, 10));           // 10 MB del Computador 1
 
@@ -114,11 +114,6 @@ public final class GuiDemo {
         });
         window.getCycleDurationSpinner().addChangeListener(e ->
                 timer.setDelay((Integer) window.getCycleDurationSpinner().getValue()));
-        for (int id = 1; id <= window.getComputerCount(); id++) {
-            int computer = id;
-            window.getComputerPanel(id).onPolicyChanged(policy -> eventLog.log(cycle,
-                    "Computador " + computer, "cambia su política a " + policy + " (la demo siempre usa FCFS)"));
-        }
         window.setCreateBufferAction(e -> createBuffer());
         window.setCreateProcessAction(e -> createProcess());
     }
