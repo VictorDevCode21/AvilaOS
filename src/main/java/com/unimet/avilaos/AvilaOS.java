@@ -3,6 +3,7 @@ package com.unimet.avilaos;
 import com.unimet.avilaos.config.ConfigRepository;
 import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.gui.SimulationController;
+import com.unimet.avilaos.gui.Theme;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,7 +19,10 @@ import javax.swing.SwingUtilities;
 public class AvilaOS {
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new SimulationController(loadConfig()).show());
+        SwingUtilities.invokeLater(() -> {
+            Theme.install();                     // estilo de toda la interfaz, diálogos incluidos
+            new SimulationController(loadConfig()).show();
+        });
     }
 
     private static SimulationConfig loadConfig() {

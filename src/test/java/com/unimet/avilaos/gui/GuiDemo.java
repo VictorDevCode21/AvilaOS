@@ -12,7 +12,6 @@ import com.unimet.avilaos.os.process.PidGenerator;
 import com.unimet.avilaos.os.scheduling.PolicyType;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
-import javax.swing.UIManager;
 
 /**
  * Demo TEMPORAL de la interfaz mientras el kernel no existe. Está en Test Packages
@@ -53,11 +52,7 @@ public final class GuiDemo {
     }
 
     public static void launch() {
-        try {
-            UIManager.setLookAndFeel("javax.swing.plaf.nimbus.NimbusLookAndFeel");
-        } catch (Exception ignored) {
-            // si Nimbus no está disponible se usa el aspecto por defecto
-        }
+        Theme.install();                            // el mismo estilo que el simulador real
         new GuiDemo().window.setVisible(true);
     }
 
