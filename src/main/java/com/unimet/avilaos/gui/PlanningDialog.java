@@ -120,7 +120,7 @@ public final class PlanningDialog extends JDialog {
             grid.add(readyLabels[i]);
         }
 
-        JButton copyButton = new JButton("Usar en todos");
+        JButton copyButton = new UiKit.Button("Usar en todos", UiKit.Kind.SECONDARY);
         copyButton.setToolTipText("Pone esta política en todos los computadores (falta pulsar Aplicar)");
         copyButton.addActionListener(e -> {
             for (JComboBox<String> combo : policyCombos) {
@@ -165,6 +165,7 @@ public final class PlanningDialog extends JDialog {
                 type == PolicyType.ROUND_ROBIN ? "Sí" : "No"});
         }
         JTable table = new JTable(model);
+        Theme.styleTable(table);
         table.setRowSelectionAllowed(false);
         table.getTableHeader().setReorderingAllowed(false);
         table.getColumnModel().getColumn(0).setPreferredWidth(150);
@@ -173,7 +174,7 @@ public final class PlanningDialog extends JDialog {
         table.getColumnModel().getColumn(3).setPreferredWidth(95);
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createTitledBorder("Cómo decide cada política"));
-        scroll.setPreferredSize(new java.awt.Dimension(760, 125));
+        scroll.setPreferredSize(new java.awt.Dimension(760, 162));
         return scroll;
     }
 
@@ -196,9 +197,9 @@ public final class PlanningDialog extends JDialog {
     }
 
     private JPanel buildButtons() {
-        JButton applyButton = new JButton("Aplicar");
-        JButton restoreButton = new JButton("Restablecer");
-        JButton closeButton = new JButton("Cerrar");
+        JButton applyButton = new UiKit.Button("Aplicar", UiKit.Kind.PRIMARY);
+        JButton restoreButton = new UiKit.Button("Restablecer", UiKit.Kind.SECONDARY);
+        JButton closeButton = new UiKit.Button("Cerrar", UiKit.Kind.SECONDARY);
         applyButton.setToolTipText("El kernel de cada computador lo toma al inicio del próximo ciclo");
         restoreButton.setToolTipText("Vuelve a poner lo que tiene cada computador ahora");
         applyButton.addActionListener(e -> apply());

@@ -3,17 +3,18 @@ package com.unimet.avilaos.gui;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.metrics.ComputerMetrics;
 import com.unimet.avilaos.metrics.UtilizationSample;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Dimension;
-import javax.swing.BorderFactory;
 import javax.swing.JPanel;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
 import org.jfree.chart.axis.NumberAxis;
+import org.jfree.chart.block.BlockBorder;
 import org.jfree.chart.plot.PlotOrientation;
 import org.jfree.chart.plot.XYPlot;
+import org.jfree.chart.renderer.xy.XYItemRenderer;
 import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 
@@ -46,7 +47,7 @@ public final class CpuUsageChart extends JPanel {
         super(new BorderLayout());
 
         chart = ChartFactory.createXYLineChart(
-                "Utilización de CPU por computador",
+                null,                                // el título lo pone la tarjeta que la contiene
                 "Ciclo de reloj",
                 "Utilización (%)",
                 dataset,
@@ -56,10 +57,31 @@ public final class CpuUsageChart extends JPanel {
                 false);
 
         XYPlot plot = chart.getXYPlot();
-        plot.setBackgroundPaint(Color.WHITE);
-        plot.setDomainGridlinePaint(Color.LIGHT_GRAY);
-        plot.setRangeGridlinePaint(Color.LIGHT_GRAY);
+        // Estilo de la interfaz (Theme): fondo blanco, guías suaves, líneas gruesas con los colores del tema
+        chart.setBackgroundPaint(Theme.SURFACE);
+        chart.setBorderVisible(false);
+        if (chart.getLegend() != null) {
+            chart.getLegend().setItemFont(Theme.SMALL);
+            chart.getLegend().setBackgroundPaint(Theme.SURFACE);
+            chart.getLegend().setFrame(BlockBorder.NONE);
+        }
+        plot.setBackgroundPaint(Theme.SURFACE);
+        plot.setOutlineVisible(false);
+        plot.setDomainGridlinePaint(Theme.BORDER);
+        plot.setRangeGridlinePaint(Theme.BORDER);
+        XYItemRenderer renderer = plot.getRenderer();
+        for (int i = 0; i < Theme.SERIES.length; i++) {
+            renderer.setSeriesPaint(i, Theme.SERIES[i]);
+            renderer.setSeriesStroke(i, new BasicStroke(2f));
+        }
         NumberAxis yAxis = (NumberAxis) plot.getRangeAxis();
+        for (NumberAxis axis : new NumberAxis[] {yAxis, (NumberAxis) plot.getDomainAxis()}) {
+            axis.setLabelFont(Theme.SMALL);
+            axis.setTickLabelFont(Theme.SMALL);
+            axis.setLabelPaint(Theme.MUTED);
+            axis.setTickLabelPaint(Theme.MUTED);
+            axis.setAxisLinePaint(Theme.BORDER_STRONG);
+        }
         yAxis.setRange(0, 100);                       // la utilización siempre va de 0% a 100%
         NumberAxis xAxis = (NumberAxis) plot.getDomainAxis();
         xAxis.setAutoRangeIncludesZero(false);
@@ -67,7 +89,8 @@ public final class CpuUsageChart extends JPanel {
 
         ChartPanel chartPanel = new ChartPanel(chart);
         chartPanel.setPreferredSize(new Dimension(600, 300));
-        setBorder(BorderFactory.createTitledBorder("Métricas"));
+        chartPanel.setBackground(Theme.SURFACE);
+        setOpaque(false);
         add(chartPanel, BorderLayout.CENTER);
     }
 

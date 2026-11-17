@@ -10,6 +10,7 @@ import com.unimet.avilaos.events.LogEntry;
 import com.unimet.avilaos.hardware.Cpu;
 import com.unimet.avilaos.metrics.MetricsSnapshot;
 import com.unimet.avilaos.os.Kernel;
+import com.unimet.avilaos.os.process.Pcb;
 import com.unimet.avilaos.os.scheduling.PolicyType;
 import com.unimet.avilaos.os.scheduling.Scheduler;
 import javax.swing.JOptionPane;
@@ -224,6 +225,13 @@ public final class SimulationController {
     private void refresh() {
         pauseWhenIdle();
         window.setCycle(cluster.getCurrentCycle());
+        int busy = 0;
+        int usedMb = 0;
+        int totalMb = 0;
+        int live = 0;
+        int blocked = 0;
+        int terminated = 0;
+        StringBuilder running = new StringBuilder();
         for (int id = 1; id <= cluster.getComputerCount(); id++) {
             Computer computer = cluster.getComputer(id);
             ComputerPanel panel = window.getComputerPanel(id);
@@ -232,8 +240,21 @@ public final class SimulationController {
             panel.showRunning(kernel.getRunning(), cpu.getMode(), cpu.getProgramCounter(),
                     cpu.getMemoryAddressRegister());
             panel.showMemory(computer.getRam().getUsedSize(), computer.getRam().getTotalSize());
-            panel.showQueues(kernel.getNewSnapshot(), kernel.getReadySnapshot(),
-                    kernel.getBlockedSnapshot(), kernel.getTerminatedSnapshot());
+            LinkedList<Pcb> newQueue = kernel.getNewSnapshot();
+            LinkedList<Pcb> readyQueue = kernel.getReadySnapshot();
+            LinkedList<Pcb> blockedQueue = kernel.getBlockedSnapshot();
+            LinkedList<Pcb> terminatedQueue = kernel.getTerminatedSnapshot();
+            panel.showQueues(newQueue, readyQueue, blockedQueue, terminatedQueue);
+            Pcb inCpu = kernel.getRunning();
+            if (inCpu != null) {
+                busy++;
+                running.append(running.length() == 0 ? "" : ", ").append(inCpu);
+            }
+            usedMb += computer.getRam().getUsedSize();
+            totalMb += computer.getRam().getTotalSize();
+            live += newQueue.size() + readyQueue.size() + blockedQueue.size() + (inCpu == null ? 0 : 1);
+            blocked += blockedQueue.size();
+            terminated += terminatedQueue.size();
             Scheduler scheduler = kernel.getScheduler();
             PolicyType policy = scheduler.getPolicyType();
             panel.showPolicy(policy.getLabel(), policy == PolicyType.ROUND_ROBIN ? scheduler.getQuantum() : 0);
@@ -241,6 +262,7 @@ public final class SimulationController {
                 planningDialog.showComputer(id, policy, scheduler.getQuantum(), scheduler.getReadyCount());
             }
         }
+        window.showOverview(busy, running.toString(), usedMb, totalMb, live, blocked, terminated);
         window.showBuffers(cluster.getBuffers(), cluster.getSystemMetrics().getBufferStats());
         MetricsSnapshot[] perComputer = new MetricsSnapshot[cluster.getComputerCount()];
         for (int id = 1; id <= perComputer.length; id++) {
