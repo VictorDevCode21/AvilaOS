@@ -11,13 +11,14 @@ import com.unimet.avilaos.hardware.Cpu;
 import com.unimet.avilaos.metrics.MetricsSnapshot;
 import com.unimet.avilaos.os.Kernel;
 import com.unimet.avilaos.os.scheduling.PolicyType;
+import com.unimet.avilaos.os.scheduling.Scheduler;
 import javax.swing.JOptionPane;
 import javax.swing.Timer;
 
 /**
  * Une la ventana con el clúster. La ventana solo muestra y reenvía clics; el clúster
  * simula. Este controlador:
- *  - conecta los botones, los selectores de política y los spinners con el clúster,
+ *  - conecta los botones, el spinner de duración y la ventana de Planificación con el clúster,
  *  - abre la vista de configuración y, si se acepta, reinicia todo con la nueva,
  *  - refresca la vista con un javax.swing.Timer (REFRESH_MS) que LEE el estado:
  *    la simulación nunca espera a la GUI y la GUI nunca toca el SO.
@@ -34,6 +35,7 @@ public final class SimulationController {
 
     private final SimulationConfig config;
     private final MainWindow window;
+    private final PlanningDialog planningDialog;
     private final Timer refreshTimer;
     private Cluster cluster;
     private long lastLogSequence = -1;
@@ -44,7 +46,8 @@ public final class SimulationController {
             throw new IllegalArgumentException("La configuración no puede ser null");
         }
         this.config = config;
-        this.window = new MainWindow(config.getComputerCount(), PolicyType.labels());
+        this.window = new MainWindow(config.getComputerCount());
+        this.planningDialog = new PlanningDialog(window, config.getComputerCount());
         this.refreshTimer = new Timer(REFRESH_MS, e -> refresh());
     }
 
@@ -66,23 +69,21 @@ public final class SimulationController {
         window.setCreateProcessAction(e -> createProcess());
         window.setCreateBufferAction(e -> createBuffer());
         window.setConfigAction(e -> configure());
+        window.setPlanningAction(e -> openPlanning());
+        planningDialog.setPlanningListener(this::applyPlanning);
         window.getCycleDurationSpinner().addChangeListener(e -> cluster.setCycleDurationMs(
                 ((Number) window.getCycleDurationSpinner().getValue()).longValue()));
-        window.getQuantumSpinner().addChangeListener(e -> cluster.setQuantum(
-                ((Number) window.getQuantumSpinner().getValue()).intValue()));
-        for (int id = 1; id <= window.getComputerCount(); id++) {
-            int computerId = id;
-            window.getComputerPanel(id).onPolicyChanged(label ->
-                    cluster.setPolicy(computerId, PolicyType.fromLabel(label)));
-        }
     }
 
-    /** Pone en la vista los valores de la configuración (sin disparar cambios). */
+    /**
+     * Pone en la vista los valores de la configuración. La política y el quantum de cada
+     * computador los muestra refresh() leyendo el planificador; si la ventana de
+     * Planificación está abierta, se recarga con los valores del clúster nuevo.
+     */
     private void showInitialSettings() {
         window.getCycleDurationSpinner().setValue((int) config.getCycleDurationMs());
-        window.setQuantum(config.getQuantum());
-        for (int id = 1; id <= config.getComputerCount(); id++) {
-            window.getComputerPanel(id).showPolicy(config.findComputer(id).initialPolicy().getLabel());
+        if (planningDialog.isVisible()) {
+            loadPlanning();
         }
     }
 
@@ -177,8 +178,41 @@ public final class SimulationController {
         }
         refreshTimer.stop();
         cluster.shutdown();
+        planningDialog.dispose();
         window.dispose();
         new SimulationController(newConfig).show();
+    }
+
+    // ---------- Planificación ----------
+
+    /** Abre la ventana de Planificación con lo que tiene cada computador ahora. */
+    private void openPlanning() {
+        if (!planningDialog.isVisible()) {          // si ya está abierta no se pisa lo que se está eligiendo
+            loadPlanning();
+        }
+        planningDialog.setVisible(true);
+        planningDialog.toFront();
+    }
+
+    private void loadPlanning() {
+        PolicyType[] policies = new PolicyType[cluster.getComputerCount()];
+        for (int id = 1; id <= policies.length; id++) {
+            policies[id - 1] = cluster.getComputer(id).getKernel().getScheduler().getPolicyType();
+        }
+        planningDialog.load(policies, cluster.getComputer(1).getKernel().getScheduler().getQuantum());
+    }
+
+    /**
+     * "Aplicar" de la ventana de Planificación. Cada kernel lo toma al inicio de su próximo
+     * ciclo (y lo anota en el log); pedir la política que ya tiene no hace nada.
+     * Igual que antes con el selector y el spinner, no cambia la configuración: al
+     * reiniciar se vuelve a la política inicial de cada computador.
+     */
+    private void applyPlanning(PolicyType[] policies, int quantum) {
+        for (int id = 1; id <= policies.length; id++) {
+            cluster.setPolicy(id, policies[id - 1]);
+        }
+        cluster.setQuantum(quantum);
     }
 
     private void showError(String title, IllegalArgumentException ex) {
@@ -200,6 +234,12 @@ public final class SimulationController {
             panel.showMemory(computer.getRam().getUsedSize(), computer.getRam().getTotalSize());
             panel.showQueues(kernel.getNewSnapshot(), kernel.getReadySnapshot(),
                     kernel.getBlockedSnapshot(), kernel.getTerminatedSnapshot());
+            Scheduler scheduler = kernel.getScheduler();
+            PolicyType policy = scheduler.getPolicyType();
+            panel.showPolicy(policy.getLabel(), policy == PolicyType.ROUND_ROBIN ? scheduler.getQuantum() : 0);
+            if (planningDialog.isVisible()) {
+                planningDialog.showComputer(id, policy, scheduler.getQuantum(), scheduler.getReadyCount());
+            }
         }
         window.showBuffers(cluster.getBuffers(), cluster.getSystemMetrics().getBufferStats());
         MetricsSnapshot[] perComputer = new MetricsSnapshot[cluster.getComputerCount()];
