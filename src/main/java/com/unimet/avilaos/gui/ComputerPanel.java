@@ -7,75 +7,79 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
+import java.awt.RenderingHints;
 import java.awt.event.MouseEvent;
 import javax.swing.BorderFactory;
-import javax.swing.JComboBox;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumnModel;
 
 /**
- * "Vista 2": estado de UN computador del clúster.
+ * Estado de UN computador del clúster, como una tarjeta.
  *
- * Se crea una instancia por computador (igual que la clase Computer del modelo),
- * así que mostrar 2, 3 o 4 computadores es solo crear más paneles.
- * El panel no decide nada: recibe datos con los métodos show* y avisa
- * al exterior cuando el USUARIO cambia la política.
+ * Arriba: nombre y política (una "píldora"); el proceso en CPU con su modo (Usuario o SO)
+ * y sus registros; la ocupación de la RAM. Abajo: las cuatro colas, cada una con su
+ * color de estado y un contador.
+ *
+ * Se crea una instancia por computador (igual que la clase Computer del modelo), así
+ * que mostrar 2, 3 o 4 computadores es solo crear más paneles. El panel no decide nada:
+ * solo recibe datos con los métodos show*. La política se cambia en la ventana
+ * "Planificación" (PlanningDialog).
  *
  * @author NicollPinzon
  */
-public final class ComputerPanel extends JPanel {
+public final class ComputerPanel extends UiKit.Card {
 
     private static final long serialVersionUID = 1L;
 
-    private static final Color USER_COLOR = new Color(0, 128, 0);
-    private static final Color KERNEL_COLOR = new Color(200, 100, 0);
     private static final String NONE = "—";
 
     private final int computerId;
 
     // ---------- CPU (PCB del proceso en ejecución) ----------
-    private final JLabel processLabel = new JLabel(NONE);
-    private final JLabel typeLabel = new JLabel(NONE);
-    private final JLabel pcLabel = new JLabel(NONE);
-    private final JLabel marLabel = new JLabel(NONE);
-    private final JLabel priorityLabel = new JLabel(NONE);
-    private final JLabel deadlineLabel = new JLabel(NONE);
-    private final JLabel remainingLabel = new JLabel(NONE);
-    private final JLabel memoryLabel = new JLabel(NONE);
-    private final JLabel modeLabel = new JLabel(NONE);
+    private final StatusDot cpuDot = new StatusDot();
+    private final JLabel processLabel = Theme.label("Ociosa", new Font(Theme.BODY.getFamily(), Font.BOLD, 15), Theme.TEXT);
+    private final UiKit.Pill modePill = new UiKit.Pill("", null, Theme.MUTED);
+    private final JLabel detailLabel = Theme.label(" ", Theme.SMALL, Theme.MUTED);
+    private final JLabel pcLabel = value();
+    private final JLabel marLabel = value();
+    private final JLabel remainingLabel = value();
+    private final JLabel deadlineLabel = value();
 
     // ---------- Memoria ----------
-    private final JProgressBar memoryBar = new JProgressBar(0, 100);
+    private final UiKit.UsageBar memoryBar = new UiKit.UsageBar();
+    private final JLabel memoryText = Theme.label(NONE, Theme.SMALL, Theme.MUTED);
 
-    // ---------- Política ----------
-    private final JComboBox<String> policyCombo;
-    private boolean updatingPolicy;          // true mientras la GUI cambia el selector por código
+    // ---------- Política (solo lectura: se cambia en la ventana Planificación) ----------
+    private final UiKit.Pill policyPill = new UiKit.Pill(NONE, Theme.ACCENT_SOFT, Theme.ACCENT_DARK);
 
     // ---------- Colas ----------
     private final ProcessTableModel newModel = new ProcessTableModel();
     private final ProcessTableModel readyModel = new ProcessTableModel();
     private final ProcessTableModel blockedModel = new ProcessTableModel();
     private final ProcessTableModel terminatedModel = new ProcessTableModel();
+    private final UiKit.SectionHeader newHeader = new UiKit.SectionHeader("Nuevos", Theme.STATE_NEW);
+    private final UiKit.SectionHeader readyHeader = new UiKit.SectionHeader("Listos", Theme.STATE_READY);
+    private final UiKit.SectionHeader blockedHeader = new UiKit.SectionHeader("Bloqueados", Theme.STATE_BLOCKED);
+    private final UiKit.SectionHeader terminatedHeader = new UiKit.SectionHeader("Terminados",
+            Theme.STATE_TERMINATED);
 
     /**
-     * @param computerId   número del computador (1, 2, ...)
-     * @param policyLabels etiquetas de las políticas para el selector (PolicyType.labels())
+     * @param computerId número del computador (1, 2, ...)
      */
-    public ComputerPanel(int computerId, String[] policyLabels) {
+    public ComputerPanel(int computerId) {
+        super(new BorderLayout(0, 14));
         this.computerId = computerId;
-        this.policyCombo = new JComboBox<>(policyLabels);
-
-        setLayout(new BorderLayout(6, 6));
-        setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createLineBorder(Color.GRAY), "Computador " + computerId,
-                0, 0, new Font(Font.SANS_SERIF, Font.BOLD, 14)));
-
+        setBorder(Theme.padding(16, 16, 16, 16));
         add(buildTopSection(), BorderLayout.NORTH);
         add(buildQueuesSection(), BorderLayout.CENTER);
         showIdle();
@@ -84,71 +88,81 @@ public final class ComputerPanel extends JPanel {
     // ---------- Construcción de la vista ----------
 
     private JPanel buildTopSection() {
-        // CPU: dos pares etiqueta-valor por fila para que quepa a lo ancho
-        JPanel cpu = new JPanel(new GridLayout(5, 4, 6, 2));
-        cpu.setBorder(BorderFactory.createTitledBorder("CPU"));
-        addPair(cpu, "Proceso:", processLabel);
-        addPair(cpu, "Modo:", modeLabel);
-        addPair(cpu, "Tipo:", typeLabel);
-        addPair(cpu, "Prioridad:", priorityLabel);
-        addPair(cpu, "PC:", pcLabel);                          // registros de la CPU, juntos
-        addPair(cpu, "MAR:", marLabel);
-        addPair(cpu, "Deadline:", deadlineLabel);
-        addPair(cpu, "Instr. rest.:", remainingLabel);
-        addPair(cpu, "Memoria:", memoryLabel);
-        cpu.add(new JLabel());                                  // relleno de la última fila
-        cpu.add(new JLabel());
-        // Tras el primer ciclo el MAR va un paso detrás del PC; al cargar un proceso son iguales (ver showRunning)
-        pcLabel.setToolTipText("Program counter: dirección de la PRÓXIMA instrucción");
-        marLabel.setToolTipText("Memory address register: dirección de la instrucción de este ciclo (MAR ← PC)");
-        modeLabel.setFont(modeLabel.getFont().deriveFont(Font.BOLD));
+        JPanel top = Theme.transparent(new JPanel());
+        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
 
-        JPanel memory = new JPanel(new BorderLayout());
-        memory.setBorder(BorderFactory.createTitledBorder("Memoria principal"));
-        memoryBar.setStringPainted(true);
-        memoryBar.setString(NONE);
-        memory.add(memoryBar, BorderLayout.CENTER);
+        // Encabezado: nombre y política
+        JPanel header = Theme.transparent(new JPanel(new BorderLayout(8, 0)));
+        header.add(Theme.label("Computador " + computerId, Theme.CARD_TITLE, Theme.TEXT), BorderLayout.WEST);
+        policyPill.setToolTipText("Se cambia con Planificación, en el menú de la izquierda");
+        header.add(policyPill, BorderLayout.EAST);
+        top.add(fullWidth(header));
+        top.add(Box.createVerticalStrut(12));
 
-        JPanel policy = new JPanel(new BorderLayout());
-        policy.setBorder(BorderFactory.createTitledBorder("Política de planificación"));
-        policy.add(policyCombo, BorderLayout.CENTER);
+        // CPU: proceso, modo, detalle y registros
+        UiKit.Card cpu = new UiKit.Card(new BorderLayout(0, 8)).colors(Theme.SURFACE_ALT, Theme.BORDER);
+        cpu.setBorder(Theme.padding(12, 12, 12, 12));
+        JPanel first = Theme.transparent(new JPanel(new BorderLayout(8, 0)));
+        JPanel name = Theme.transparent(new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 0)));
+        name.add(cpuDot);
+        name.add(processLabel);
+        first.add(name, BorderLayout.CENTER);
+        first.add(modePill, BorderLayout.EAST);
+        JPanel lines = Theme.transparent(new JPanel(new BorderLayout(0, 8)));
+        lines.add(first, BorderLayout.NORTH);
+        lines.add(detailLabel, BorderLayout.CENTER);
+        cpu.add(lines, BorderLayout.NORTH);
 
-        JPanel side = new JPanel(new GridLayout(2, 1, 0, 4));
-        side.add(memory);
-        side.add(policy);
+        JPanel registers = Theme.transparent(new JPanel(new GridLayout(1, 4, 8, 0)));
+        registers.add(register("PC", pcLabel, "Program counter: dirección de la PRÓXIMA instrucción"));
+        registers.add(register("MAR", marLabel, "Memory address register: dirección de la instrucción de este ciclo (MAR ← PC)"));
+        registers.add(register("Instr. rest.", remainingLabel, "Instrucciones que le faltan al proceso"));
+        registers.add(register("Deadline", deadlineLabel, "Ciclos que le quedan antes de su deadline"));
+        cpu.add(registers, BorderLayout.SOUTH);
+        top.add(fullWidth(cpu));
+        top.add(Box.createVerticalStrut(12));
 
-        JPanel top = new JPanel(new BorderLayout(6, 0));
-        top.add(cpu, BorderLayout.CENTER);
-        top.add(side, BorderLayout.EAST);
-        side.setPreferredSize(new Dimension(230, 120));       // alto suficiente para la barra y el selector
+        // Memoria
+        JPanel memoryRow = Theme.transparent(new JPanel(new BorderLayout(8, 0)));
+        memoryRow.add(Theme.label("Memoria principal", Theme.SMALL_BOLD, Theme.TEXT), BorderLayout.WEST);
+        memoryRow.add(memoryText, BorderLayout.EAST);
+        top.add(fullWidth(memoryRow));
+        top.add(Box.createVerticalStrut(6));
+        memoryBar.setPreferredSize(new Dimension(100, 8));
+        memoryBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 8));
+        memoryBar.setAlignmentX(LEFT_ALIGNMENT);
+        top.add(memoryBar);
         return top;
     }
 
     private JPanel buildQueuesSection() {
         // Una cola debajo de la otra: cada tabla usa todo el ancho y el motivo no se corta
-        JPanel queues = new JPanel(new GridLayout(4, 1, 0, 4));
-        queues.add(wrapTable("Nuevos", newModel));
-        queues.add(wrapTable("Listos", readyModel));
-        queues.add(wrapTable("Bloqueados", blockedModel));
-        queues.add(wrapTable("Terminados", terminatedModel));
+        JPanel queues = Theme.transparent(new JPanel(new GridLayout(4, 1, 0, 12)));
+        queues.add(queue(newHeader, newModel));
+        queues.add(queue(readyHeader, readyModel));
+        queues.add(queue(blockedHeader, blockedModel));
+        queues.add(queue(terminatedHeader, terminatedModel));
         return queues;
     }
 
-    private static JScrollPane wrapTable(String title, ProcessTableModel model) {
+    private static JPanel queue(UiKit.SectionHeader header, ProcessTableModel model) {
+        JPanel panel = Theme.transparent(new JPanel(new BorderLayout()));
+        panel.add(header, BorderLayout.NORTH);
+        panel.add(wrapTable(model), BorderLayout.CENTER);
+        return panel;
+    }
+
+    private static JScrollPane wrapTable(ProcessTableModel model) {
         JTable table = new JTable(model) {
             private static final long serialVersionUID = 1L;
 
             @Override
-            public String getToolTipText(MouseEvent e) {        // texto completo al pasar el mouse
+            public String getToolTipText(MouseEvent e) {        // el PCB completo al pasar el mouse
                 int row = rowAtPoint(e.getPoint());
-                int col = columnAtPoint(e.getPoint());
-                if (row < 0 || col < 0) {
-                    return null;
-                }
-                Object value = getValueAt(row, col);
-                return value == null ? null : value.toString();
+                return row < 0 ? null : model.describe(row);
             }
         };
+        Theme.styleTable(table);
         table.setFillsViewportHeight(true);
         table.setRowSelectionAllowed(false);
         table.setTableHeader(new JTableHeader(table.getColumnModel()) {
@@ -157,24 +171,48 @@ public final class ComputerPanel extends JPanel {
             @Override
             public String getToolTipText(MouseEvent e) {        // nombre completo de la columna
                 int col = columnAtPoint(e.getPoint());
-                return col < 0 ? null : ProcessTableModel.COLUMN_TIPS[col];
+                return col < 0 ? null
+                        : ProcessTableModel.COLUMN_TIPS[getColumnModel().getColumn(col).getModelIndex()];
             }
         });
-        table.getTableHeader().setReorderingAllowed(false);
+        Theme.styleTable(table);                                 // otra vez: el encabezado es nuevo
+        // Con 3 computadores lado a lado no caben 9 columnas: se ocultan Tipo, PC y MB (el modelo
+        // las sigue teniendo) y el PCB completo sale en el tooltip de la fila.
         TableColumnModel columns = table.getColumnModel();
-        int[] widths = {55, 90, 75, 40, 45, 50, 50, 45, 230};
+        for (int hidden : new int[] {7, 4, 2}) {                 // de atrás hacia adelante
+            columns.removeColumn(columns.getColumn(hidden));
+        }
+        int[] widths = {60, 72, 34, 42, 44, 90};               // suman ~342: lo que mide una tarjeta con 3 computadores
+        String[] headers = {"ID", "Nombre", "Pr", "Rest", "DL", "Estado"};   // cortos; el nombre completo va en el tooltip
         for (int i = 0; i < widths.length; i++) {
             columns.getColumn(i).setPreferredWidth(widths[i]);
+            columns.getColumn(i).setHeaderValue(headers[i]);
         }
-        JScrollPane scroll = new JScrollPane(table);
-        scroll.setBorder(BorderFactory.createTitledBorder(title));
-        scroll.setPreferredSize(new Dimension(480, 95));       // las columnas se ajustan al ancho real
+        JScrollPane scroll = Theme.scroll(table);
+        scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
+        scroll.setPreferredSize(new Dimension(380, 88));        // las columnas se ajustan al ancho real
         return scroll;
     }
 
-    private static void addPair(JPanel panel, String label, JLabel value) {
-        panel.add(new JLabel(label));
-        panel.add(value);
+    private static JPanel register(String name, JLabel value, String tip) {
+        JPanel panel = Theme.transparent(new JPanel(new BorderLayout(0, 2)));
+        JLabel title = Theme.label(name, Theme.SMALL, Theme.MUTED);
+        panel.add(title, BorderLayout.NORTH);
+        panel.add(value, BorderLayout.CENTER);
+        panel.setToolTipText(tip);
+        title.setToolTipText(tip);
+        value.setToolTipText(tip);
+        return panel;
+    }
+
+    private static JLabel value() {
+        return Theme.label(NONE, new Font(Theme.MONO_FONT.getFamily(), Font.PLAIN, 14), Theme.TEXT);
+    }
+
+    private static <T extends JComponent> T fullWidth(T component) {
+        component.setAlignmentX(LEFT_ALIGNMENT);
+        component.setMaximumSize(new Dimension(Integer.MAX_VALUE, component.getPreferredSize().height));
+        return component;
     }
 
     // ---------- Métodos que usa quien alimenta la vista ----------
@@ -204,37 +242,39 @@ public final class ComputerPanel extends JPanel {
             showIdle();
             return;
         }
-        String process = running + " (" + running.getName() + ")";
-        processLabel.setText(process);
+        String process = running + " · " + running.getName();
+        setText(processLabel, process);
         processLabel.setToolTipText(process);                  // nombres largos se cortan: texto completo aquí
-        typeLabel.setText(running.getType().getLabel());
-        pcLabel.setText(String.valueOf(pc));
-        marLabel.setText(String.valueOf(mar));
-        priorityLabel.setText(String.valueOf(running.getPriority()));
-        deadlineLabel.setText(running.getRemainingDeadline() + " ciclos");
-        remainingLabel.setText(String.valueOf(running.getRemainingInstructions()));
-        memoryLabel.setText(running.getMemorySize() + " MB");
-        modeLabel.setText(mode.getLabel());
-        modeLabel.setForeground(mode == CpuMode.USER ? USER_COLOR : KERNEL_COLOR);
+        setText(detailLabel, running.getType().getLabel() + " · prioridad " + running.getPriority()
+                + " · " + running.getMemorySize() + " MB");
+        setText(pcLabel, String.valueOf(pc));
+        setText(marLabel, String.valueOf(mar));
+        setText(remainingLabel, String.valueOf(running.getRemainingInstructions()));
+        setText(deadlineLabel, String.valueOf(running.getRemainingDeadline()));
+        cpuDot.setColor(Theme.STATE_RUNNING);
+        boolean user = mode == CpuMode.USER;
+        setText(modePill, user ? "Usuario" : "Modo SO");
+        modePill.setColors(user ? Theme.USER_BG : Theme.KERNEL_BG, user ? Theme.USER_FG : Theme.KERNEL_FG);
     }
 
     /** CPU sin proceso: todo en "—". */
     public void showIdle() {
-        processLabel.setText("Ociosa");
+        setText(processLabel, "CPU ociosa");
         processLabel.setToolTipText(null);
-        for (JLabel label : new JLabel[] {typeLabel, pcLabel, marLabel, priorityLabel, deadlineLabel,
-            remainingLabel, memoryLabel, modeLabel}) {
-            label.setText(NONE);
+        setText(detailLabel, "Esperando un proceso en Listos");
+        for (JLabel label : new JLabel[] {pcLabel, marLabel, remainingLabel, deadlineLabel}) {
+            setText(label, NONE);
         }
-        modeLabel.setForeground(getForeground());
+        cpuDot.setColor(Theme.BORDER_STRONG);
+        setText(modePill, "");
+        modePill.setColors(null, Theme.MUTED);
     }
 
-    /** Muestra la ocupación de la RAM. */
+    /** Muestra la ocupación de la RAM ("usada / libre", como pide el enunciado). */
     public void showMemory(int usedMb, int totalMb) {
         int percent = totalMb == 0 ? 0 : (int) Math.round(usedMb * 100.0 / totalMb);
-        memoryBar.setValue(percent);
-        // El enunciado pide ver la ocupación "usada / libre"
-        memoryBar.setString("Usada " + usedMb + " · Libre " + (totalMb - usedMb) + " MB");
+        memoryBar.setPercent(percent);
+        setText(memoryText, "Usada " + usedMb + " · Libre " + (totalMb - usedMb) + " MB");
         memoryBar.setToolTipText(percent + "% de " + totalMb + " MB en uso");
     }
 
@@ -248,47 +288,72 @@ public final class ComputerPanel extends JPanel {
         readyModel.setProcesses(readyQueue);
         blockedModel.setProcesses(blockedQueue);
         terminatedModel.setProcesses(terminatedQueue);
+        newHeader.setCount(newModel.getRowCount());
+        readyHeader.setCount(readyModel.getRowCount());
+        blockedHeader.setCount(blockedModel.getRowCount());
+        terminatedHeader.setCount(terminatedModel.getRowCount());
     }
 
     /**
-     * Pone en el selector la política que tiene el computador (ej. la de la configuración).
-     * NO avisa a onPolicyChanged: solo los cambios hechos por el usuario se reportan.
+     * Muestra la política que tiene el planificador del computador ahora.
      *
-     * @param label etiqueta de la política (PolicyType.getLabel())
+     * @param label   etiqueta de la política (PolicyType.getLabel())
+     * @param quantum quantum de Round Robin; se muestra solo si la política lo usa (0 = no mostrar)
      */
-    public void showPolicy(String label) {
-        updatingPolicy = true;
-        try {
-            policyCombo.setSelectedItem(label);
-        } finally {
-            updatingPolicy = false;
-        }
-    }
-
-    /**
-     * Registra qué hacer cuando el USUARIO cambia la política en el selector.
-     * Recibe la etiqueta; el clúster la convierte con PolicyType.fromLabel(...).
-     */
-    public void onPolicyChanged(PolicyChangeListener listener) {
-        policyCombo.addActionListener(e -> {
-            if (!updatingPolicy) {
-                listener.policyChanged((String) policyCombo.getSelectedItem());
-            }
-        });
+    public void showPolicy(String label, int quantum) {
+        setText(policyPill, quantum > 0 ? label + " · q " + quantum : label);
     }
 
     /** Deja el panel como recién creado (ej. al reiniciar la simulación). */
     public void clear() {
         showIdle();
         showMemory(0, 0);
-        memoryBar.setString(NONE);
+        setText(memoryText, NONE);
         newModel.clear();
         readyModel.clear();
         blockedModel.clear();
         terminatedModel.clear();
+        for (UiKit.SectionHeader header : new UiKit.SectionHeader[] {newHeader, readyHeader, blockedHeader,
+            terminatedHeader}) {
+            header.setCount(0);
+        }
     }
 
     public int getComputerId() {
         return computerId;
+    }
+
+    /** Cambia el texto solo si es distinto: el refresco corre cada 150 ms y así no se redibuja de más. */
+    private static void setText(JLabel label, String text) {
+        if (!text.equals(label.getText())) {
+            label.setText(text);
+        }
+    }
+
+    /** Punto de color del estado de la CPU (verde = ejecutando, gris = ociosa). */
+    private static final class StatusDot extends JComponent {
+
+        private static final long serialVersionUID = 1L;
+        private Color color = Theme.BORDER_STRONG;
+
+        StatusDot() {
+            setPreferredSize(new Dimension(10, 18));
+        }
+
+        void setColor(Color color) {
+            if (!color.equals(this.color)) {
+                this.color = color;
+                repaint();
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(color);
+            g2.fillOval(0, getHeight() / 2 - 5, 10, 10);
+            g2.dispose();
+        }
     }
 }

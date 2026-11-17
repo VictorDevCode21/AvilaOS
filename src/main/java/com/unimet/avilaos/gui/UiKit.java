@@ -1,0 +1,383 @@
+package com.unimet.avilaos.gui;
+
+import java.awt.BasicStroke;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.LayoutManager;
+import java.awt.RenderingHints;
+import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+
+/**
+ * Componentes visuales propios de la interfaz, dibujados con Graphics2D (Swing puro).
+ *
+ *  - Card: panel blanco con esquinas redondeadas y borde fino.
+ *  - Button: botón plano (principal, secundario o de texto).
+ *  - Pill: etiqueta con fondo redondeado (política, modo de la CPU, contadores).
+ *  - NavItem: opción del menú lateral, con punto de color y contador.
+ *  - UsageBar: barra de ocupación redondeada (memoria).
+ *  - Kpi: tarjeta con un indicador (título, valor grande y detalle).
+ *
+ * No tienen lógica del simulador: solo se ven y avisan clics como cualquier JButton.
+ *
+ * @author donatovodola
+ */
+public final class UiKit {
+
+    private UiKit() {
+    }
+
+    private static Graphics2D smooth(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        return g2;
+    }
+
+    // =====================================================================
+    // Card
+    // =====================================================================
+
+    /** Panel blanco con esquinas redondeadas; el contenido va con el layout que se pase. */
+    public static class Card extends JPanel {
+
+        private static final long serialVersionUID = 1L;
+        private Color fill = Theme.SURFACE;
+        private Color stroke = Theme.BORDER;
+
+        public Card(LayoutManager layout) {
+            super(layout);
+            setOpaque(false);
+            setBorder(Theme.padding(14, 16, 14, 16));
+        }
+
+        /** Colores de fondo y borde (ej. un bloque gris dentro de una tarjeta). */
+        public Card colors(Color fill, Color stroke) {
+            this.fill = fill;
+            this.stroke = stroke;
+            repaint();
+            return this;
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = smooth(g);
+            g2.setColor(fill);
+            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, Theme.RADIUS, Theme.RADIUS);
+            if (stroke != null) {
+                g2.setColor(stroke);
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, Theme.RADIUS, Theme.RADIUS);
+            }
+            g2.dispose();
+            super.paintComponent(g);
+        }
+    }
+
+    // =====================================================================
+    // Button
+    // =====================================================================
+
+    /** Variante del botón. */
+    public enum Kind {
+        PRIMARY, SECONDARY, GHOST
+    }
+
+    /** Botón plano con esquinas redondeadas; cambia de tono al pasar el mouse y al presionarlo. */
+    public static class Button extends JButton {
+
+        private static final long serialVersionUID = 1L;
+        private final Kind kind;
+
+        public Button(String text, Kind kind) {
+            super(text);
+            this.kind = kind;
+            setContentAreaFilled(false);
+            setFocusPainted(false);
+            setBorderPainted(false);
+            setOpaque(false);
+            setRolloverEnabled(true);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setFont(kind == Kind.PRIMARY ? Theme.BODY_BOLD : Theme.BODY);
+            setForeground(kind == Kind.PRIMARY ? Color.WHITE : Theme.TEXT);
+            setBorder(Theme.padding(0, 14, 0, 14));
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            Dimension size = super.getPreferredSize();
+            return new Dimension(size.width, 34);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = smooth(g);
+            boolean hover = getModel().isRollover() && isEnabled();
+            boolean pressed = getModel().isPressed();
+            Color fill;
+            Color stroke = null;
+            switch (kind) {
+                case PRIMARY -> fill = !isEnabled() ? Theme.BORDER_STRONG
+                        : pressed ? Theme.ACCENT_DARK : hover ? Theme.ACCENT_HOVER : Theme.ACCENT;
+                case SECONDARY -> {
+                    fill = pressed ? Theme.ACCENT_SOFT : hover ? Theme.SURFACE_ALT : Theme.SURFACE;
+                    stroke = Theme.BORDER_STRONG;
+                }
+                default -> fill = pressed ? Theme.ACCENT_SOFT : hover ? new Color(0xEEF0F3) : new Color(0, 0, 0, 0);
+            }
+            g2.setColor(fill);
+            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+            if (stroke != null) {
+                g2.setColor(stroke);
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+            }
+            g2.dispose();
+            super.paintComponent(g);
+        }
+    }
+
+    // =====================================================================
+    // Pill
+    // =====================================================================
+
+    /** Etiqueta con fondo redondeado. Se le cambian texto y colores en vivo. */
+    public static class Pill extends JLabel {
+
+        private static final long serialVersionUID = 1L;
+        private Color fill;
+
+        public Pill(String text, Color fill, Color foreground) {
+            super(text);
+            this.fill = fill;
+            setForeground(foreground);
+            setFont(Theme.SMALL_BOLD);
+            setBorder(Theme.padding(3, 9, 3, 9));
+            setOpaque(false);
+        }
+
+        public void setColors(Color fill, Color foreground) {
+            this.fill = fill;
+            setForeground(foreground);
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            if (fill != null && getText() != null && !getText().isEmpty()) {
+                Graphics2D g2 = smooth(g);
+                g2.setColor(fill);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
+                g2.dispose();
+            }
+            super.paintComponent(g);
+        }
+    }
+
+    // =====================================================================
+    // NavItem
+    // =====================================================================
+
+    /** Opción del menú lateral: punto de color, nombre y un contador a la derecha. */
+    public static class NavItem extends JButton {
+
+        private static final long serialVersionUID = 1L;
+        private final Color dot;
+        private boolean active;
+        private String badge = "";
+
+        public NavItem(String text, Color dot) {
+            super(text);
+            this.dot = dot;
+            setContentAreaFilled(false);
+            setFocusPainted(false);
+            setBorderPainted(false);
+            setOpaque(false);
+            setRolloverEnabled(true);
+            setHorizontalAlignment(LEFT);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setFont(Theme.BODY);
+            setBorder(Theme.padding(0, 30, 0, 12));
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+            setAlignmentX(LEFT_ALIGNMENT);
+        }
+
+        public void setActive(boolean active) {
+            this.active = active;
+            setFont(active ? Theme.BODY_BOLD : Theme.BODY);
+            setForeground(active ? Theme.ACCENT_DARK : Theme.TEXT);
+            repaint();
+        }
+
+        /** Texto corto a la derecha (ej. "9 vivos"); vacío = nada. */
+        public void setBadge(String badge) {
+            String value = badge == null ? "" : badge;
+            if (!value.equals(this.badge)) {
+                this.badge = value;
+                repaint();
+            }
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            return new Dimension(super.getPreferredSize().width + 60, 40);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = smooth(g);
+            if (active || getModel().isRollover()) {
+                g2.setColor(active ? Theme.ACCENT_SOFT : Theme.SURFACE_ALT);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+            }
+            g2.setColor(dot);
+            g2.fillOval(13, getHeight() / 2 - 4, 8, 8);
+            if (!badge.isEmpty()) {
+                g2.setFont(Theme.SMALL);
+                g2.setColor(Theme.MUTED);
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(badge, getWidth() - 12 - fm.stringWidth(badge),
+                        (getHeight() + fm.getAscent() - fm.getDescent()) / 2);
+            }
+            g2.dispose();
+            super.paintComponent(g);
+        }
+    }
+
+    // =====================================================================
+    // UsageBar
+    // =====================================================================
+
+    /** Barra de ocupación redondeada: valor de 0 a 100. */
+    public static class UsageBar extends JComponent {
+
+        private static final long serialVersionUID = 1L;
+        private int percent;
+
+        public UsageBar() {
+            setPreferredSize(new Dimension(120, 8));
+            setMinimumSize(new Dimension(40, 8));
+        }
+
+        public void setPercent(int percent) {
+            int value = Math.max(0, Math.min(100, percent));
+            if (value != this.percent) {
+                this.percent = value;
+                repaint();
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = smooth(g);
+            int h = getHeight();
+            g2.setColor(new Color(0xE7EAEE));
+            g2.fillRoundRect(0, 0, getWidth(), h, h, h);
+            int w = (int) Math.round(getWidth() * percent / 100.0);
+            if (w > 0) {
+                g2.setColor(percent >= 90 ? Theme.STATE_BLOCKED : Theme.ACCENT);
+                g2.fillRoundRect(0, 0, Math.max(w, h), h, h, h);
+            }
+            g2.dispose();
+        }
+    }
+
+    // =====================================================================
+    // Kpi
+    // =====================================================================
+
+    /** Tarjeta de indicador: título pequeño, valor grande y una línea de detalle. */
+    public static class Kpi extends Card {
+
+        private static final long serialVersionUID = 1L;
+        private final JLabel value = Theme.label("—", Theme.KPI, Theme.TEXT);
+        private final JLabel detail = Theme.label(" ", Theme.SMALL, Theme.MUTED);
+
+        public Kpi(String title) {
+            super(new BorderLayout());
+            setBorder(Theme.padding(12, 14, 12, 14));
+            JPanel column = Theme.transparent(new JPanel());
+            column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
+            JLabel heading = Theme.label(title, Theme.SMALL, Theme.MUTED);
+            column.add(heading);
+            column.add(javax.swing.Box.createVerticalStrut(4));
+            column.add(value);
+            column.add(javax.swing.Box.createVerticalStrut(2));
+            column.add(detail);
+            add(column, BorderLayout.CENTER);
+        }
+
+        public void show(String value, String detail) {
+            if (!value.equals(this.value.getText())) {
+                this.value.setText(value);
+            }
+            String line = detail == null || detail.isEmpty() ? " " : detail;
+            if (!line.equals(this.detail.getText())) {
+                this.detail.setText(line);
+                this.detail.setToolTipText(line.isBlank() ? null : line);
+            }
+        }
+    }
+
+    /** Título de sección con un punto de color y un contador (ej. "● Listos  3"). */
+    public static class SectionHeader extends JPanel {
+
+        private static final long serialVersionUID = 1L;
+        private final Pill count;
+
+        public SectionHeader(String title, Color dot) {
+            super(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+            setOpaque(false);
+            setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
+            JComponent mark = new JComponent() {
+                private static final long serialVersionUID = 1L;
+
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = smooth(g);
+                    g2.setColor(dot);
+                    g2.fillOval(0, getHeight() / 2 - 4, 8, 8);
+                    g2.dispose();
+                }
+            };
+            mark.setPreferredSize(new Dimension(8, 16));
+            add(mark);
+            add(Theme.label(title, Theme.SMALL_BOLD, Theme.TEXT));
+            count = new Pill("0", new Color(0xEEF0F3), Theme.MUTED);
+            count.setBorder(Theme.padding(1, 7, 1, 7));
+            add(count);
+        }
+
+        public void setCount(int value) {
+            String text = String.valueOf(value);
+            if (!text.equals(count.getText())) {
+                count.setText(text);
+            }
+        }
+    }
+
+    /** Línea fina para separar bloques dentro de una tarjeta. */
+    public static JComponent divider() {
+        JComponent line = new JComponent() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setColor(Theme.BORDER);
+                g2.setStroke(new BasicStroke(1f));
+                g2.drawLine(0, getHeight() / 2, getWidth(), getHeight() / 2);
+                g2.dispose();
+            }
+        };
+        line.setPreferredSize(new Dimension(10, 9));
+        return line;
+    }
+}
