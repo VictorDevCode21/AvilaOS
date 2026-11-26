@@ -9,7 +9,9 @@ import com.unimet.avilaos.hardware.HeadDirection;
  * Todas recorren la cola en orden de llegada y, si hay empate, se quedan con la
  * que llegó primero: así los empates siempre se resuelven igual (FIFO).
  *
- * Solo lee la lista que recibe; no la modifica.
+ * Solo lee la lista que recibe; no la modifica. Para recorrerla una sola vez
+ * (O(n)) la pasa primero a un arreglo: LinkedList.get(i) empieza desde la
+ * cabeza en cada llamada, y recorrerla con get(i) haría cada búsqueda O(n²).
  *
  * @author NicollPinzon
  */
@@ -18,11 +20,23 @@ final class DiskPolicySupport {
     private DiskPolicySupport() {
     }
 
+    /**
+     * Copia la cola a un arreglo en orden de llegada, en O(n): saca de una copia
+     * con removeFirst() (O(1)) en lugar de usar get(i) (O(n) cada vez).
+     */
+    static DiskRequest[] toArray(LinkedList<DiskRequest> pending) {
+        LinkedList<DiskRequest> copy = pending.copy();
+        DiskRequest[] result = new DiskRequest[copy.size()];
+        for (int i = 0; i < result.length; i++) {
+            result[i] = copy.removeFirst();
+        }
+        return result;
+    }
+
     /** La más cercana al cabezal en cualquier dirección (SSTF). */
     static DiskRequest nearest(LinkedList<DiskRequest> pending, int headBlock) {
         DiskRequest best = null;
-        for (int i = 0; i < pending.size(); i++) {
-            DiskRequest r = pending.get(i);
+        for (DiskRequest r : toArray(pending)) {
             if (best == null || r.distanceFrom(headBlock) < best.distanceFrom(headBlock)) {
                 best = r;
             }
@@ -39,8 +53,7 @@ final class DiskPolicySupport {
     static DiskRequest nearestAhead(LinkedList<DiskRequest> pending, int headBlock,
             HeadDirection direction) {
         DiskRequest best = null;
-        for (int i = 0; i < pending.size(); i++) {
-            DiskRequest r = pending.get(i);
+        for (DiskRequest r : toArray(pending)) {
             if (isAhead(r, headBlock, direction)
                     && (best == null || r.distanceFrom(headBlock) < best.distanceFrom(headBlock))) {
                 best = r;
@@ -56,8 +69,7 @@ final class DiskPolicySupport {
      */
     static DiskRequest firstFromStart(LinkedList<DiskRequest> pending, HeadDirection direction) {
         DiskRequest best = null;
-        for (int i = 0; i < pending.size(); i++) {
-            DiskRequest r = pending.get(i);
+        for (DiskRequest r : toArray(pending)) {
             if (best == null
                     || (r.getTargetBlock() - best.getTargetBlock()) * direction.getStep() < 0) {
                 best = r;
@@ -66,9 +78,9 @@ final class DiskPolicySupport {
         return best;
     }
 
-    /** Último bloque en la dirección dada: blockCount - 1 si es UP, 0 si es DOWN. */
-    static int edge(HeadDirection direction, int blockCount) {
-        return direction == HeadDirection.UP ? blockCount - 1 : 0;
+    /** Último bloque en la dirección dada: diskSize - 1 si es UP, 0 si es DOWN. */
+    static int edge(HeadDirection direction, int diskSize) {
+        return direction == HeadDirection.UP ? diskSize - 1 : 0;
     }
 
     private static boolean isAhead(DiskRequest r, int headBlock, HeadDirection direction) {
