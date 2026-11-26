@@ -156,8 +156,7 @@ public final class Theme {
         UIManager.put("TitledBorder.border", BorderFactory.createLineBorder(BORDER));
         color("TitledBorder.titleColor", MUTED);
         UIManager.put("ScrollPane.border", BorderFactory.createLineBorder(BORDER));
-        UIManager.put("Button.border", BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(BORDER_STRONG), BorderFactory.createEmptyBorder(5, 12, 5, 12)));
+        RoundedInputs.install();                 // rounded text fields, combos, spinners and titled borders
     }
 
     // ---------- Computer colors ----------
