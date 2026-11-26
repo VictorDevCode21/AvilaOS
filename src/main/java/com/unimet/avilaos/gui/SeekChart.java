@@ -35,13 +35,18 @@ public final class SeekChart extends JComponent {
     private static final int TOP = 26;
     private static final int BOTTOM = 30;
 
-    private final String[] policies;
+    /** Known policies; a label that is not here is added at the end (with the next color). */
+    private String[] policies;
     private long[] cycles = new long[256];
     private long[] values = new long[256];
     private int[] policyOf = new int[256];
     private int size;
 
-    /** @param policies policy labels, in order (their index picks the color) */
+    /**
+     * @param policies policy labels, in order (their index picks the color). A policy that is not in
+     *                 the list (e.g. one added later) gets its own entry and color the first time it
+     *                 appears, so it is never drawn as another policy.
+     */
     public SeekChart(String[] policies) {
         this.policies = policies.clone();
         setOpaque(false);
@@ -52,11 +57,13 @@ public final class SeekChart extends JComponent {
     /** Color used for a policy (the legend of the metrics view uses the same). */
     public Color colorOf(String policy) {
         int index = indexOf(policy);
-        return POLICY_COLORS[Math.max(0, index) % POLICY_COLORS.length];
+        return index < 0 ? Theme.MUTED : POLICY_COLORS[index % POLICY_COLORS.length];
     }
 
     /**
      * Adds one point. Cycles must not go backwards (a reset should call {@link #clear()} first).
+     * A second sample for the same cycle replaces the first one, so refreshing faster than the clock
+     * (or while paused) keeps one point per cycle. A sample without a policy name is ignored.
      *
      * @param cycle      clock cycle
      * @param cumulative total head displacement so far, in blocks
@@ -64,6 +71,16 @@ public final class SeekChart extends JComponent {
      */
     public void addSample(long cycle, long cumulative, String policy) {
         if (size > 0 && cycle < cycles[size - 1]) {
+            return;
+        }
+        int index = indexFor(policy);
+        if (index < 0) {
+            return;
+        }
+        if (size > 0 && cycle == cycles[size - 1]) {          // same cycle: update, don't repeat
+            values[size - 1] = cumulative;
+            policyOf[size - 1] = index;
+            repaint();
             return;
         }
         if (size == cycles.length) {
@@ -75,7 +92,7 @@ public final class SeekChart extends JComponent {
         }
         cycles[size] = cycle;
         values[size] = cumulative;
-        policyOf[size] = Math.max(0, indexOf(policy));
+        policyOf[size] = index;
         size++;
         repaint();
     }
@@ -214,6 +231,22 @@ public final class SeekChart extends JComponent {
             }
         }
         return -1;
+    }
+
+    /** Index of the policy, adding it at the end if it is new; -1 only for a missing name. */
+    private int indexFor(String policy) {
+        if (policy == null || policy.isBlank()) {
+            return -1;
+        }
+        int index = indexOf(policy);
+        if (index >= 0) {
+            return index;
+        }
+        String[] bigger = new String[policies.length + 1];
+        System.arraycopy(policies, 0, bigger, 0, policies.length);
+        bigger[policies.length] = policy.trim();
+        policies = bigger;
+        return policies.length - 1;
     }
 
     private int indexOf(String policy) {

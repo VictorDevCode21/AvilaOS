@@ -45,7 +45,7 @@ public final class DiskMetricsPanel extends JPanel {
         kpis.add(servedKpi);
         kpis.add(suspendKpi);
         kpis.add(resumeKpi);
-        seekKpi.setToolTipText("Bloques que recorrió el cabezal (el salto de C-SCAN no cuenta)");
+        seekKpi.setToolTipText("Bloques que recorrió el cabezal (el salto de C-SCAN y C-LOOK no cuenta)");
         waitKpi.setToolTipText("Ciclos que una solicitud espera en la cola de E/S antes de ser atendida");
         add(kpis, BorderLayout.NORTH);
 
@@ -101,7 +101,11 @@ public final class DiskMetricsPanel extends JPanel {
         bars.setCounts(new long[0]);
     }
 
-    /** Horizontal bars: one per policy, in its chart color. */
+    /**
+     * Horizontal bars: one per policy, in its chart color. If the counts bring more entries than
+     * labels, the extra ones are shown as "Otra 1", "Otra 2"... so the bars always add up to the
+     * "Solicitudes atendidas" indicator.
+     */
     private static final class PolicyBars extends JComponent {
 
         private static final long serialVersionUID = 1L;
@@ -118,7 +122,13 @@ public final class DiskMetricsPanel extends JPanel {
 
         void setCounts(long[] counts) {
             this.counts = counts == null ? new long[0] : counts.clone();
+            setPreferredSize(new Dimension(280, rows() * ROW));
+            revalidate();
             repaint();
+        }
+
+        private int rows() {
+            return Math.max(policies.length, counts.length);
         }
 
         @Override
@@ -135,16 +145,17 @@ public final class DiskMetricsPanel extends JPanel {
             int labelW = 58;
             int numberW = 36;
             int barW = getWidth() - labelW - numberW - 8;
-            for (int i = 0; i < policies.length; i++) {
+            for (int i = 0; i < rows(); i++) {
                 long count = i < counts.length ? counts[i] : 0;
+                String name = i < policies.length ? policies[i] : "Otra " + (i - policies.length + 1);
                 int y = i * ROW + 6;
                 g2.setColor(Theme.TEXT);
-                g2.drawString(policies[i], 0, y + 12);
+                g2.drawString(name, 0, y + 12);
                 g2.setColor(new Color(0xF1F3F6));
                 g2.fillRoundRect(labelW, y + 2, barW, 12, 12, 12);
                 int filled = (int) Math.round(barW * count / (double) max);
                 if (filled > 0) {
-                    g2.setColor(colors.colorOf(policies[i]));
+                    g2.setColor(colors.colorOf(name));
                     g2.fillRoundRect(labelW, y + 2, Math.max(filled, 12), 12, 12, 12);
                 }
                 g2.setColor(Theme.TEXT);
