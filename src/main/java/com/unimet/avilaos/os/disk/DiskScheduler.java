@@ -18,8 +18,9 @@ import java.util.concurrent.Semaphore;
  *       (o de una suspensión o reactivación);</li>
  *   <li>el disco, cuando queda libre, pide {@link #next} con la posición y la
  *       dirección del cabezal y recorre el SeekPlan que recibe;</li>
- *   <li>la GUI cambia la política en ejecución con {@link #setPolicy} y lee la
- *       cola con {@link #getPendingRequests} (una copia).</li>
+ *   <li>la GUI cambia la política en ejecución con {@link #setPolicy}, lee la
+ *       cola en orden de llegada con {@link #getPendingRequests} y en el orden
+ *       en que se atendería con {@link #previewServiceOrder} (copias).</li>
  * </ul>
  *
  * Cambio de política en caliente: la nueva política se usa desde la siguiente
@@ -35,25 +36,25 @@ import java.util.concurrent.Semaphore;
  */
 public class DiskScheduler {
 
-    private final int blockCount;
+    private final int diskSize;
     private final LinkedList<DiskRequest> queue = new LinkedList<>();
     private final Semaphore mutex = new Semaphore(1, true);
 
     private DiskSchedulingPolicy policy;
 
     /**
-     * @param blockCount    cantidad de bloques del disco (mayor que 0)
+     * @param diskSize    cantidad de bloques del disco (mayor que 0)
      * @param initialPolicy política con la que arranca
      * @throws IllegalArgumentException si algún dato no es válido
      */
-    public DiskScheduler(int blockCount, DiskPolicyType initialPolicy) {
-        if (blockCount <= 0) {
+    public DiskScheduler(int diskSize, DiskPolicyType initialPolicy) {
+        if (diskSize <= 0) {
             throw new IllegalArgumentException("El disco debe tener al menos 1 bloque");
         }
         if (initialPolicy == null) {
             throw new IllegalArgumentException("El planificador de disco necesita una política inicial");
         }
-        this.blockCount = blockCount;
+        this.diskSize = diskSize;
         this.policy = initialPolicy.newPolicy();
     }
 
@@ -69,9 +70,9 @@ public class DiskScheduler {
         if (request == null) {
             throw new IllegalArgumentException("La solicitud de disco no puede ser null");
         }
-        if (request.getTargetBlock() >= blockCount) {
+        if (request.getTargetBlock() >= diskSize) {
             throw new IllegalArgumentException("El bloque " + request.getTargetBlock()
-                    + " está fuera del disco (bloques 0 a " + (blockCount - 1) + ")");
+                    + " está fuera del disco (bloques 0 a " + (diskSize - 1) + ")");
         }
         mutex.acquireUninterruptibly();
         try {
@@ -94,12 +95,15 @@ public class DiskScheduler {
     public int cancel(int processId) {
         mutex.acquireUninterruptibly();
         try {
+            // Se vuelve a armar la cola sin las del proceso: una sola pasada, O(n).
             int removed = 0;
-            LinkedList<DiskRequest> snapshot = queue.copy();
-            for (int i = 0; i < snapshot.size(); i++) {
-                DiskRequest r = snapshot.get(i);
-                if (r.getProcessId() == processId && queue.remove(r)) {
+            int size = queue.size();
+            for (int i = 0; i < size; i++) {
+                DiskRequest r = queue.removeFirst();
+                if (r.getProcessId() == processId) {
                     removed++;
+                } else {
+                    queue.addLast(r);
                 }
             }
             return removed;
@@ -121,7 +125,7 @@ public class DiskScheduler {
      * @throws IllegalStateException    si la política devuelve un recorrido inválido
      */
     public SeekPlan next(int headBlock, HeadDirection direction) {
-        if (headBlock < 0 || headBlock >= blockCount) {
+        if (headBlock < 0 || headBlock >= diskSize) {
             throw new IllegalArgumentException("El cabezal está fuera del disco: " + headBlock);
         }
         if (direction == null) {
@@ -141,7 +145,7 @@ public class DiskScheduler {
                 mutex.release();
             }
 
-            SeekPlan plan = current.select(snapshot, headBlock, direction, blockCount);   // FUERA del mutex
+            SeekPlan plan = current.select(snapshot, headBlock, direction, diskSize);   // FUERA del mutex
             check(plan, snapshot, headBlock, current);
 
             mutex.acquireUninterruptibly();
@@ -176,6 +180,47 @@ public class DiskScheduler {
         }
     }
 
+    /**
+     * Orden en que se atendería la cola si no llegara nada más, con la política
+     * actual y a partir del cabezal dado. Es para la vista del disco: no saca
+     * nada de la cola real (trabaja sobre una copia) y la política se consulta
+     * fuera del mutex.
+     *
+     * @param headBlock bloque donde está el cabezal
+     * @param direction dirección actual del cabezal
+     * @return los recorridos en orden de servicio; vacía si no hay solicitudes
+     * @throws IllegalArgumentException si el cabezal está fuera del disco o la dirección es null
+     */
+    public LinkedList<SeekPlan> previewServiceOrder(int headBlock, HeadDirection direction) {
+        if (headBlock < 0 || headBlock >= diskSize) {
+            throw new IllegalArgumentException("El cabezal está fuera del disco: " + headBlock);
+        }
+        if (direction == null) {
+            throw new IllegalArgumentException("La dirección del cabezal no puede ser null");
+        }
+        LinkedList<DiskRequest> pending;
+        DiskSchedulingPolicy current;
+        mutex.acquireUninterruptibly();
+        try {
+            pending = queue.copy();
+            current = policy;
+        } finally {
+            mutex.release();
+        }
+        LinkedList<SeekPlan> order = new LinkedList<>();
+        int head = headBlock;
+        HeadDirection dir = direction;
+        while (!pending.isEmpty()) {
+            SeekPlan plan = current.select(pending.copy(), head, dir, diskSize);
+            check(plan, pending, head, current);
+            pending.remove(plan.getRequest());
+            order.addLast(plan);
+            head = plan.getRequest().getTargetBlock();
+            dir = plan.getDirectionAfter();
+        }
+        return order;
+    }
+
     // ---------- Consultas (GUI, métricas y log) ----------
 
     public DiskPolicyType getPolicyType() {
@@ -206,8 +251,8 @@ public class DiskScheduler {
         }
     }
 
-    public int getBlockCount() {
-        return blockCount;
+    public int getDiskSize() {
+        return diskSize;
     }
 
     /** Un error de la política se detecta aquí, antes de que el disco mueva el cabezal. */
@@ -224,7 +269,7 @@ public class DiskScheduler {
             throw new IllegalStateException("La política " + name + " calculó el recorrido desde el bloque "
                     + plan.getStartBlock() + " y el cabezal está en " + headBlock);
         }
-        if (plan.getSweepEdge() >= blockCount || plan.getJumpTo() >= blockCount) {
+        if (plan.getSweepEdge() >= diskSize || plan.getJumpTo() >= diskSize) {
             throw new IllegalStateException("La política " + name + " llevó el cabezal fuera del disco");
         }
     }
