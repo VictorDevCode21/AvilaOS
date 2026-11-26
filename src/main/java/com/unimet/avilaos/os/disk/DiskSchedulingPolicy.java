@@ -13,7 +13,9 @@ import com.unimet.avilaos.hardware.SeekPlan;
  * ejecución. Es la misma separación que SchedulingPolicy y Scheduler en la CPU.
  *
  * Interfaz exigida por el enunciado: agregar una política nueva es crear una
- * clase que implemente esto; el planificador de disco no se toca.
+ * clase que implemente esto y una constante en DiskPolicyType que la cree
+ * (el enum es el catálogo que usan la GUI, el JSON y las métricas). El
+ * planificador de disco no se toca.
  *
  * Las implementaciones no guardan estado entre llamadas (la dirección del
  * cabezal llega como parámetro), así que cambiar de política a mitad de la
@@ -33,10 +35,12 @@ public interface DiskSchedulingPolicy {
      *                   Es una copia: la política no debe modificarla.
      * @param headBlock  bloque donde está el cabezal
      * @param direction  dirección actual del cabezal
-     * @param blockCount cantidad de bloques del disco (el último es blockCount - 1)
+     * @param diskSize   cantidad total de bloques del disco (el último es diskSize - 1).
+     *                   No confundir con DiskRequest.getBlockCount(), que son los
+     *                   bloques que lee o escribe una solicitud.
      * @return el recorrido hasta la solicitud elegida, que debe ser uno de los
      *         objetos de pending
      */
     SeekPlan select(LinkedList<DiskRequest> pending, int headBlock, HeadDirection direction,
-            int blockCount);
+            int diskSize);
 }
