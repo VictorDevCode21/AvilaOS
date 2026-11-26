@@ -237,7 +237,9 @@ public final class SimulationController {
             ComputerPanel panel = window.getComputerPanel(id);
             Kernel kernel = computer.getKernel();
             Cpu cpu = computer.getCpu();
-            panel.showRunning(kernel.getRunning(), cpu.getMode(), cpu.getProgramCounter(),
+            // Read the running process once: the card and the KPI strip must show the same one
+            Pcb inCpu = kernel.getRunning();
+            panel.showRunning(inCpu, cpu.getMode(), cpu.getProgramCounter(),
                     cpu.getMemoryAddressRegister());
             panel.showMemory(computer.getRam().getUsedSize(), computer.getRam().getTotalSize());
             LinkedList<Pcb> newQueue = kernel.getNewSnapshot();
@@ -245,7 +247,6 @@ public final class SimulationController {
             LinkedList<Pcb> blockedQueue = kernel.getBlockedSnapshot();
             LinkedList<Pcb> terminatedQueue = kernel.getTerminatedSnapshot();
             panel.showQueues(newQueue, readyQueue, blockedQueue, terminatedQueue);
-            Pcb inCpu = kernel.getRunning();
             if (inCpu != null) {
                 busy++;
                 running.append(running.length() == 0 ? "" : ", ").append(inCpu);
