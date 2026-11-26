@@ -158,6 +158,14 @@ public final class MainWindow extends JFrame {
         root.add(buildRail(), BorderLayout.WEST);
         root.add(buildMain(), BorderLayout.CENTER);
         setContentPane(root);
+        // The notice floats over the views (layered pane), so showing it never moves them
+        getLayeredPane().add(noticeBar, javax.swing.JLayeredPane.POPUP_LAYER);
+        addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                placeNotice();
+            }
+        });
 
         addView(VIEW_COMPUTERS, "Equipos", NavIcon.COMPUTER, buildComputersView());
         addView(VIEW_DISK, "Disco", NavIcon.DISK, diskPanel);
@@ -228,7 +236,6 @@ public final class MainWindow extends JFrame {
         kpis.add(processKpi);
         kpis.add(performanceKpi);
         header.add(kpis, BorderLayout.CENTER);
-        header.add(noticeBar, BorderLayout.SOUTH);
         main.add(header, BorderLayout.NORTH);
         main.add(views, BorderLayout.CENTER);
         return main;
@@ -530,6 +537,9 @@ public final class MainWindow extends JFrame {
 
     /** Shows the mode the simulation is really using, in the rail and in the Files view. */
     public void showSession(DiskData.Session session) {
+        if (session == null) {
+            throw new IllegalArgumentException("La sesión no puede ser null");
+        }
         sessionControl.showSession(session);
         fileSystemPanel.showSession(session);
     }
@@ -537,11 +547,25 @@ public final class MainWindow extends JFrame {
     /** Red banner, visible from any view: the operation was rejected and why (nothing stops). */
     public void showRejected(String reason) {
         noticeBar.showError(reason);
+        placeNotice();
     }
 
     /** Neutral banner, visible from any view (e.g. "Ahora estás como user2"). */
     public void showNotice(String message) {
         noticeBar.showInfo(message);
+        placeNotice();
+    }
+
+    /** Puts the floating notice at the top-right corner of the current view. */
+    private void placeNotice() {
+        if (!views.isShowing()) {
+            return;
+        }
+        java.awt.Dimension size = noticeBar.getPreferredSize();
+        java.awt.Point corner = javax.swing.SwingUtilities.convertPoint(views, views.getWidth() - size.width - 12, 12,
+                getLayeredPane());
+        noticeBar.setBounds(Math.max(12, corner.x), corner.y, size.width, size.height);
+        noticeBar.revalidate();
     }
 
     /** "Disco" view: block map, head, disk policy and I/O queue. */

@@ -226,7 +226,6 @@ public final class DiskFsDemo {
         }
         String reason = session.admin() ? null : userRule(operation, entry);
         if (reason != null) {
-            view.showRejected(reason);
             window.showRejected(reason);
             return;
         }

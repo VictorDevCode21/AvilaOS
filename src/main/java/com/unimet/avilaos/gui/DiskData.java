@@ -53,7 +53,7 @@ public final class DiskData {
     /**
      * Who is using the simulator and in which mode.
      *
-     * PROVISIONAL: the mode will come from the UserMode enum of the contracts PR.
+     * PROVISIONAL: the mode will come from the UserMode enum (file system).
      *
      * @param admin true = administrator (every operation), false = user (restricted access)
      * @param user  user name of the session (e.g. "admin", "user1")

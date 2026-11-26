@@ -253,6 +253,9 @@ public final class FileSystemPanel extends JPanel {
 
     /** Shows the active mode next to the tree title (e.g. "Usuario: user2"). */
     public void showSession(DiskData.Session session) {
+        if (session == null) {
+            throw new IllegalArgumentException("La sesión no puede ser null");
+        }
         sessionPill.setText(session.longText());
         sessionPill.setColors(session.admin() ? Theme.KERNEL_BG : Theme.USER_BG,
                 session.admin() ? Theme.KERNEL_FG : Theme.USER_FG);
@@ -263,7 +266,10 @@ public final class FileSystemPanel extends JPanel {
         showMessage(text, new Color(0xE7F6EC), new Color(0x15703A));
     }
 
-    /** Red message: the request was rejected and why (the simulation keeps running). */
+    /**
+     * Red message inside the panel: the request was rejected and why. With MainWindow, prefer
+     * MainWindow.showRejected (the floating notice) so a rejection is shown in one place only.
+     */
     public void showRejected(String reason) {
         showMessage("Operación rechazada. " + reason, new Color(0xFDECEC), new Color(0x7F1D1D));
     }
