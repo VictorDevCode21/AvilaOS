@@ -5,16 +5,51 @@ package com.unimet.avilaos.os.disk;
  * enunciado). Las cuatro obligatorias más LOOK y C-LOOK. La etiqueta coincide
  * con los textos del selector de la GUI y con el JSON de configuración.
  *
+ * Cada constante crea su propia política (fábrica por constante), sin un
+ * switch: así se corrige lo que los evaluadores señalaron en PolicyType del
+ * Proyecto 1. Agregar una política es crear su clase y una constante aquí; el
+ * planificador de disco no se toca.
+ *
  * @author NicollPinzon
  */
 public enum DiskPolicyType {
 
-    FIFO("FIFO"),
-    SSTF("SSTF"),
-    SCAN("SCAN"),
-    C_SCAN("C-SCAN"),
-    LOOK("LOOK"),
-    C_LOOK("C-LOOK");
+    FIFO("FIFO") {
+        @Override
+        public DiskSchedulingPolicy newPolicy() {
+            return new FifoDiskPolicy();
+        }
+    },
+    SSTF("SSTF") {
+        @Override
+        public DiskSchedulingPolicy newPolicy() {
+            return new SstfDiskPolicy();
+        }
+    },
+    SCAN("SCAN") {
+        @Override
+        public DiskSchedulingPolicy newPolicy() {
+            return new ScanDiskPolicy();
+        }
+    },
+    C_SCAN("C-SCAN") {
+        @Override
+        public DiskSchedulingPolicy newPolicy() {
+            return new CScanDiskPolicy();
+        }
+    },
+    LOOK("LOOK") {
+        @Override
+        public DiskSchedulingPolicy newPolicy() {
+            return new LookDiskPolicy();
+        }
+    },
+    C_LOOK("C-LOOK") {
+        @Override
+        public DiskSchedulingPolicy newPolicy() {
+            return new CLookDiskPolicy();
+        }
+    };
 
     private final String label;
 
@@ -26,6 +61,9 @@ public enum DiskPolicyType {
     public String getLabel() {
         return label;
     }
+
+    /** Crea una instancia nueva de la política de esta constante. */
+    public abstract DiskSchedulingPolicy newPolicy();
 
     /**
      * Busca por etiqueta ("C-SCAN") o por nombre del enum ("C_SCAN"), sin
