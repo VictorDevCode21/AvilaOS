@@ -1,6 +1,8 @@
 package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.config.SimulationConfig;
+import com.unimet.avilaos.hardware.IoOperation;
+import com.unimet.avilaos.os.disk.DiskPolicyType;
 import com.unimet.avilaos.os.scheduling.PolicyType;
 import java.io.File;
 import java.io.IOException;
@@ -26,8 +28,6 @@ public final class JsonPreCheck {
     public static final int MAX_BLOCKS = 500;
     /** Biggest file accepted (a few hundred KB is already a huge simulation). */
     private static final long MAX_BYTES = 5L * 1024 * 1024;
-    /** Disk policies the simulator knows. PROVISIONAL: will come from the disk policy enum. */
-    private static final String[] DISK_POLICIES = MainWindow.DISK_POLICIES;
 
     private JsonPreCheck() {
     }
@@ -117,8 +117,12 @@ public final class JsonPreCheck {
             return Result.fail("\"swapSizeBlocks\" debe ser un número entre 1 y " + MAX_BLOCKS + ".");
         }
         String diskPolicy = string(text, "initialDiskPolicy");
-        if (diskPolicy == null || !contains(DISK_POLICIES, diskPolicy)) {
-            return Result.fail("\"initialDiskPolicy\" debe ser una de: " + String.join(", ", DISK_POLICIES) + ".");
+        DiskPolicyType disk;
+        try {
+            disk = DiskPolicyType.fromLabel(diskPolicy);
+        } catch (IllegalArgumentException e) {
+            return Result.fail("\"initialDiskPolicy\" debe ser una de: " + String.join(", ", DiskPolicyType.labels())
+                    + ".");
         }
         int ram = requiredInt(text, "ramCapacity", "RAM del computador");
         if (ram < 1) {
@@ -149,12 +153,12 @@ public final class JsonPreCheck {
         Matcher operation = Pattern.compile("\"operation\"\\s*:\\s*\"([^\"]*)\"").matcher(text);
         while (operation.find()) {
             String op = operation.group(1);
-            if (!contains(new String[] {"CREATE", "READ", "UPDATE", "DELETE"}, op)) {
+            if (!isFileOperation(op)) {
                 return Result.fail("Operación desconocida: \"" + op + "\" (usa CREATE, READ, UPDATE o DELETE).");
             }
         }
         return new Result(true, processes + " procesos · RAM " + ram + " · CPU " + policy
-                + (quantum > 0 ? " q=" + quantum : "") + " · disco " + diskPolicy + " · swap " + swap);
+                + (quantum > 0 ? " q=" + quantum : "") + " · disco " + disk.getLabel() + " · swap " + swap);
     }
 
     /**
@@ -282,12 +286,12 @@ public final class JsonPreCheck {
         return used;
     }
 
-    private static boolean contains(String[] values, String value) {
-        for (String v : values) {
-            if (v.equalsIgnoreCase(value)) {
-                return true;
-            }
+    /** A process of the JSON may only ask for a file operation (SUSPEND / RESUME belong to the kernel). */
+    private static boolean isFileOperation(String op) {
+        try {
+            return IoOperation.fromLabel(op).isFileOperation();
+        } catch (IllegalArgumentException e) {
+            return false;
         }
-        return false;
     }
 }

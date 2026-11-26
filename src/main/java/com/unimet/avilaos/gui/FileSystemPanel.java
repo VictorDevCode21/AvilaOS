@@ -1,5 +1,6 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.hardware.IoOperation;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -45,7 +46,7 @@ public final class FileSystemPanel extends JPanel {
          * @param operation CREATE, READ, UPDATE or DELETE
          * @param path      selected path (for CREATE: the directory where the file goes)
          */
-        void requested(String operation, String path);
+        void requested(IoOperation operation, String path);
     }
 
     private final transient OwnerPalette palette;
@@ -156,10 +157,10 @@ public final class FileSystemPanel extends JPanel {
         actions.add(deleteButton);
         actions.add(createButton);
         bottom.add(actions, BorderLayout.CENTER);
-        readButton.addActionListener(e -> fire("READ"));
-        renameButton.addActionListener(e -> fire("UPDATE"));
-        deleteButton.addActionListener(e -> fire("DELETE"));
-        createButton.addActionListener(e -> fire("CREATE"));
+        readButton.addActionListener(e -> fire(IoOperation.READ));
+        renameButton.addActionListener(e -> fire(IoOperation.UPDATE));
+        deleteButton.addActionListener(e -> fire(IoOperation.DELETE));
+        createButton.addActionListener(e -> fire(IoOperation.CREATE));
         readButton.setToolTipText("Crea un proceso de E/S que lee este archivo");
         renameButton.setToolTipText("Crea un proceso de E/S que cambia el nombre");
         deleteButton.setToolTipText("Crea un proceso de E/S que lo elimina (un directorio, con todo su contenido)");
@@ -287,7 +288,7 @@ public final class FileSystemPanel extends JPanel {
 
     // ---------- Internals ----------
 
-    private void fire(String operation) {
+    private void fire(IoOperation operation) {
         String path = getSelectedPath();
         if (path != null) {
             listener.requested(operation, path);

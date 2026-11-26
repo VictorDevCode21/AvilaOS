@@ -6,6 +6,7 @@ import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.events.LogEntry;
 import com.unimet.avilaos.metrics.ComputerMetrics;
 import com.unimet.avilaos.metrics.MetricsSnapshot;
+import com.unimet.avilaos.os.disk.DiskPolicyType;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
@@ -128,9 +129,9 @@ public final class MainWindow extends JFrame {
     private final CpuUsageChart cpuChart = new CpuUsageChart();
     /** Shared by the Disk and Files views so a file has the same color in both. */
     private final transient OwnerPalette ownerPalette = new OwnerPalette();
-    private final DiskPanel diskPanel = new DiskPanel(ownerPalette, DISK_POLICIES);
+    private final DiskPanel diskPanel = new DiskPanel(ownerPalette);
     private final FileSystemPanel fileSystemPanel = new FileSystemPanel(ownerPalette);
-    private final DiskMetricsPanel diskMetricsPanel = new DiskMetricsPanel(DISK_POLICIES);
+    private final DiskMetricsPanel diskMetricsPanel = new DiskMetricsPanel(DiskPolicyType.labels());
     /** Mode selector (administrator / user) at the bottom of the rail, always visible. */
     private final SessionControl sessionControl = new SessionControl();
     /** Banner for rejected operations and other notices, visible from every view. */

@@ -1,12 +1,18 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.datastructures.LinkedList;
+import com.unimet.avilaos.hardware.DiskRequest;
+import com.unimet.avilaos.hardware.HeadDirection;
+import com.unimet.avilaos.hardware.IoOperation;
+import com.unimet.avilaos.hardware.SeekPlan;
+
 /**
  * Read-only data that the Disk and Files views show.
  *
- * PROVISIONAL: these records only describe what the views need. When the contracts PR (Disk,
- * FileSystem, DiskRequest, IoOperation...) is merged, the controller converts the real copies into
- * these records, or the views switch to the real types. The views never change the simulation:
- * they only paint what they receive.
+ * The disk types come from the disk contracts (IoOperation, HeadDirection, DiskRequest, SeekPlan);
+ * {@link Request#from} and {@link Request#fromPlans} turn the scheduler's copies into rows for the
+ * I/O queue. Block, file and session records are still GUI-side until Disk and FileSystem exist.
+ * The views never change the simulation: they only paint what they receive.
  *
  * Arrays are used on purpose (java.util collections are not allowed in the project).
  *
@@ -32,22 +38,48 @@ public final class DiskData {
      * @param totalBlocks number of blocks (block numbers go from 0 to totalBlocks - 1)
      * @param swapStart   first block of the swap area (swap goes from swapStart to the end)
      * @param head        current head position (block number)
-     * @param movingUp    true if the head moves toward higher block numbers
+     * @param direction   direction the head is moving in
      * @param blocks      one entry per block; null = free
      */
-    public record Snapshot(int totalBlocks, int swapStart, int head, boolean movingUp, Block[] blocks) {
+    public record Snapshot(int totalBlocks, int swapStart, int head, HeadDirection direction, Block[] blocks) {
     }
 
     /**
      * One request in the disk I/O queue.
      *
      * @param pid        process that made it (e.g. "P4")
-     * @param operation  CREATE, READ, UPDATE, DELETE, SUSPEND or RESUME
-     * @param target     file path, or "swap" for SUSPEND / RESUME
+     * @param operation  operation of the request
+     * @param target     file path, or DiskRequest.SWAP_TARGET for SUSPEND / RESUME
      * @param block      target block (where the head has to go)
      * @param waitCycles cycles it has been waiting in the queue
      */
-    public record Request(String pid, String operation, String target, int block, long waitCycles) {
+    public record Request(String pid, IoOperation operation, String target, int block, long waitCycles) {
+
+        /**
+         * Row for a request of the disk scheduler.
+         *
+         * @param request      a request from DiskScheduler (getPendingRequests or a SeekPlan)
+         * @param currentCycle current clock cycle, to compute how long it has been waiting
+         */
+        public static Request from(DiskRequest request, long currentCycle) {
+            return new Request("P" + request.getProcessId(), request.getOperation(), request.getTarget(),
+                    request.getTargetBlock(), Math.max(0, currentCycle - request.getArrivalCycle()));
+        }
+
+        /**
+         * Rows in service order, from DiskScheduler.previewServiceOrder(head, direction).
+         *
+         * @param plans        the preview (it is not modified)
+         * @param currentCycle current clock cycle
+         */
+        public static Request[] fromPlans(LinkedList<SeekPlan> plans, long currentCycle) {
+            LinkedList<SeekPlan> walk = plans.copy();         // removeFirst is O(1); get(i) would be O(n)
+            Request[] rows = new Request[walk.size()];
+            for (int i = 0; i < rows.length; i++) {
+                rows[i] = from(walk.removeFirst().getRequest(), currentCycle);
+            }
+            return rows;
+        }
     }
 
     /**
@@ -99,7 +131,7 @@ public final class DiskData {
      * the simulation creates the I/O process (or rejects it) and the disk does the operation.
      *
      * @param processName name of the new I/O process
-     * @param operation   CREATE, READ, UPDATE or DELETE
+     * @param operation   CREATE, READ, UPDATE or DELETE (a file operation)
      * @param path        target: the file or directory (for CREATE, the directory where it goes)
      * @param newName     CREATE: name of the new file or directory; UPDATE: the new name; else null
      * @param directory   CREATE only: true to create a directory instead of a file
@@ -109,7 +141,7 @@ public final class DiskData {
      * @param priority    priority (0 = highest)
      * @param deadline    deadline in cycles
      */
-    public record IoProcess(String processName, String operation, String path, String newName, boolean directory,
+    public record IoProcess(String processName, IoOperation operation, String path, String newName, boolean directory,
             int sizeBlocks, boolean isPublic, int memory, int priority, int deadline) {
     }
 

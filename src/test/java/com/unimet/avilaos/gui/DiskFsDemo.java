@@ -2,6 +2,9 @@ package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.hardware.CpuMode;
+import com.unimet.avilaos.hardware.HeadDirection;
+import com.unimet.avilaos.hardware.IoOperation;
+import com.unimet.avilaos.os.disk.DiskPolicyType;
 import com.unimet.avilaos.os.process.BlockReason;
 import com.unimet.avilaos.os.process.Pcb;
 import java.io.File;
@@ -49,10 +52,10 @@ public final class DiskFsDemo {
 
     private DiskFsDemo() {
         loadFileSystem();
-        window.getDiskPanel().showPolicy(policy);
+        window.getDiskPanel().showPolicy(DiskPolicyType.fromLabel(policy));
         window.getDiskPanel().setPolicyListener(chosen -> {
-            policy = chosen;
-            window.getDiskPanel().showPolicy(policy);
+            policy = chosen.getLabel();
+            window.getDiskPanel().showPolicy(chosen);
             refresh();
         });
         window.getFileSystemPanel().setFileActionListener(this::onFileAction);
@@ -71,7 +74,7 @@ public final class DiskFsDemo {
             {"UPDATE", "/usuarios/notas.txt"}, {"DELETE", "/usuarios/img1.png"}, {"READ", "/sistema/boot.bin"},
             {"UPDATE", "/usuarios/data.csv"}, {"READ", "/sistema/script.py"}, {"READ", "/sistema/core.dll"}};
         for (String[] r : first) {
-            enqueue(r[0], r[1]);
+            enqueue(IoOperation.valueOf(r[0]), r[1]);
         }
         refresh();
         new Timer(450, e -> tick()).start();
@@ -200,11 +203,11 @@ public final class DiskFsDemo {
     // ---------- Buttons of the Files view (fake permission rules, as user1) ----------
 
     /** The file buttons open the form with the operation and the selected path already chosen. */
-    private void onFileAction(String operation, String path) {
+    private void onFileAction(IoOperation operation, String path) {
         openIoForm(operation, path);
     }
 
-    private void openIoForm(String operation, String path) {
+    private void openIoForm(IoOperation operation, String path) {
         int free = 0;
         for (int b = 0; b < SWAP_START; b++) {
             if (blocks[b] == null) {
@@ -220,7 +223,7 @@ public final class DiskFsDemo {
 
     /** Fake permission rules of the user mode, then the request goes to the disk queue. */
     private void submit(DiskData.IoProcess request) {
-        String operation = request.operation();
+        IoOperation operation = request.operation();
         String path = request.path();
         DiskData.FileEntry entry = find(path);
         FileSystemPanel view = window.getFileSystemPanel();
@@ -241,20 +244,20 @@ public final class DiskFsDemo {
     }
 
     /** Why a user (not admin) cannot do it, or null if allowed. Fake rules, as in the statement. */
-    private String userRule(String operation, DiskData.FileEntry entry) {
+    private String userRule(IoOperation operation, DiskData.FileEntry entry) {
         String user = session.user();
         boolean mine = entry.owner().equals(user);
-        if ("READ".equals(operation) && !entry.isPublic() && !mine) {
+        if (operation == IoOperation.READ && !entry.isPublic() && !mine) {
             return entry.name() + " es privado de " + entry.owner() + " y la sesión es " + user + ".";
         }
-        if ("CREATE".equals(operation) && !mine) {
+        if (operation == IoOperation.CREATE && !mine) {
             return "En modo usuario solo puedes crear archivos dentro de tus directorios; " + entry.path()
                     + " es de " + entry.owner() + ".";
         }
-        if ("UPDATE".equals(operation)) {             // the statement gives renaming to the administrator
+        if (operation == IoOperation.UPDATE) {         // the statement gives renaming to the administrator
             return "En modo usuario no se puede cambiar el nombre de archivos ni directorios; solo el administrador.";
         }
-        if ("DELETE".equals(operation) && !mine) {
+        if (operation == IoOperation.DELETE && !mine) {
             return "En modo usuario no puedes modificar archivos del sistema ni de otros usuarios; "
                     + entry.name() + " es de " + entry.owner() + ".";
         }
@@ -263,7 +266,7 @@ public final class DiskFsDemo {
 
     // ---------- Fake disk ----------
 
-    private DiskData.Request enqueue(String operation, String path) {
+    private DiskData.Request enqueue(IoOperation operation, String path) {
         DiskData.FileEntry entry = find(path);
         int block = entry == null || entry.directory() ? 0 : entry.firstBlock();
         DiskData.Request request = new DiskData.Request("P" + nextPid++, operation, path, block, 0);
@@ -310,7 +313,7 @@ public final class DiskFsDemo {
         } else if (cycle % 6 == 0) {                   // keep the demo busy
             String[] paths = {"/sistema/core.dll", "/usuarios/video.mp4", "/mbr.bin", "/usuarios/data.csv",
                 "/sistema/config.sys", "/usuarios/user1/tarea.txt"};
-            enqueue("READ", paths[(int) (cycle / 6 % paths.length)]);
+            enqueue(IoOperation.READ, paths[(int) (cycle / 6 % paths.length)]);
         }
         refresh();
     }
@@ -396,7 +399,8 @@ public final class DiskFsDemo {
         window.showDiskMetrics(new DiskData.DiskMetrics(totalSeek, served == 0 ? 0 : waitSum / (double) served,
                 servedPerPolicy.clone(), 2, 1));
         window.addSeekSample(cycle, totalSeek, policy);
-        window.getDiskPanel().showSnapshot(new DiskData.Snapshot(TOTAL, SWAP_START, head, movingUp, blocks.clone()));
+        window.getDiskPanel().showSnapshot(new DiskData.Snapshot(TOTAL, SWAP_START, head,
+                movingUp ? HeadDirection.UP : HeadDirection.DOWN, blocks.clone()));
         window.getDiskPanel().showQueue(serving, servingDone, order());
         window.getFileSystemPanel().showFiles(files);
     }

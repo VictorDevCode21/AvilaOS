@@ -1,6 +1,7 @@
 package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.config.ProcessConfig;
+import com.unimet.avilaos.hardware.IoOperation;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -31,7 +32,8 @@ public final class IoProcessDialog extends JDialog {
 
     private static final long serialVersionUID = 1L;
 
-    private static final String[] OPERATIONS = {"CREATE", "READ", "UPDATE", "DELETE"};
+    /** The file operations (IoOperation.isFileOperation): SUSPEND and RESUME are made by the kernel. */
+    private static final IoOperation[] OPERATIONS = fileOperations();
     private static final int FILE_NAME_MAX = 40;
     private static final int MAX_DEADLINE = (int) Math.min(Integer.MAX_VALUE, ProcessConfig.MAX_DEADLINE);
 
@@ -47,10 +49,10 @@ public final class IoProcessDialog extends JDialog {
 
     private final transient Limits limits;
     private transient DiskData.IoProcess result;
-    private String operation = "READ";
+    private IoOperation operation = IoOperation.READ;
     private final int nextNumber;
 
-    private final SegmentedControl operationSelector = new SegmentedControl(OPERATIONS);
+    private final SegmentedControl operationSelector = new SegmentedControl(names(OPERATIONS));
     private final JLabel operationHint = Theme.label(" ", Theme.SMALL, Theme.MUTED);
     private final JLabel targetLabel = Theme.label("Archivo", Theme.SMALL_BOLD, Theme.TEXT);
     private final JComboBox<String> targetCombo = new JComboBox<>();
@@ -80,23 +82,25 @@ public final class IoProcessDialog extends JDialog {
      *
      * @param owner           main window
      * @param limits          what the values are checked against
-     * @param presetOperation operation to start with (e.g. the button the user clicked), or null
+     * @param presetOperation operation to start with (e.g. the button the user clicked), or null;
+     *                        SUSPEND / RESUME are ignored (they are not file operations)
      * @param presetPath      selected path in the tree, or null
      * @param number          number for the default process name (e.g. 7 gives "IO_7")
      * @return the request, or null if the user cancelled
      */
-    public static DiskData.IoProcess showDialog(Frame owner, Limits limits, String presetOperation,
+    public static DiskData.IoProcess showDialog(Frame owner, Limits limits, IoOperation presetOperation,
             String presetPath, int number) {
         IoProcessDialog dialog = new IoProcessDialog(owner, limits, presetOperation, presetPath, number);
         dialog.setVisible(true);
         return dialog.result;
     }
 
-    private IoProcessDialog(Frame owner, Limits limits, String presetOperation, String presetPath, int number) {
+    private IoProcessDialog(Frame owner, Limits limits, IoOperation presetOperation, String presetPath,
+            int number) {
         super(owner, "Nuevo proceso de E/S", true);
         this.limits = limits;
         this.nextNumber = number;
-        if (presetOperation != null && contains(OPERATIONS, presetOperation)) {
+        if (presetOperation != null && presetOperation.isFileOperation()) {
             operation = presetOperation;
         }
 
@@ -123,7 +127,7 @@ public final class IoProcessDialog extends JDialog {
         content.add(buildButtons(), BorderLayout.SOUTH);
         setContentPane(content);
 
-        operationSelector.setChoiceListener(this::selectOperation);
+        operationSelector.setChoiceListener(name -> selectOperation(IoOperation.valueOf(name)));
         createKind.addActionListener(e -> sizeField.setEnabled("Archivo".equals(createKind.getSelectedItem())));
         FormValidator.clearErrorOnEdit(newFileName, sizeField, renameField, processName, memoryField, priorityField,
                 deadlineField);
@@ -214,19 +218,19 @@ public final class IoProcessDialog extends JDialog {
     // ---------- Behaviour ----------
 
     /** Shows the right target list and extra fields for the operation. */
-    private void selectOperation(String chosen) {
+    private void selectOperation(IoOperation chosen) {
         operation = chosen;
         // Errors of the previous operation may be on fields that are about to be hidden: start clean
         errorCard.setVisible(false);
         FormValidator.clearErrors(newFileName, sizeField, renameField, processName, memoryField, priorityField,
                 deadlineField);
-        operationSelector.setSelected(chosen);
+        operationSelector.setSelected(chosen.name());
         Object previous = targetCombo.getSelectedItem();
         targetCombo.removeAllItems();
         for (DiskData.FileEntry entry : limits.files()) {
             boolean fits = switch (chosen) {
-                case "CREATE" -> entry.directory();
-                case "READ" -> !entry.directory();
+                case CREATE -> entry.directory();
+                case READ -> !entry.directory();
                 default -> !"/".equals(entry.path());          // UPDATE and DELETE: files and folders
             };
             if (fits) {
@@ -237,17 +241,17 @@ public final class IoProcessDialog extends JDialog {
             targetCombo.setSelectedItem(previous);
         }
         switch (chosen) {
-            case "CREATE" -> {
+            case CREATE -> {
                 targetLabel.setText("Directorio donde se crea");
                 operationHint.setText("Crea un archivo (ocupa bloques con asignación encadenada) o un directorio.");
                 showExtra(createFields);
             }
-            case "UPDATE" -> {
+            case UPDATE -> {
                 targetLabel.setText("Archivo o directorio a renombrar");
                 operationHint.setText("Cambia el nombre; los bloques no se mueven.");
                 showExtra(renameFields);
             }
-            case "DELETE" -> {
+            case DELETE -> {
                 targetLabel.setText("Archivo o directorio a eliminar");
                 operationHint.setText("Libera sus bloques. Un directorio se elimina con todo su contenido.");
                 showExtra(null);
@@ -258,7 +262,8 @@ public final class IoProcessDialog extends JDialog {
                 showExtra(null);
             }
         }
-        String suggestion = "IO_" + chosen.charAt(0) + chosen.substring(1).toLowerCase() + "_" + nextNumber;
+        String suggestion = "IO_" + chosen.name().charAt(0) + chosen.name().substring(1).toLowerCase() + "_"
+                + nextNumber;
         String typed = processName.getText().trim();
         if (typed.isEmpty() || typed.equals(suggestedName)) {     // keep a name the user wrote
             processName.setText(suggestion);
@@ -283,8 +288,8 @@ public final class IoProcessDialog extends JDialog {
         String path = (String) targetCombo.getSelectedItem();
         if (path == null) {
             v.addError(switch (operation) {
-                case "CREATE" -> "Directorio: no hay ningún directorio cargado.";
-                case "READ" -> "Archivo: no hay archivos para leer.";
+                case CREATE -> "Directorio: no hay ningún directorio cargado.";
+                case READ -> "Archivo: no hay archivos para leer.";
                 default -> "Destino: no hay archivos ni directorios.";
             });
         }
@@ -292,7 +297,7 @@ public final class IoProcessDialog extends JDialog {
         boolean directory = false;
         int size = 0;
         boolean isPublic = true;
-        if ("CREATE".equals(operation)) {
+        if (operation == IoOperation.CREATE) {
             directory = "Directorio".equals(createKind.getSelectedItem());
             newName = fileName(v, newFileName, "Nombre");
             if (newName != null && path != null && exists(join(path, newName))) {
@@ -308,7 +313,7 @@ public final class IoProcessDialog extends JDialog {
                 }
             }
             isPublic = "Público".equals(permissionCombo.getSelectedItem());
-        } else if ("UPDATE".equals(operation)) {
+        } else if (operation == IoOperation.UPDATE) {
             newName = fileName(v, renameField, "Nombre nuevo");
             if (newName != null && path != null) {
                 String renamed = join(parentOf(path), newName);
@@ -381,12 +386,28 @@ public final class IoProcessDialog extends JDialog {
         return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    private static boolean contains(String[] values, String value) {
-        for (String v : values) {
-            if (v.equals(value)) {
-                return true;
+    private static IoOperation[] fileOperations() {
+        int count = 0;
+        for (IoOperation op : IoOperation.values()) {
+            if (op.isFileOperation()) {
+                count++;
             }
         }
-        return false;
+        IoOperation[] result = new IoOperation[count];
+        int i = 0;
+        for (IoOperation op : IoOperation.values()) {
+            if (op.isFileOperation()) {
+                result[i++] = op;
+            }
+        }
+        return result;
+    }
+
+    private static String[] names(IoOperation[] operations) {
+        String[] result = new String[operations.length];
+        for (int i = 0; i < operations.length; i++) {
+            result[i] = operations[i].name();
+        }
+        return result;
     }
 }
