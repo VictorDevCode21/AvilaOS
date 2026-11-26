@@ -10,7 +10,6 @@ import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.event.MouseEvent;
 import javax.swing.BorderFactory;
-import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
@@ -24,8 +23,8 @@ import javax.swing.table.TableColumnModel;
  *
  * Se crea una instancia por computador (igual que la clase Computer del modelo),
  * así que mostrar 2, 3 o 4 computadores es solo crear más paneles.
- * El panel no decide nada: recibe datos con los métodos show* y avisa
- * al exterior cuando el USUARIO cambia la política.
+ * El panel no decide nada: solo recibe datos con los métodos show*.
+ * La política se muestra aquí pero se cambia en la ventana "Planificación" (PlanningDialog).
  *
  * @author NicollPinzon
  */
@@ -53,9 +52,8 @@ public final class ComputerPanel extends JPanel {
     // ---------- Memoria ----------
     private final JProgressBar memoryBar = new JProgressBar(0, 100);
 
-    // ---------- Política ----------
-    private final JComboBox<String> policyCombo;
-    private boolean updatingPolicy;          // true mientras la GUI cambia el selector por código
+    // ---------- Política (solo lectura: se cambia en la ventana Planificación) ----------
+    private final JLabel policyLabel = new JLabel(NONE);
 
     // ---------- Colas ----------
     private final ProcessTableModel newModel = new ProcessTableModel();
@@ -64,12 +62,10 @@ public final class ComputerPanel extends JPanel {
     private final ProcessTableModel terminatedModel = new ProcessTableModel();
 
     /**
-     * @param computerId   número del computador (1, 2, ...)
-     * @param policyLabels etiquetas de las políticas para el selector (PolicyType.labels())
+     * @param computerId número del computador (1, 2, ...)
      */
-    public ComputerPanel(int computerId, String[] policyLabels) {
+    public ComputerPanel(int computerId) {
         this.computerId = computerId;
-        this.policyCombo = new JComboBox<>(policyLabels);
 
         setLayout(new BorderLayout(6, 6));
         setBorder(BorderFactory.createTitledBorder(
@@ -111,7 +107,9 @@ public final class ComputerPanel extends JPanel {
 
         JPanel policy = new JPanel(new BorderLayout());
         policy.setBorder(BorderFactory.createTitledBorder("Política de planificación"));
-        policy.add(policyCombo, BorderLayout.CENTER);
+        policyLabel.setFont(policyLabel.getFont().deriveFont(Font.BOLD));
+        policyLabel.setToolTipText("Se cambia con el botón Planificación de la barra superior");
+        policy.add(policyLabel, BorderLayout.CENTER);
 
         JPanel side = new JPanel(new GridLayout(2, 1, 0, 4));
         side.add(memory);
@@ -251,30 +249,16 @@ public final class ComputerPanel extends JPanel {
     }
 
     /**
-     * Pone en el selector la política que tiene el computador (ej. la de la configuración).
-     * NO avisa a onPolicyChanged: solo los cambios hechos por el usuario se reportan.
+     * Muestra la política que tiene el planificador del computador ahora.
      *
-     * @param label etiqueta de la política (PolicyType.getLabel())
+     * @param label   etiqueta de la política (PolicyType.getLabel())
+     * @param quantum quantum de Round Robin; se muestra solo si la política lo usa (0 = no mostrar)
      */
-    public void showPolicy(String label) {
-        updatingPolicy = true;
-        try {
-            policyCombo.setSelectedItem(label);
-        } finally {
-            updatingPolicy = false;
+    public void showPolicy(String label, int quantum) {
+        String text = quantum > 0 ? label + " (quantum " + quantum + ")" : label;
+        if (!text.equals(policyLabel.getText())) {
+            policyLabel.setText(text);
         }
-    }
-
-    /**
-     * Registra qué hacer cuando el USUARIO cambia la política en el selector.
-     * Recibe la etiqueta; el clúster la convierte con PolicyType.fromLabel(...).
-     */
-    public void onPolicyChanged(PolicyChangeListener listener) {
-        policyCombo.addActionListener(e -> {
-            if (!updatingPolicy) {
-                listener.policyChanged((String) policyCombo.getSelectedItem());
-            }
-        });
     }
 
     /** Deja el panel como recién creado (ej. al reiniciar la simulación). */

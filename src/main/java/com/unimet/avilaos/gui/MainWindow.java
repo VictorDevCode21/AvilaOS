@@ -40,7 +40,7 @@ import javax.swing.text.DefaultCaret;
  * Ventana principal del simulador ÁvilaOS.
  *
  * Arriba: controles globales (ciclo de reloj, iniciar/pausar, reiniciar, duración del ciclo,
- * quantum y botones para crear procesos/buffers y configurar).
+ * botones para crear procesos/buffers, la ventana de planificación y la configuración).
  * Centro: un ComputerPanel por computador, uno al lado del otro.
  * Abajo: tabla de buffers (semáforos y quién espera) y pestañas con el log de eventos,
  * las métricas de rendimiento y la gráfica de utilización de CPU.
@@ -56,7 +56,7 @@ public final class MainWindow extends JFrame {
     /** Valores iniciales mientras no se cargue un archivo: los mismos de SimulationConfig.defaults(). */
     private static final SimulationConfig DEFAULTS = SimulationConfig.defaults();
 
-    /** Quantum inicial mientras no se cargue la configuración. */
+    /** Quantum inicial mientras no se cargue la configuración (se cambia en la ventana Planificación). */
     public static final int DEFAULT_QUANTUM = DEFAULTS.getQuantum();
 
     /** Duración inicial del ciclo (ms) mientras no se cargue la configuración. */
@@ -71,10 +71,9 @@ public final class MainWindow extends JFrame {
     // Rangos de SimulationConfig: la GUI y el archivo CSV aceptan exactamente lo mismo
     private final JSpinner cycleDurationSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_CYCLE_MS,
             (int) SimulationConfig.MIN_CYCLE_MS, (int) SimulationConfig.MAX_CYCLE_MS, 50));
-    private final JSpinner quantumSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_QUANTUM,
-            1, SimulationConfig.MAX_QUANTUM, 1));
     private final JButton createProcessButton = new JButton("Crear proceso");
     private final JButton createBufferButton = new JButton("Crear buffer");
+    private final JButton planningButton = new JButton("Planificación");
     private final JButton configButton = new JButton("Configuración");
 
     /**
@@ -95,9 +94,8 @@ public final class MainWindow extends JFrame {
 
     /**
      * @param computerCount número de computadores del clúster (mínimo 2)
-     * @param policyLabels  políticas para los selectores (PolicyType.labels())
      */
-    public MainWindow(int computerCount, String[] policyLabels) {
+    public MainWindow(int computerCount) {
         super("ÁvilaOS - Simulador de sistema operativo distribuido");
         if (computerCount < 2) {
             throw new IllegalArgumentException("El clúster necesita al menos 2 computadores");
@@ -105,7 +103,7 @@ public final class MainWindow extends JFrame {
 
         computerPanels = new ComputerPanel[computerCount];
         for (int i = 0; i < computerCount; i++) {
-            computerPanels[i] = new ComputerPanel(i + 1, policyLabels);
+            computerPanels[i] = new ComputerPanel(i + 1);
         }
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -121,11 +119,12 @@ public final class MainWindow extends JFrame {
         pack();
         setLocationRelativeTo(null);
 
-        // Hasta que alguien los conecte, los 5 botones avisan "en construcción" en vez de quedarse mudos.
+        // Hasta que alguien los conecte, los 6 botones avisan "en construcción" en vez de quedarse mudos.
         startPauseButton.addActionListener(notAvailable);
         resetButton.addActionListener(notAvailable);
         createProcessButton.addActionListener(notAvailable);
         createBufferButton.addActionListener(notAvailable);
+        planningButton.addActionListener(notAvailable);
         configButton.addActionListener(notAvailable);
     }
 
@@ -140,10 +139,10 @@ public final class MainWindow extends JFrame {
         bar.add(resetButton);
         bar.add(new JLabel("Duración ciclo (ms):"));
         bar.add(cycleDurationSpinner);
-        bar.add(new JLabel("Quantum RR:"));
-        bar.add(quantumSpinner);
         bar.add(createProcessButton);
         bar.add(createBufferButton);
+        planningButton.setToolTipText("Política de cada computador y quantum de Round Robin");
+        bar.add(planningButton);
         bar.add(configButton);
         return bar;
     }
@@ -291,10 +290,6 @@ public final class MainWindow extends JFrame {
         startPauseButton.setText(running ? "Pausar" : "Iniciar");
     }
 
-    public void setQuantum(int quantum) {
-        quantumSpinner.setValue(quantum);
-    }
-
     /** Deja la vista como al abrir el programa: ciclo 0, y log, buffers, métricas, gráfica y paneles vacíos. */
     public void resetView() {
         setCycle(0);
@@ -325,10 +320,6 @@ public final class MainWindow extends JFrame {
         return cycleDurationSpinner;
     }
 
-    public JSpinner getQuantumSpinner() {
-        return quantumSpinner;
-    }
-
     // ---------- Acciones de los botones ----------
     // Cada set*Action REEMPLAZA cualquier acción anterior del botón (el aviso de "en construcción"
     // u otra que se haya puesto antes): el botón queda siempre con UNA sola acción.
@@ -352,6 +343,11 @@ public final class MainWindow extends JFrame {
     /** Qué hacer al pulsar "Crear buffer". Reemplaza cualquier acción anterior del botón. */
     public void setCreateBufferAction(ActionListener action) {
         replaceAction(createBufferButton, action);
+    }
+
+    /** Qué hacer al pulsar "Planificación". Reemplaza cualquier acción anterior del botón. */
+    public void setPlanningAction(ActionListener action) {
+        replaceAction(planningButton, action);
     }
 
     /** Qué hacer al pulsar "Configuración". Reemplaza cualquier acción anterior del botón. */
