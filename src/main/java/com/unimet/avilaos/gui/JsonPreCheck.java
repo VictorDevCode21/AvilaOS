@@ -56,18 +56,20 @@ public final class JsonPreCheck {
         if (!has(text, "diskConfig") || !has(text, "fileSystem")) {
             return Result.fail("No parece el JSON del sistema de archivos: faltan \"diskConfig\" o \"fileSystem\".");
         }
-        Integer total = number(text, "totalBlocks");
-        if (total == null) {
-            return Result.fail("Falta \"totalBlocks\" (número de bloques del disco).");
+        try {
+            return checkFileSystemText(text);
+        } catch (Invalid e) {
+            return Result.fail(e.getMessage());
         }
+    }
+
+    private static Result checkFileSystemText(String text) {
+        int total = requiredInt(text, "totalBlocks", "número de bloques del disco");
         if (total < MIN_BLOCKS || total > MAX_BLOCKS) {
             return Result.fail("\"totalBlocks\" es " + total + ": debe estar entre " + MIN_BLOCKS + " y "
                     + MAX_BLOCKS + ".");
         }
-        Integer head = number(text, "initialHead");
-        if (head == null) {
-            return Result.fail("Falta \"initialHead\" (posición inicial del cabezal).");
-        }
+        int head = requiredInt(text, "initialHead", "posición inicial del cabezal");
         if (head < 0 || head >= total) {
             return Result.fail("\"initialHead\" es " + head + ": debe estar entre 0 y " + (total - 1) + ".");
         }
@@ -75,9 +77,9 @@ public final class JsonPreCheck {
         if (entries == 0) {
             return Result.fail("\"fileSystem\" no tiene entradas (cada una necesita \"path\").");
         }
-        Matcher start = Pattern.compile("\"startBlock\"\\s*:\\s*(-?\\d+)").matcher(text);
+        Matcher start = valuesOf(text, "startBlock");
         while (start.find()) {
-            int block = Integer.parseInt(start.group(1));
+            int block = toInt(start.group(1), "startBlock");
             if (block < 0 || block >= total) {
                 return Result.fail("Hay un \"startBlock\" = " + block + " fuera del disco (0 a " + (total - 1) + ").");
             }
@@ -97,37 +99,49 @@ public final class JsonPreCheck {
         if (!has(text, "globalConfig") || !has(text, "computer") || !has(text, "processes")) {
             return Result.fail("No parece el JSON de procesos: faltan \"globalConfig\", \"computer\" o \"processes\".");
         }
-        Integer cycle = number(text, "cycleDurationMs");
-        if (cycle == null || cycle < SimulationConfig.MIN_CYCLE_MS || cycle > SimulationConfig.MAX_CYCLE_MS) {
+        try {
+            return checkProcessesText(text);
+        } catch (Invalid e) {
+            return Result.fail(e.getMessage());
+        }
+    }
+
+    private static Result checkProcessesText(String text) {
+        int cycle = requiredInt(text, "cycleDurationMs", "duración del ciclo");
+        if (cycle < SimulationConfig.MIN_CYCLE_MS || cycle > SimulationConfig.MAX_CYCLE_MS) {
             return Result.fail("\"cycleDurationMs\" debe ser un número entre " + SimulationConfig.MIN_CYCLE_MS
                     + " y " + SimulationConfig.MAX_CYCLE_MS + " ms.");
         }
-        Integer swap = number(text, "swapSizeBlocks");
-        if (swap == null || swap < 1 || swap > MAX_BLOCKS) {
+        int swap = requiredInt(text, "swapSizeBlocks", "tamaño del área de intercambio");
+        if (swap < 1 || swap > MAX_BLOCKS) {
             return Result.fail("\"swapSizeBlocks\" debe ser un número entre 1 y " + MAX_BLOCKS + ".");
         }
         String diskPolicy = string(text, "initialDiskPolicy");
         if (diskPolicy == null || !contains(DISK_POLICIES, diskPolicy)) {
             return Result.fail("\"initialDiskPolicy\" debe ser una de: " + String.join(", ", DISK_POLICIES) + ".");
         }
-        Integer ram = number(text, "ramCapacity");
-        if (ram == null || ram < 1) {
+        int ram = requiredInt(text, "ramCapacity", "RAM del computador");
+        if (ram < 1) {
             return Result.fail("\"ramCapacity\" debe ser un número mayor que 0.");
         }
         String policy = string(text, "policy");
+        PolicyType cpu;
         try {
-            PolicyType.fromLabel(policy);
+            cpu = PolicyType.fromLabel(policy);
         } catch (IllegalArgumentException e) {
             return Result.fail("\"policy\" (CPU) no es válida: " + policy + ".");
         }
-        Integer quantum = number(text, "quantum");
-        if (quantum == null || quantum < 0) {
-            return Result.fail("\"quantum\" debe ser un número mayor o igual a 0.");
+        // Round Robin needs a quantum of at least 1; the other policies ignore it (0 is fine)
+        int quantum = requiredInt(text, "quantum", "quantum de Round Robin");
+        int minQuantum = cpu == PolicyType.ROUND_ROBIN ? 1 : 0;
+        if (quantum < minQuantum || quantum > SimulationConfig.MAX_QUANTUM) {
+            return Result.fail("\"quantum\" es " + quantum + ": debe estar entre " + minQuantum + " y "
+                    + SimulationConfig.MAX_QUANTUM + (minQuantum == 1 ? " con Round Robin." : "."));
         }
         int processes = count(text, "\"name\"");
-        Matcher memory = Pattern.compile("\"memory\"\\s*:\\s*(-?\\d+)").matcher(text);
+        Matcher memory = valuesOf(text, "memory");
         while (memory.find()) {
-            int mb = Integer.parseInt(memory.group(1));
+            int mb = toInt(memory.group(1), "memory");
             if (mb < 1 || mb > ram) {
                 return Result.fail("Un proceso pide " + mb + " de memoria: debe estar entre 1 y la RAM (" + ram + ").");
             }
@@ -153,12 +167,9 @@ public final class JsonPreCheck {
         try {
             String fs = read(fileSystem);
             String procs = read(processes);
-            Integer total = number(fs, "totalBlocks");
-            Integer swap = number(procs, "swapSizeBlocks");
-            if (total == null || swap == null) {
-                return null;
-            }
-            int used = usedBlocks(fs);
+            int total = requiredInt(fs, "totalBlocks", "número de bloques del disco");
+            int swap = requiredInt(procs, "swapSizeBlocks", "tamaño del área de intercambio");
+            long used = usedBlocks(fs);
             if (swap >= total) {
                 return "La swap (" + swap + " bloques) no cabe en un disco de " + total + " bloques.";
             }
@@ -167,12 +178,55 @@ public final class JsonPreCheck {
                         + " y el disco tiene " + total + ". No quedará espacio para la swap o para archivos nuevos.";
             }
             return null;
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException e) {      // includes Invalid: each file already shows its own error
             return null;
         }
     }
 
     // ---------- Helpers ----------
+
+    /** A value that is missing, not an integer or too big for an int: becomes a Result.fail, never escapes. */
+    private static final class Invalid extends IllegalArgumentException {
+
+        private static final long serialVersionUID = 1L;
+
+        Invalid(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Integer value of "key" (first match).
+     *
+     * @throws Invalid if the key is missing, the value is not an integer (e.g. "doscientos") or it does
+     *                 not fit in an int (e.g. 99999999999)
+     */
+    private static int requiredInt(String text, String key, String meaning) {
+        Matcher m = valuesOf(text, key);
+        if (!m.find()) {
+            throw new Invalid("Falta \"" + key + "\" (" + meaning + ").");
+        }
+        return toInt(m.group(1), key);
+    }
+
+    /** Matcher over every raw value of "key" (whatever comes after the colon, up to , } ] or end of line). */
+    private static Matcher valuesOf(String text, String key) {
+        return Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*([^,}\\]\\r\\n]*)").matcher(text);
+    }
+
+    /** Parses a raw JSON value as an int, with a clear message instead of an exception. */
+    private static int toInt(String raw, String key) {
+        String value = raw.trim();
+        if (!value.matches("-?\\d+")) {
+            throw new Invalid("\"" + key + "\" debe ser un número entero (dice " + value + ").");
+        }
+        String digits = value.startsWith("-") ? value.substring(1) : value;
+        if (digits.length() > 10 || Long.parseLong(value) > Integer.MAX_VALUE
+                || Long.parseLong(value) < Integer.MIN_VALUE) {
+            throw new Invalid("\"" + key + "\" es demasiado grande: " + value + ".");
+        }
+        return Integer.parseInt(value);
+    }
 
     private static String read(File file) {
         if (file == null || !file.isFile()) {
@@ -202,12 +256,6 @@ public final class JsonPreCheck {
         return text.contains("\"" + key + "\"");
     }
 
-    /** First integer value of "key", or null if missing or not an integer. */
-    private static Integer number(String text, String key) {
-        Matcher m = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*(-?\\d+)\\s*[,}\\n]").matcher(text);
-        return m.find() ? Integer.valueOf(m.group(1)) : null;
-    }
-
     /** First string value of "key", or null. */
     private static String string(String text, String key) {
         Matcher m = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\"([^\"]*)\"").matcher(text);
@@ -225,11 +273,11 @@ public final class JsonPreCheck {
     }
 
     /** Sum of every "blocks" value (blocks used by the files). */
-    private static int usedBlocks(String text) {
-        int used = 0;
-        Matcher m = Pattern.compile("\"blocks\"\\s*:\\s*(\\d+)").matcher(text);
+    private static long usedBlocks(String text) {
+        long used = 0;
+        Matcher m = valuesOf(text, "blocks");
         while (m.find()) {
-            used += Integer.parseInt(m.group(1));
+            used += toInt(m.group(1), "blocks");
         }
         return used;
     }
