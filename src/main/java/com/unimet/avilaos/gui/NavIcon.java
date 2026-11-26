@@ -5,7 +5,7 @@ import java.awt.Graphics2D;
 import java.awt.geom.Path2D;
 
 /**
- * Icons of the side rail, drawn with Graphics2D (no image files).
+ * Icons of the side rail and of the views (file tree), drawn with Graphics2D (no image files).
  *
  * Each constant paints itself inside a square of the given size, using the current color of the
  * Graphics2D, so the same icon works for the active (blue) and inactive (gray) states.
@@ -106,6 +106,37 @@ public enum NavIcon {
             folder.lineTo(3 * u, 19 * u);
             folder.closePath();
             g.draw(folder);
+        }
+    },
+
+    /** A sheet with a folded corner: one file (used in the file tree). */
+    DOCUMENT {
+        @Override
+        void draw(Graphics2D g, float u) {
+            Path2D sheet = new Path2D.Float();
+            sheet.moveTo(6 * u, 3 * u);
+            sheet.lineTo(14 * u, 3 * u);
+            sheet.lineTo(19 * u, 8 * u);
+            sheet.lineTo(19 * u, 21 * u);
+            sheet.lineTo(6 * u, 21 * u);
+            sheet.closePath();
+            g.draw(sheet);
+            Path2D fold = new Path2D.Float();
+            fold.moveTo(14 * u, 3 * u);
+            fold.lineTo(14 * u, 8 * u);
+            fold.lineTo(19 * u, 8 * u);
+            g.draw(fold);
+        }
+    },
+
+    /** A padlock: private file. */
+    LOCK {
+        @Override
+        void draw(Graphics2D g, float u) {
+            g.draw(rect(5, 11, 14, 10, 2, u));
+            g.drawArc(Math.round(8 * u), Math.round(4 * u), Math.round(8 * u), Math.round(12 * u), 0, 180);
+            g.draw(line(8, 10, 8, 11, u));
+            g.draw(line(16, 10, 16, 11, u));
         }
     };
 

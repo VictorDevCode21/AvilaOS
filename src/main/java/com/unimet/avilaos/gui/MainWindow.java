@@ -44,8 +44,8 @@ import javax.swing.text.DefaultCaret;
 /**
  * Ventana principal del simulador ÁvilaOS.
  *
- * Izquierda: barra angosta con un ícono y un texto corto por vista (Computadores, Buffers,
- * Métricas, Log de eventos).
+ * Izquierda: barra angosta con un ícono y un texto corto por vista (Computadores, Disco,
+ * Archivos, Buffers, Métricas, Log de eventos).
  * Arriba: el nombre de la vista, el ciclo de reloj y los controles (iniciar/pausar,
  * reiniciar, duración del ciclo, crear proceso y buffer, Planificación y Configuración), y una
  * franja de indicadores que se ve en todas las vistas (CPUs, memoria, procesos, rendimiento).
@@ -81,6 +81,14 @@ public final class MainWindow extends JFrame {
     static final String VIEW_BUFFERS = "Buffers";
     static final String VIEW_METRICS = "Métricas";
     static final String VIEW_LOG = "Log de eventos";
+    static final String VIEW_DISK = "Disco";
+    static final String VIEW_FILES = "Archivos";
+
+    /**
+     * Disk policies shown in the Disk view. PROVISIONAL: it will come from the disk policy enum of
+     * the contracts PR.
+     */
+    static final String[] DISK_POLICIES = {"FIFO", "SSTF", "SCAN", "C-SCAN", "LOOK"};
 
     // ---------- Controles ----------
     private final JLabel cycleLabel = Theme.label("Ciclo 0", Theme.MONO_BOLD, Theme.TEXT);
@@ -120,16 +128,20 @@ public final class MainWindow extends JFrame {
     private final BufferTableModel bufferModel = new BufferTableModel();
     private final MetricsTableModel metricsModel = new MetricsTableModel();
     private final CpuUsageChart cpuChart = new CpuUsageChart();
+    /** Shared by the Disk and Files views so a file has the same color in both. */
+    private final transient OwnerPalette ownerPalette = new OwnerPalette();
+    private final DiskPanel diskPanel = new DiskPanel(ownerPalette, DISK_POLICIES);
+    private final FileSystemPanel fileSystemPanel = new FileSystemPanel(ownerPalette);
 
     private final ComputerPanel[] computerPanels;
 
     /**
-     * @param computerCount número de computadores del clúster (mínimo 2)
+     * @param computerCount number of computers (at least 1: Project 2 uses a single computer)
      */
     public MainWindow(int computerCount) {
         super("ÁvilaOS - Simulador de sistema operativo distribuido");
-        if (computerCount < 2) {
-            throw new IllegalArgumentException("El clúster necesita al menos 2 computadores");
+        if (computerCount < 1) {
+            throw new IllegalArgumentException("Se necesita al menos 1 computador");
         }
 
         computerPanels = new ComputerPanel[computerCount];
@@ -145,6 +157,8 @@ public final class MainWindow extends JFrame {
         setContentPane(root);
 
         addView(VIEW_COMPUTERS, "Equipos", NavIcon.COMPUTER, buildComputersView());
+        addView(VIEW_DISK, "Disco", NavIcon.DISK, diskPanel);
+        addView(VIEW_FILES, "Archivos", NavIcon.FILES, fileSystemPanel);
         addView(VIEW_BUFFERS, "Buffers", NavIcon.BUFFERS, buildBuffersView());
         addView(VIEW_METRICS, "Métricas", NavIcon.METRICS, buildMetricsView());
         addView(VIEW_LOG, "Log", NavIcon.LOG, buildLogView());
@@ -500,11 +514,23 @@ public final class MainWindow extends JFrame {
         bufferModel.clear();
         metricsModel.clear();
         cpuChart.clear();
+        diskPanel.clear();
+        fileSystemPanel.clearMessage();
         for (ComputerPanel panel : computerPanels) {
             panel.clear();
         }
         showOverview(0, "", 0, 0, 0, 0, 0);
         performanceKpi.show("—", "Aún no termina ningún proceso");
+    }
+
+    /** "Disco" view: block map, head, disk policy and I/O queue. */
+    public DiskPanel getDiskPanel() {
+        return diskPanel;
+    }
+
+    /** "Archivos" view: JTree, node details, I/O process buttons and allocation table. */
+    public FileSystemPanel getFileSystemPanel() {
+        return fileSystemPanel;
     }
 
     public ComputerPanel getComputerPanel(int computerId) {
