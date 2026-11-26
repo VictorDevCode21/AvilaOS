@@ -26,7 +26,7 @@ public final class CLookDiskPolicy implements DiskSchedulingPolicy {
 
     @Override
     public SeekPlan select(LinkedList<DiskRequest> pending, int headBlock, HeadDirection direction,
-            int blockCount) {
+            int diskSize) {
         DiskRequest ahead = DiskPolicySupport.nearestAhead(pending, headBlock, direction);
         if (ahead != null) {
             return new SeekPlan(ahead, headBlock, SeekPlan.NONE, SeekPlan.NONE, direction);

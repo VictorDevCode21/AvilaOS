@@ -24,7 +24,7 @@ public final class SstfDiskPolicy implements DiskSchedulingPolicy {
 
     @Override
     public SeekPlan select(LinkedList<DiskRequest> pending, int headBlock, HeadDirection direction,
-            int blockCount) {
+            int diskSize) {
         return SeekPlan.direct(DiskPolicySupport.nearest(pending, headBlock), headBlock, direction);
     }
 }

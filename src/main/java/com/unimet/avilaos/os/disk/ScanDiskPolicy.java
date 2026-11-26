@@ -25,14 +25,14 @@ public final class ScanDiskPolicy implements DiskSchedulingPolicy {
 
     @Override
     public SeekPlan select(LinkedList<DiskRequest> pending, int headBlock, HeadDirection direction,
-            int blockCount) {
+            int diskSize) {
         DiskRequest ahead = DiskPolicySupport.nearestAhead(pending, headBlock, direction);
         if (ahead != null) {
             return new SeekPlan(ahead, headBlock, SeekPlan.NONE, SeekPlan.NONE, direction);
         }
         HeadDirection back = direction.opposite();
         DiskRequest behind = DiskPolicySupport.nearestAhead(pending, headBlock, back);
-        int edge = DiskPolicySupport.edge(direction, blockCount);
+        int edge = DiskPolicySupport.edge(direction, diskSize);
         int sweep = headBlock == edge ? SeekPlan.NONE : edge;    // ya está en el extremo
         return new SeekPlan(behind, headBlock, sweep, SeekPlan.NONE, back);
     }
