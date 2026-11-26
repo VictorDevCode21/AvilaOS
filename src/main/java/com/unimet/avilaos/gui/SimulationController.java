@@ -2,7 +2,6 @@ package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.cluster.Cluster;
 import com.unimet.avilaos.cluster.Computer;
-import com.unimet.avilaos.config.BufferConfig;
 import com.unimet.avilaos.config.ProcessConfig;
 import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.datastructures.LinkedList;
@@ -10,6 +9,7 @@ import com.unimet.avilaos.events.LogEntry;
 import com.unimet.avilaos.hardware.Cpu;
 import com.unimet.avilaos.metrics.MetricsSnapshot;
 import com.unimet.avilaos.os.Kernel;
+import com.unimet.avilaos.os.process.Pcb;
 import com.unimet.avilaos.os.scheduling.PolicyType;
 import com.unimet.avilaos.os.scheduling.Scheduler;
 import javax.swing.JOptionPane;
@@ -67,7 +67,6 @@ public final class SimulationController {
         window.setStartPauseAction(e -> startOrPause());
         window.setResetAction(e -> reset());
         window.setCreateProcessAction(e -> createProcess());
-        window.setCreateBufferAction(e -> createBuffer());
         window.setConfigAction(e -> configure());
         window.setPlanningAction(e -> openPlanning());
         planningDialog.setPlanningListener(this::applyPlanning);
@@ -147,26 +146,6 @@ public final class SimulationController {
     }
 
     /**
-     * Orden: 1) la configuración valida sin agregar (es la que se vuelve a cargar al reiniciar),
-     * 2) el clúster lo crea (puede no haber RAM libre ahora mismo), 3) recién entonces se agrega
-     * a la configuración. Así la configuración y la simulación nunca discrepan.
-     */
-    private void createBuffer() {
-        BufferConfig buffer = BufferFormDialog.showDialog(window, config);
-        if (buffer == null) {
-            return;
-        }
-        try {
-            config.checkBuffer(buffer);
-            cluster.createBuffer(buffer);
-            config.addBuffer(buffer);
-        } catch (IllegalArgumentException ex) {
-            showError("No se pudo crear el buffer", ex);
-        }
-        refresh();
-    }
-
-    /**
      * Abre la vista de configuración. Si el usuario acepta, se aplica reemplazando la
      * simulación completa: el número de computadores fija la ventana, así que se detiene
      * el clúster, se cierra esta ventana y se abre un controlador nuevo con la configuración.
@@ -224,16 +203,37 @@ public final class SimulationController {
     private void refresh() {
         pauseWhenIdle();
         window.setCycle(cluster.getCurrentCycle());
+        int busy = 0;
+        int usedMb = 0;
+        int totalMb = 0;
+        int live = 0;
+        int blocked = 0;
+        int terminated = 0;
+        StringBuilder running = new StringBuilder();
         for (int id = 1; id <= cluster.getComputerCount(); id++) {
             Computer computer = cluster.getComputer(id);
             ComputerPanel panel = window.getComputerPanel(id);
             Kernel kernel = computer.getKernel();
             Cpu cpu = computer.getCpu();
-            panel.showRunning(kernel.getRunning(), cpu.getMode(), cpu.getProgramCounter(),
+            // Read the running process once: the card and the KPI strip must show the same one
+            Pcb inCpu = kernel.getRunning();
+            panel.showRunning(inCpu, cpu.getMode(), cpu.getProgramCounter(),
                     cpu.getMemoryAddressRegister());
             panel.showMemory(computer.getRam().getUsedSize(), computer.getRam().getTotalSize());
-            panel.showQueues(kernel.getNewSnapshot(), kernel.getReadySnapshot(),
-                    kernel.getBlockedSnapshot(), kernel.getTerminatedSnapshot());
+            LinkedList<Pcb> newQueue = kernel.getNewSnapshot();
+            LinkedList<Pcb> readyQueue = kernel.getReadySnapshot();
+            LinkedList<Pcb> blockedQueue = kernel.getBlockedSnapshot();
+            LinkedList<Pcb> terminatedQueue = kernel.getTerminatedSnapshot();
+            panel.showQueues(newQueue, readyQueue, blockedQueue, terminatedQueue);
+            if (inCpu != null) {
+                busy++;
+                running.append(running.length() == 0 ? "" : ", ").append(inCpu);
+            }
+            usedMb += computer.getRam().getUsedSize();
+            totalMb += computer.getRam().getTotalSize();
+            live += newQueue.size() + readyQueue.size() + blockedQueue.size() + (inCpu == null ? 0 : 1);
+            blocked += blockedQueue.size();
+            terminated += terminatedQueue.size();
             Scheduler scheduler = kernel.getScheduler();
             PolicyType policy = scheduler.getPolicyType();
             panel.showPolicy(policy.getLabel(), policy == PolicyType.ROUND_ROBIN ? scheduler.getQuantum() : 0);
@@ -241,7 +241,7 @@ public final class SimulationController {
                 planningDialog.showComputer(id, policy, scheduler.getQuantum(), scheduler.getReadyCount());
             }
         }
-        window.showBuffers(cluster.getBuffers(), cluster.getSystemMetrics().getBufferStats());
+        window.showOverview(busy, running.toString(), usedMb, totalMb, live, blocked, terminated);
         MetricsSnapshot[] perComputer = new MetricsSnapshot[cluster.getComputerCount()];
         for (int id = 1; id <= perComputer.length; id++) {
             perComputer[id - 1] = cluster.getComputer(id).getMetrics().getSnapshot();

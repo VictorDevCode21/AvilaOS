@@ -238,7 +238,7 @@ public final class ProcessFormDialog extends JDialog {
         } else if (type != null && type.usesBuffer()) {
             bufferName = (String) bufferCombo.getSelectedItem();
             if (bufferName == null) {
-                v.addError("Buffer: no hay buffers creados. Crea uno primero con \"Crear buffer\".");
+                v.addError("Buffer: no hay buffers creados. Agrégalos primero en Configuración.");
             }
             operationInterval = v.integer(operationIntervalField, "Produce/consume cada", 1,
                     MAX_OPERATION_INTERVAL);

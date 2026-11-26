@@ -4,28 +4,31 @@ import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.events.LogEntry;
-import com.unimet.avilaos.metrics.BufferStats;
 import com.unimet.avilaos.metrics.ComputerMetrics;
 import com.unimet.avilaos.metrics.MetricsSnapshot;
-import com.unimet.avilaos.os.sync.BoundedBuffer;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
-import javax.swing.JSplitPane;
-import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JViewport;
@@ -39,12 +42,15 @@ import javax.swing.text.DefaultCaret;
 /**
  * Ventana principal del simulador ÁvilaOS.
  *
- * Arriba: controles globales (ciclo de reloj, iniciar/pausar, reiniciar, duración del ciclo,
- * botones para crear procesos/buffers, la ventana de planificación y la configuración).
- * Centro: un ComputerPanel por computador, uno al lado del otro.
- * Abajo: tabla de buffers (semáforos y quién espera) y pestañas con el log de eventos,
- * las métricas de rendimiento y la gráfica de utilización de CPU.
+ * Izquierda: barra angosta con un ícono y un texto corto por vista (Computadores, Disco,
+ * Archivos, Métricas, Log de eventos). Proyecto 2: ya no hay vista de Buffers.
+ * Arriba: el nombre de la vista, el ciclo de reloj y los controles (iniciar/pausar,
+ * reiniciar, duración del ciclo, cargar los JSON, crear proceso, Planificación y Configuración), y una
+ * franja de indicadores que se ve en todas las vistas (CPUs, memoria, procesos, rendimiento).
+ * Centro: UNA vista a la vez, para no saturar la pantalla.
  *
+ * Agregar una vista (ej. el disco en el Proyecto 2) es llamar addView con su nombre, texto corto,
+ * ícono y panel.
  * La ventana solo muestra y reenvía las acciones del usuario: no contiene lógica del SO.
  *
  * @author NicollPinzon
@@ -65,142 +71,265 @@ public final class MainWindow extends JFrame {
     /** Máximo de líneas en el log en pantalla (igual que la capacidad de EventLog). */
     public static final int MAX_LOG_LINES = EventLog.DEFAULT_CAPACITY;
 
-    private final JLabel cycleLabel = new JLabel("Ciclo: 0");
-    private final JButton startPauseButton = new JButton("Iniciar");
-    private final JButton resetButton = new JButton("Reiniciar");
+    /** Width of the side rail in pixels. */
+    private static final int RAIL_WIDTH = 84;
+
+    // Nombres de las vistas (también son el título de la página)
+    static final String VIEW_COMPUTERS = "Computadores";
+    static final String VIEW_METRICS = "Métricas";
+    static final String VIEW_LOG = "Log de eventos";
+    static final String VIEW_DISK = "Disco";
+    static final String VIEW_FILES = "Archivos";
+
+    /**
+     * Disk policies shown in the Disk view. PROVISIONAL: it will come from the disk policy enum of
+     * the contracts PR.
+     */
+    static final String[] DISK_POLICIES = {"FIFO", "SSTF", "SCAN", "C-SCAN", "LOOK"};
+
+    // ---------- Controles ----------
+    private final JLabel cycleLabel = Theme.label("Ciclo 0", Theme.MONO_BOLD, Theme.TEXT);
+    private final UiKit.Button startPauseButton = new UiKit.Button("Iniciar", UiKit.Kind.PRIMARY);
+    private final UiKit.Button resetButton = new UiKit.Button("Reiniciar", UiKit.Kind.SECONDARY);
     // Rangos de SimulationConfig: la GUI y el archivo CSV aceptan exactamente lo mismo
     private final JSpinner cycleDurationSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_CYCLE_MS,
             (int) SimulationConfig.MIN_CYCLE_MS, (int) SimulationConfig.MAX_CYCLE_MS, 50));
-    private final JButton createProcessButton = new JButton("Crear proceso");
-    private final JButton createBufferButton = new JButton("Crear buffer");
-    private final JButton planningButton = new JButton("Planificación");
-    private final JButton configButton = new JButton("Configuración");
+    private final UiKit.Button createProcessButton = new UiKit.Button("+ Proceso", UiKit.Kind.SECONDARY);
+    private final UiKit.Button loadJsonButton = new UiKit.Button("Cargar JSON", UiKit.Kind.SECONDARY);
+    /** Shows if both JSON files (file system, processes and config) are loaded. */
+    private final UiKit.Pill jsonPill = new UiKit.Pill("Faltan los JSON", Theme.KERNEL_BG, Theme.KERNEL_FG);
+    private final UiKit.Button planningButton = new UiKit.Button("Planificación", UiKit.Kind.GHOST);
+    private final UiKit.Button configButton = new UiKit.Button("Configuración", UiKit.Kind.GHOST);
 
     /**
      * Acción por defecto de los botones que todavía nadie conectó: avisa en vez de no hacer nada.
-     * Quien arma la simulación la reemplaza con setStartPauseAction / setResetAction /
-     * setCreateProcessAction / setCreateBufferAction / setConfigAction.
+     * Quien arma la simulación la reemplaza con los set*Action.
      */
     private final transient ActionListener notAvailable = e -> JOptionPane.showMessageDialog(this,
             "Disponible en una próxima versión.", "En construcción", JOptionPane.INFORMATION_MESSAGE);
 
+    // ---------- Navegación ----------
+    private final JPanel navList = Theme.transparent(new JPanel());
+    private final CardLayout viewLayout = new CardLayout();
+    private final JPanel views = Theme.transparent(new JPanel(viewLayout));
+    private final JLabel pageTitle = Theme.label(VIEW_COMPUTERS, Theme.PAGE_TITLE, Theme.TEXT);
+    private UiKit.RailItem[] navItems = new UiKit.RailItem[0];
+    private String[] navNames = new String[0];
+
+    // ---------- Indicadores (franja superior) ----------
+    private final UiKit.Kpi cpuKpi;
+    private final UiKit.Kpi memoryKpi = new UiKit.Kpi("Memoria");
+    private final UiKit.Kpi processKpi = new UiKit.Kpi("Procesos");
+    private final UiKit.Kpi performanceKpi = new UiKit.Kpi("Rendimiento");
+
+    // ---------- Contenido de las vistas ----------
     private final JTextArea logArea = new JTextArea();
-    private final JPanel bufferArea = new JPanel(new BorderLayout());
-    private final BufferTableModel bufferModel = new BufferTableModel();
     private final MetricsTableModel metricsModel = new MetricsTableModel();
     private final CpuUsageChart cpuChart = new CpuUsageChart();
+    /** Shared by the Disk and Files views so a file has the same color in both. */
+    private final transient OwnerPalette ownerPalette = new OwnerPalette();
+    private final DiskPanel diskPanel = new DiskPanel(ownerPalette, DISK_POLICIES);
+    private final FileSystemPanel fileSystemPanel = new FileSystemPanel(ownerPalette);
 
     private final ComputerPanel[] computerPanels;
 
     /**
-     * @param computerCount número de computadores del clúster (mínimo 2)
+     * @param computerCount number of computers (at least 1: Project 2 uses a single computer)
      */
     public MainWindow(int computerCount) {
         super("ÁvilaOS - Simulador de sistema operativo distribuido");
-        if (computerCount < 2) {
-            throw new IllegalArgumentException("El clúster necesita al menos 2 computadores");
+        if (computerCount < 1) {
+            throw new IllegalArgumentException("Se necesita al menos 1 computador");
         }
 
+        cpuKpi = new UiKit.Kpi(computerCount == 1 ? "CPU" : "CPUs");
         computerPanels = new ComputerPanel[computerCount];
         for (int i = 0; i < computerCount; i++) {
-            computerPanels[i] = new ComputerPanel(i + 1);
+            computerPanels[i] = new ComputerPanel(i + 1, computerCount == 1);
         }
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLayout(new BorderLayout(6, 6));
-        add(buildControlBar(), BorderLayout.NORTH);
+        JPanel root = new JPanel(new BorderLayout());
+        root.setBackground(Theme.BACKGROUND);
+        root.add(buildRail(), BorderLayout.WEST);
+        root.add(buildMain(), BorderLayout.CENTER);
+        setContentPane(root);
 
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                buildComputersArea(), buildBottomArea());
-        split.setResizeWeight(0.75);
-        add(split, BorderLayout.CENTER);
+        addView(VIEW_COMPUTERS, "Equipos", NavIcon.COMPUTER, buildComputersView());
+        addView(VIEW_DISK, "Disco", NavIcon.DISK, diskPanel);
+        addView(VIEW_FILES, "Archivos", NavIcon.FILES, fileSystemPanel);
+        addView(VIEW_METRICS, "Métricas", NavIcon.METRICS, buildMetricsView());
+        addView(VIEW_LOG, "Log", NavIcon.LOG, buildLogView());
+        showView(VIEW_COMPUTERS);
 
         setPreferredSize(new Dimension(1440, 900));
+        setMinimumSize(new Dimension(1000, 640));
         pack();
         setLocationRelativeTo(null);
 
-        // Hasta que alguien los conecte, los 6 botones avisan "en construcción" en vez de quedarse mudos.
-        startPauseButton.addActionListener(notAvailable);
-        resetButton.addActionListener(notAvailable);
-        createProcessButton.addActionListener(notAvailable);
-        createBufferButton.addActionListener(notAvailable);
-        planningButton.addActionListener(notAvailable);
-        configButton.addActionListener(notAvailable);
+        // Hasta que alguien los conecte, los botones avisan "en construcción" en vez de quedarse mudos.
+        for (JButton button : new JButton[] {startPauseButton, resetButton, createProcessButton,
+            loadJsonButton, planningButton, configButton}) {
+            button.addActionListener(notAvailable);
+        }
     }
 
     // ---------- Construcción ----------
 
+    /** Narrow side rail: the logo on top and one icon with a short label per view. */
+    private JPanel buildRail() {
+        JPanel rail = new JPanel(new BorderLayout()) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                g.setColor(Theme.BORDER);
+                g.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight());
+            }
+        };
+        rail.setBackground(Theme.SURFACE);
+        rail.setPreferredSize(new Dimension(RAIL_WIDTH, 10));
+        rail.setBorder(Theme.padding(16, 0, 16, 0));
+
+        JPanel brand = Theme.transparent(new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0)));
+        Logo logo = new Logo();
+        logo.setToolTipText("ÁvilaOS");
+        brand.add(logo);
+        brand.setBorder(Theme.padding(0, 0, 22, 0));
+        rail.add(brand, BorderLayout.NORTH);
+
+        navList.setLayout(new BoxLayout(navList, BoxLayout.Y_AXIS));
+        rail.add(navList, BorderLayout.CENTER);
+        return rail;
+    }
+
+    private JPanel buildMain() {
+        JPanel main = Theme.transparent(new JPanel(new BorderLayout(0, 16)));
+        main.setBorder(Theme.padding(18, 24, 20, 24));
+
+        JPanel header = Theme.transparent(new JPanel(new BorderLayout(0, 14)));
+        header.add(buildControlBar(), BorderLayout.NORTH);
+        JPanel kpis = Theme.transparent(new JPanel(new GridLayout(1, 4, 12, 0)));
+        kpis.add(cpuKpi);
+        kpis.add(memoryKpi);
+        kpis.add(processKpi);
+        kpis.add(performanceKpi);
+        header.add(kpis, BorderLayout.CENTER);
+        main.add(header, BorderLayout.NORTH);
+        main.add(views, BorderLayout.CENTER);
+        return main;
+    }
+
     private JPanel buildControlBar() {
-        JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 6));
-        cycleLabel.setFont(new Font(Font.MONOSPACED, Font.BOLD, 18));
+        JPanel bar = Theme.transparent(new JPanel(new BorderLayout(12, 0)));
+        bar.add(pageTitle, BorderLayout.WEST);
+
+        JPanel controls = Theme.transparent(new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0)));
+        UiKit.Card cycle = new UiKit.Card(new BorderLayout());
+        cycle.setBorder(Theme.padding(6, 12, 6, 12));
+        cycle.add(cycleLabel);
+        controls.add(cycle);
+        controls.add(startPauseButton);
         resetButton.setToolTipText("Detiene la simulación y la vuelve al ciclo 0 con la carga inicial");
-        bar.add(cycleLabel);
-        bar.add(startPauseButton);
-        bar.add(resetButton);
-        bar.add(new JLabel("Duración ciclo (ms):"));
-        bar.add(cycleDurationSpinner);
-        bar.add(createProcessButton);
-        bar.add(createBufferButton);
+        controls.add(resetButton);
+        controls.add(Box.createHorizontalStrut(4));
+        controls.add(Theme.label("Ciclo (ms)", Theme.SMALL, Theme.MUTED));
+        cycleDurationSpinner.setPreferredSize(new Dimension(80, 32));
+        cycleDurationSpinner.setToolTipText("Duración de cada ciclo de reloj en milisegundos");
+        controls.add(new UiKit.RoundedBox(cycleDurationSpinner, 10, Theme.BORDER_STRONG));
+        controls.add(Box.createHorizontalStrut(4));
         planningButton.setToolTipText("Política de cada computador y quantum de Round Robin");
-        bar.add(planningButton);
-        bar.add(configButton);
+        configButton.setToolTipText("Computadores, RAM, carga inicial y archivo CSV");
+        controls.add(planningButton);
+        controls.add(configButton);
+        controls.add(Box.createHorizontalStrut(4));
+        loadJsonButton.setToolTipText("Sistema de archivos y procesos: los dos son obligatorios antes de iniciar");
+        controls.add(jsonPill);
+        controls.add(loadJsonButton);
+        createProcessButton.setToolTipText("Crear un proceso nuevo");
+        controls.add(createProcessButton);
+        bar.add(controls, BorderLayout.EAST);
         return bar;
     }
 
-    private JScrollPane buildComputersArea() {
+    private JScrollPane buildComputersView() {
         // Uno al lado del otro, como el boceto del enunciado
-        JPanel grid = new WidthTrackingPanel(new GridLayout(1, 0, 8, 8));
+        JPanel grid = new WidthTrackingPanel(new GridLayout(1, 0, 14, 14));
+        grid.setOpaque(false);
         for (ComputerPanel panel : computerPanels) {
             grid.add(panel);
         }
         JScrollPane scroll = new JScrollPane(grid);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         return scroll;
     }
 
-    private JSplitPane buildBottomArea() {
-        bufferArea.setBorder(BorderFactory.createTitledBorder("Buffers"));
-        bufferArea.add(new JScrollPane(newTable(bufferModel, BufferTableModel.COLUMN_TIPS,
-                BufferTableModel.COLUMN_WIDTHS)));
+    private JPanel buildMetricsView() {
+        UiKit.Card tableCard = new UiKit.Card(new BorderLayout(0, 10));
+        tableCard.setBorder(Theme.padding(16, 18, 14, 18));
+        tableCard.add(cardHeading("Métricas de rendimiento",
+                "Tiempos en ciclos. Los promedios, la equidad y el cumplimiento de deadlines solo cuentan"
+                + " procesos TERMINADOS; la utilización de CPU es la acumulada hasta ahora."), BorderLayout.NORTH);
+        JScrollPane table = Theme.scroll(newTable(metricsModel, MetricsTableModel.COLUMN_TIPS,
+                MetricsTableModel.COLUMN_WIDTHS));
+        table.setPreferredSize(new Dimension(600, 150));
+        tableCard.add(UiKit.rounded(table), BorderLayout.CENTER);
 
+        UiKit.Card chartCard = new UiKit.Card(new BorderLayout(0, 10));
+        chartCard.setBorder(Theme.padding(16, 18, 14, 18));
+        chartCard.add(cardHeading("Utilización de CPU", "Porcentaje de ciclos ocupados de cada computador"),
+                BorderLayout.NORTH);
+        chartCard.add(cpuChart, BorderLayout.CENTER);
+
+        JPanel view = Theme.transparent(new JPanel(new BorderLayout(0, 14)));
+        view.add(tableCard, BorderLayout.NORTH);
+        view.add(chartCard, BorderLayout.CENTER);
+        return view;
+    }
+
+    private JPanel buildLogView() {
         logArea.setEditable(false);
         logArea.setLineWrap(true);                      // las líneas largas no se cortan a la derecha
         logArea.setWrapStyleWord(true);
-        logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        logArea.setFont(Theme.MONO_FONT);
+        logArea.setForeground(Theme.TEXT);
+        logArea.setBackground(Theme.SURFACE);
+        logArea.setBorder(Theme.padding(8, 10, 8, 10));
         ((DefaultCaret) logArea.getCaret()).setUpdatePolicy(DefaultCaret.ALWAYS_UPDATE); // autoscroll
-        JScrollPane logScroll = new JScrollPane(logArea);
 
-        cpuChart.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));   // el título ya lo da la pestaña
-        JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Log de eventos", logScroll);
-        tabs.addTab("Métricas", buildMetricsTab());
-        tabs.addTab("Utilización de CPU", cpuChart);
-
-        // Mismo ancho preferido a los dos lados: el divisor arranca en el medio y la tabla de buffers cabe
-        bufferArea.setPreferredSize(new Dimension(700, 220));
-        tabs.setPreferredSize(new Dimension(700, 220));
-        JSplitPane bottom = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bufferArea, tabs);
-        bottom.setResizeWeight(0.5);
-        return bottom;
+        UiKit.Card card = new UiKit.Card(new BorderLayout(0, 12));
+        card.setBorder(Theme.padding(16, 18, 16, 18));
+        card.add(cardHeading("Log de eventos", "Decisiones del SO en orden: lo más reciente queda abajo"),
+                BorderLayout.NORTH);
+        JScrollPane scroll = Theme.scroll(logArea);
+        card.add(UiKit.rounded(scroll), BorderLayout.CENTER);
+        return wrapView(card);
     }
 
-    private JPanel buildMetricsTab() {
-        JPanel panel = new JPanel(new BorderLayout(4, 4));
-        panel.add(new JScrollPane(newTable(metricsModel, MetricsTableModel.COLUMN_TIPS,
-                MetricsTableModel.COLUMN_WIDTHS)), BorderLayout.CENTER);
-        // Lo dice el javadoc de MetricsSnapshot: un proceso vivo todavía no cuenta en los promedios
-        // JTextArea y no JLabel: hace salto de línea, así la nota no obliga a la pestaña a ser ancha
-        JTextArea note = new JTextArea("Tiempos en ciclos. Los promedios, la equidad y el cumplimiento de deadlines"
-                + " solo cuentan procesos TERMINADOS; la utilización de CPU es la acumulada hasta ahora.");
-        note.setEditable(false);
-        note.setFocusable(false);
-        note.setOpaque(false);
-        note.setLineWrap(true);
-        note.setWrapStyleWord(true);
-        note.setFont(new JLabel().getFont().deriveFont(Font.ITALIC, 11f));
-        note.setBorder(BorderFactory.createEmptyBorder(0, 4, 2, 4));
-        panel.add(note, BorderLayout.SOUTH);
-        return panel;
+    private static JPanel cardHeading(String title, String subtitle) {
+        JPanel heading = Theme.transparent(new JPanel(new BorderLayout(0, 2)));
+        heading.add(Theme.label(title, Theme.SECTION, Theme.TEXT), BorderLayout.NORTH);
+        JTextArea sub = new JTextArea(subtitle);          // JTextArea: hace salto de línea si no cabe
+        sub.setEditable(false);
+        sub.setFocusable(false);
+        sub.setOpaque(false);
+        sub.setLineWrap(true);
+        sub.setWrapStyleWord(true);
+        sub.setFont(Theme.SMALL);
+        sub.setForeground(Theme.MUTED);
+        sub.setBorder(BorderFactory.createEmptyBorder());
+        heading.add(sub, BorderLayout.CENTER);
+        return heading;
+    }
+
+    private static JPanel wrapView(JComponent content) {
+        JPanel view = Theme.transparent(new JPanel(new BorderLayout()));
+        view.add(content, BorderLayout.CENTER);
+        return view;
     }
 
     /**
@@ -233,17 +362,65 @@ public final class MainWindow extends JFrame {
                 return col < 0 || col >= columnTips.length ? null : columnTips[col];
             }
         });
-        table.getTableHeader().setReorderingAllowed(false);
+        Theme.styleTable(table);
         for (int i = 0; i < columnWidths.length; i++) {
             table.getColumnModel().getColumn(i).setPreferredWidth(columnWidths[i]);
         }
         return table;
     }
 
+    // ---------- Navegación ----------
+
+    /**
+     * Adds a view to the side rail and to the center of the window (e.g. "Disco" in Project 2).
+     *
+     * @param name       full name: page title and rail tooltip
+     * @param shortLabel one short word shown under the icon
+     * @param icon       icon of the rail item
+     * @param view       panel of the view
+     */
+    public void addView(String name, String shortLabel, NavIcon icon, JComponent view) {
+        UiKit.RailItem item = new UiKit.RailItem(shortLabel, icon);
+        item.setToolTipText(name);
+        item.addActionListener(e -> showView(name));
+        navList.add(item);
+        navList.add(Box.createVerticalStrut(10));
+        views.add(view, name);
+
+        UiKit.RailItem[] items = new UiKit.RailItem[navItems.length + 1];
+        String[] names = new String[navNames.length + 1];
+        System.arraycopy(navItems, 0, items, 0, navItems.length);
+        System.arraycopy(navNames, 0, names, 0, navNames.length);
+        items[navItems.length] = item;
+        names[navNames.length] = name;
+        navItems = items;
+        navNames = names;
+    }
+
+    /** Muestra una vista por su nombre y la marca en el menú. */
+    public void showView(String name) {
+        viewLayout.show(views, name);
+        pageTitle.setText(name);
+        for (int i = 0; i < navItems.length; i++) {
+            navItems[i].setActive(navNames[i].equals(name));
+        }
+    }
+
+    private void setBadge(String view, String badge) {
+        for (int i = 0; i < navItems.length; i++) {
+            if (navNames[i].equals(view)) {
+                navItems[i].setBadge(badge);
+            }
+        }
+    }
+
     // ---------- Métodos para actualizar la vista (hilo de Swing) ----------
 
     public void setCycle(long cycle) {
-        cycleLabel.setText("Ciclo: " + cycle);
+        String text = "Ciclo " + cycle;
+        if (!text.equals(cycleLabel.getText())) {
+            cycleLabel.setText(text);
+        }
     }
 
     /** Agrega una entrada del EventLog. Si se pasa de MAX_LOG_LINES, borra la más vieja. */
@@ -260,17 +437,6 @@ public final class MainWindow extends JFrame {
     }
 
     /**
-     * Muestra el estado de los buffers: ocupación, semáforos, quién espera en cada uno
-     * y producidos/consumidos.
-     *
-     * @param buffers copia de la lista de buffers (Cluster.getBuffers())
-     * @param stats   contadores de cada buffer (SystemMetrics.getBufferStats())
-     */
-    public void showBuffers(LinkedList<BoundedBuffer> buffers, LinkedList<BufferStats> stats) {
-        bufferModel.setBuffers(buffers, stats);
-    }
-
-    /**
      * Muestra la tabla de métricas: una fila por computador y la fila "Sistema".
      *
      * @param computers foto de cada computador (índice 0 = Computador 1)
@@ -278,6 +444,36 @@ public final class MainWindow extends JFrame {
      */
     public void showMetrics(MetricsSnapshot[] computers, MetricsSnapshot system) {
         metricsModel.setMetrics(computers, system);
+        performanceKpi.show(String.format("CPU %.0f %%", system.cpuUtilization() * 100),
+                system.completedProcesses() == 0 ? "Aún no termina ningún proceso"
+                : String.format("Throughput %.3f · equidad %.2f", system.throughput(), system.fairnessIndex()));
+    }
+
+    /**
+     * Indicadores de la franja superior y contador del menú.
+     *
+     * @param busyCpus     computadores con un proceso en CPU
+     * @param runningNames procesos en CPU, separados por coma ("" si ninguno)
+     * @param usedMb       RAM usada sumando todos los computadores
+     * @param totalMb      RAM total sumando todos los computadores
+     * @param live         procesos vivos (nuevos, listos, en CPU y bloqueados)
+     * @param blocked      procesos bloqueados
+     * @param terminated   procesos terminados
+     */
+    public void showOverview(int busyCpus, String runningNames, int usedMb, int totalMb, int live, int blocked,
+            int terminated) {
+        if (computerPanels.length == 1) {
+            cpuKpi.show(busyCpus == 1 ? "Ocupada" : "Ociosa",
+                    runningNames.isEmpty() ? "Esperando un proceso en Listos" : runningNames);
+        } else {
+            cpuKpi.show(busyCpus + " de " + computerPanels.length + " ocupadas",
+                    runningNames.isEmpty() ? "Todas ociosas" : runningNames);
+        }
+        int percent = totalMb == 0 ? 0 : (int) Math.round(usedMb * 100.0 / totalMb);
+        memoryKpi.show(usedMb + " / " + totalMb + " MB", percent + " % en uso");
+        processKpi.show(live + (live == 1 ? " vivo" : " vivos"),
+                blocked + " bloqueados · " + terminated + " terminados");
+        setBadge(VIEW_COMPUTERS, live == 0 ? "" : String.valueOf(live));
     }
 
     /** Agrega a la gráfica los puntos nuevos de utilización de CPU (SystemMetrics.getComputers()). */
@@ -290,17 +486,30 @@ public final class MainWindow extends JFrame {
         startPauseButton.setText(running ? "Pausar" : "Iniciar");
     }
 
-    /** Deja la vista como al abrir el programa: ciclo 0, y log, buffers, métricas, gráfica y paneles vacíos. */
+    /** Deja la vista como al abrir el programa: ciclo 0, y log, métricas, gráfica y paneles vacíos. */
     public void resetView() {
         setCycle(0);
         setRunning(false);
         logArea.setText("");
-        bufferModel.clear();
         metricsModel.clear();
         cpuChart.clear();
+        diskPanel.clear();
+        fileSystemPanel.clearMessage();
         for (ComputerPanel panel : computerPanels) {
             panel.clear();
         }
+        showOverview(0, "", 0, 0, 0, 0, 0);
+        performanceKpi.show("—", "Aún no termina ningún proceso");
+    }
+
+    /** "Disco" view: block map, head, disk policy and I/O queue. */
+    public DiskPanel getDiskPanel() {
+        return diskPanel;
+    }
+
+    /** "Archivos" view: JTree, node details, I/O process buttons and allocation table. */
+    public FileSystemPanel getFileSystemPanel() {
+        return fileSystemPanel;
     }
 
     public ComputerPanel getComputerPanel(int computerId) {
@@ -323,34 +532,48 @@ public final class MainWindow extends JFrame {
     // ---------- Acciones de los botones ----------
     // Cada set*Action REEMPLAZA cualquier acción anterior del botón (el aviso de "en construcción"
     // u otra que se haya puesto antes): el botón queda siempre con UNA sola acción.
-    // Llamarlo dos veces no suma acciones; la segunda reemplaza a la primera.
 
-    /** Qué hacer al pulsar "Iniciar"/"Pausar". Reemplaza cualquier acción anterior del botón. */
+    /** Qué hacer al pulsar "Iniciar"/"Pausar". */
     public void setStartPauseAction(ActionListener action) {
         replaceAction(startPauseButton, action);
     }
 
-    /** Qué hacer al pulsar "Reiniciar". Reemplaza cualquier acción anterior del botón. */
+    /** Qué hacer al pulsar "Reiniciar". */
     public void setResetAction(ActionListener action) {
         replaceAction(resetButton, action);
     }
 
-    /** Qué hacer al pulsar "Crear proceso". Reemplaza cualquier acción anterior del botón. */
+    /** Qué hacer al pulsar "+ Proceso". */
     public void setCreateProcessAction(ActionListener action) {
         replaceAction(createProcessButton, action);
     }
 
-    /** Qué hacer al pulsar "Crear buffer". Reemplaza cualquier acción anterior del botón. */
-    public void setCreateBufferAction(ActionListener action) {
-        replaceAction(createBufferButton, action);
+    /** Qué hacer al pulsar "Cargar JSON" (normalmente abrir el LoadDialog). */
+    public void setLoadJsonAction(ActionListener action) {
+        replaceAction(loadJsonButton, action);
     }
 
-    /** Qué hacer al pulsar "Planificación". Reemplaza cualquier acción anterior del botón. */
+    /**
+     * Shows which JSON files are loaded next to the "Cargar JSON" button.
+     *
+     * @param fileSystemName name of the file system JSON, or null if missing
+     * @param processesName  name of the processes and config JSON, or null if missing
+     */
+    public void showLoadedJson(String fileSystemName, String processesName) {
+        boolean both = fileSystemName != null && processesName != null;
+        jsonPill.setText(both ? "JSON cargados" : fileSystemName == null && processesName == null
+                ? "Faltan los JSON" : "Falta un JSON");
+        jsonPill.setColors(both ? Theme.USER_BG : Theme.KERNEL_BG, both ? Theme.USER_FG : Theme.KERNEL_FG);
+        jsonPill.setToolTipText("Sistema de archivos: " + (fileSystemName == null ? "falta" : fileSystemName)
+                + " · Procesos: " + (processesName == null ? "falta" : processesName));
+    }
+
+    /** Qué hacer al pulsar "Planificación". */
     public void setPlanningAction(ActionListener action) {
         replaceAction(planningButton, action);
     }
 
-    /** Qué hacer al pulsar "Configuración". Reemplaza cualquier acción anterior del botón. */
+    /** Qué hacer al pulsar "Configuración". */
     public void setConfigAction(ActionListener action) {
         replaceAction(configButton, action);
     }
@@ -367,6 +590,33 @@ public final class MainWindow extends JFrame {
             button.removeActionListener(old);
         }
         button.addActionListener(action);
+    }
+
+    /** Logo: cuadrado azul con una montaña (el Ávila) dibujada. */
+    private static final class Logo extends JComponent {
+
+        private static final long serialVersionUID = 1L;
+
+        Logo() {
+            setPreferredSize(new Dimension(36, 36));
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(Theme.ACCENT);
+            g2.fillRoundRect(0, 0, 36, 36, 10, 10);
+            g2.translate(3, 3);
+            g2.setColor(Color.WHITE);
+            g2.setStroke(new java.awt.BasicStroke(2.2f, java.awt.BasicStroke.CAP_ROUND,
+                    java.awt.BasicStroke.JOIN_ROUND));
+            int[] xs = {6, 12, 16, 19, 24};
+            int[] ys = {22, 10, 17, 13, 22};
+            g2.drawPolyline(xs, ys, xs.length);
+            g2.drawLine(6, 22, 24, 22);
+            g2.dispose();
+        }
     }
 
     /**
