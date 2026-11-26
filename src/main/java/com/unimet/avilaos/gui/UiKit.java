@@ -23,8 +23,9 @@ import javax.swing.JPanel;
  *  - Card: panel blanco con esquinas redondeadas y borde fino.
  *  - Button: botón plano (principal, secundario o de texto).
  *  - Pill: etiqueta con fondo redondeado (política, modo de la CPU, contadores).
- *  - NavItem: opción del menú lateral, con punto de color y contador.
+ *  - RailItem: opción de la barra lateral angosta (ícono, texto corto debajo y contador).
  *  - UsageBar: barra de ocupación redondeada (memoria).
+ *  - RoundedBox: marco con esquinas redondeadas para tablas, scrolls y campos (recorta lo de adentro).
  *  - Kpi: tarjeta con un indicador (título, valor grande y detalle).
  *
  * No tienen lógica del simulador: solo se ven y avisan clics como cualquier JButton.
@@ -134,10 +135,10 @@ public final class UiKit {
                 default -> fill = pressed ? Theme.ACCENT_SOFT : hover ? new Color(0xEEF0F3) : new Color(0, 0, 0, 0);
             }
             g2.setColor(fill);
-            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
             if (stroke != null) {
                 g2.setColor(stroke);
-                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
             }
             g2.dispose();
             super.paintComponent(g);
@@ -182,41 +183,52 @@ public final class UiKit {
     }
 
     // =====================================================================
-    // NavItem
+    // RailItem
     // =====================================================================
 
-    /** Opción del menú lateral: punto de color, nombre y un contador a la derecha. */
-    public static class NavItem extends JButton {
+    /**
+     * Option of the narrow side rail: an icon inside a rounded pill and a short label below it.
+     * The full view name goes in the tooltip. A small blue bubble on the pill shows a counter.
+     */
+    public static class RailItem extends JButton {
 
         private static final long serialVersionUID = 1L;
-        private final Color dot;
+        private static final int PILL_W = 48;
+        private static final int PILL_H = 32;
+        private static final int ICON = 20;
+        private final NavIcon icon;
         private boolean active;
         private String badge = "";
 
-        public NavItem(String text, Color dot) {
-            super(text);
-            this.dot = dot;
+        /**
+         * @param label short text under the icon (one word, e.g. "Disco")
+         * @param icon  icon to draw
+         */
+        public RailItem(String label, NavIcon icon) {
+            super(label);
+            this.icon = icon;
             setContentAreaFilled(false);
             setFocusPainted(false);
             setBorderPainted(false);
             setOpaque(false);
             setRolloverEnabled(true);
-            setHorizontalAlignment(LEFT);
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            setFont(Theme.BODY);
-            setBorder(Theme.padding(0, 30, 0, 12));
-            setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
-            setAlignmentX(LEFT_ALIGNMENT);
+            setFont(Theme.SMALL);
+            setForeground(Theme.MUTED);
+            setHorizontalAlignment(CENTER);
+            setVerticalAlignment(BOTTOM);
+            setBorder(Theme.padding(0, 2, 2, 2));
+            setAlignmentX(CENTER_ALIGNMENT);
         }
 
         public void setActive(boolean active) {
             this.active = active;
-            setFont(active ? Theme.BODY_BOLD : Theme.BODY);
-            setForeground(active ? Theme.ACCENT_DARK : Theme.TEXT);
+            setFont(active ? Theme.SMALL_BOLD : Theme.SMALL);
+            setForeground(active ? Theme.ACCENT_DARK : Theme.MUTED);
             repaint();
         }
 
-        /** Texto corto a la derecha (ej. "9 vivos"); vacío = nada. */
+        /** Short counter on the pill (e.g. "9"); empty = hidden. */
         public void setBadge(String badge) {
             String value = badge == null ? "" : badge;
             if (!value.equals(this.badge)) {
@@ -227,24 +239,33 @@ public final class UiKit {
 
         @Override
         public Dimension getPreferredSize() {
-            return new Dimension(super.getPreferredSize().width + 60, 40);
+            return new Dimension(76, 56);
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            return getPreferredSize();
         }
 
         @Override
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = smooth(g);
+            int pillX = (getWidth() - PILL_W) / 2;
             if (active || getModel().isRollover()) {
-                g2.setColor(active ? Theme.ACCENT_SOFT : Theme.SURFACE_ALT);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.setColor(active ? Theme.ACCENT_SOFT : new Color(0xEEF0F3));
+                g2.fillRoundRect(pillX, 0, PILL_W, PILL_H, PILL_H, PILL_H);
             }
-            g2.setColor(dot);
-            g2.fillOval(13, getHeight() / 2 - 4, 8, 8);
+            g2.setColor(active ? Theme.ACCENT_DARK : Theme.MUTED);
+            icon.paint(g2, (getWidth() - ICON) / 2, (PILL_H - ICON) / 2, ICON);
             if (!badge.isEmpty()) {
-                g2.setFont(Theme.SMALL);
-                g2.setColor(Theme.MUTED);
+                g2.setFont(Theme.SMALL_BOLD.deriveFont(10f));
                 FontMetrics fm = g2.getFontMetrics();
-                g2.drawString(badge, getWidth() - 12 - fm.stringWidth(badge),
-                        (getHeight() + fm.getAscent() - fm.getDescent()) / 2);
+                int w = Math.max(16, fm.stringWidth(badge) + 8);
+                int x = pillX + PILL_W - w + 4;
+                g2.setColor(Theme.ACCENT);
+                g2.fillRoundRect(x, -1, w, 16, 16, 16);
+                g2.setColor(Color.WHITE);
+                g2.drawString(badge, x + (w - fm.stringWidth(badge)) / 2, 11);
             }
             g2.dispose();
             super.paintComponent(g);
@@ -361,6 +382,55 @@ public final class UiKit {
                 count.setText(text);
             }
         }
+    }
+
+    // =====================================================================
+    // RoundedBox
+    // =====================================================================
+
+    /**
+     * Frame with rounded corners around a component that paints square (a table inside a scroll,
+     * a spinner...). The content is clipped to the rounded shape and a thin border is drawn on top,
+     * so the square corners of the content never show.
+     */
+    public static class RoundedBox extends JPanel {
+
+        private static final long serialVersionUID = 1L;
+        private final int radius;
+        private final Color stroke;
+
+        /**
+         * @param content component to frame (its own border is removed)
+         * @param radius  corner radius in pixels
+         * @param stroke  border color, or null for no border
+         */
+        public RoundedBox(JComponent content, int radius, Color stroke) {
+            super(new BorderLayout());
+            this.radius = radius;
+            this.stroke = stroke;
+            setOpaque(false);
+            content.setBorder(BorderFactory.createEmptyBorder());
+            add(content, BorderLayout.CENTER);
+        }
+
+        @Override
+        protected void paintChildren(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.clip(new java.awt.geom.RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), radius, radius));
+            super.paintChildren(g2);
+            g2.dispose();
+            if (stroke != null) {
+                Graphics2D line = smooth(g);
+                line.setColor(stroke);
+                line.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, radius, radius);
+                line.dispose();
+            }
+        }
+    }
+
+    /** Shortcut: frames the component with the small radius and the normal border color. */
+    public static RoundedBox rounded(JComponent content) {
+        return new RoundedBox(content, Theme.RADIUS_SMALL, Theme.BORDER);
     }
 
     /** Línea fina para separar bloques dentro de una tarjeta. */

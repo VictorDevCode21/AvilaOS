@@ -13,7 +13,6 @@ import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
@@ -45,14 +44,15 @@ import javax.swing.text.DefaultCaret;
 /**
  * Ventana principal del simulador ÁvilaOS.
  *
- * Izquierda: menú con las vistas (Computadores, Buffers, Métricas, Log de eventos) y las
- * acciones Planificación y Configuración.
+ * Izquierda: barra angosta con un ícono y un texto corto por vista (Computadores, Buffers,
+ * Métricas, Log de eventos).
  * Arriba: el nombre de la vista, el ciclo de reloj y los controles (iniciar/pausar,
- * reiniciar, duración del ciclo, crear proceso y buffer), y una franja de indicadores
- * que se ve en todas las vistas (CPUs, memoria, procesos, rendimiento).
+ * reiniciar, duración del ciclo, crear proceso y buffer, Planificación y Configuración), y una
+ * franja de indicadores que se ve en todas las vistas (CPUs, memoria, procesos, rendimiento).
  * Centro: UNA vista a la vez, para no saturar la pantalla.
  *
- * Agregar una vista (ej. el disco en el Proyecto 2) es llamar addView con su panel.
+ * Agregar una vista (ej. el disco en el Proyecto 2) es llamar addView con su nombre, texto corto,
+ * ícono y panel.
  * La ventana solo muestra y reenvía las acciones del usuario: no contiene lógica del SO.
  *
  * @author NicollPinzon
@@ -72,6 +72,9 @@ public final class MainWindow extends JFrame {
 
     /** Máximo de líneas en el log en pantalla (igual que la capacidad de EventLog). */
     public static final int MAX_LOG_LINES = EventLog.DEFAULT_CAPACITY;
+
+    /** Width of the side rail in pixels. */
+    private static final int RAIL_WIDTH = 84;
 
     // Nombres de las vistas (también son el título de la página)
     static final String VIEW_COMPUTERS = "Computadores";
@@ -103,7 +106,7 @@ public final class MainWindow extends JFrame {
     private final CardLayout viewLayout = new CardLayout();
     private final JPanel views = Theme.transparent(new JPanel(viewLayout));
     private final JLabel pageTitle = Theme.label(VIEW_COMPUTERS, Theme.PAGE_TITLE, Theme.TEXT);
-    private UiKit.NavItem[] navItems = new UiKit.NavItem[0];
+    private UiKit.RailItem[] navItems = new UiKit.RailItem[0];
     private String[] navNames = new String[0];
 
     // ---------- Indicadores (franja superior) ----------
@@ -137,14 +140,14 @@ public final class MainWindow extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         JPanel root = new JPanel(new BorderLayout());
         root.setBackground(Theme.BACKGROUND);
-        root.add(buildSidebar(), BorderLayout.WEST);
+        root.add(buildRail(), BorderLayout.WEST);
         root.add(buildMain(), BorderLayout.CENTER);
         setContentPane(root);
 
-        addView(VIEW_COMPUTERS, Theme.STATE_READY, buildComputersView());
-        addView(VIEW_BUFFERS, Theme.STATE_BLOCKED, buildBuffersView());
-        addView(VIEW_METRICS, Theme.STATE_RUNNING, buildMetricsView());
-        addView(VIEW_LOG, Theme.STATE_NEW, buildLogView());
+        addView(VIEW_COMPUTERS, "Equipos", NavIcon.COMPUTER, buildComputersView());
+        addView(VIEW_BUFFERS, "Buffers", NavIcon.BUFFERS, buildBuffersView());
+        addView(VIEW_METRICS, "Métricas", NavIcon.METRICS, buildMetricsView());
+        addView(VIEW_LOG, "Log", NavIcon.LOG, buildLogView());
         showView(VIEW_COMPUTERS);
 
         setPreferredSize(new Dimension(1440, 900));
@@ -161,8 +164,9 @@ public final class MainWindow extends JFrame {
 
     // ---------- Construcción ----------
 
-    private JPanel buildSidebar() {
-        JPanel sidebar = new JPanel(new BorderLayout()) {
+    /** Narrow side rail: the logo on top and one icon with a short label per view. */
+    private JPanel buildRail() {
+        JPanel rail = new JPanel(new BorderLayout()) {
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -172,37 +176,20 @@ public final class MainWindow extends JFrame {
                 g.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight());
             }
         };
-        sidebar.setBackground(Theme.SURFACE);
-        sidebar.setPreferredSize(new Dimension(220, 10));
-        sidebar.setBorder(Theme.padding(18, 12, 18, 12));
+        rail.setBackground(Theme.SURFACE);
+        rail.setPreferredSize(new Dimension(RAIL_WIDTH, 10));
+        rail.setBorder(Theme.padding(16, 0, 16, 0));
 
-        JPanel brand = Theme.transparent(new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0)));
-        brand.add(new Logo());
-        brand.add(Theme.label("ÁvilaOS", new Font(Theme.BODY.getFamily(), Font.BOLD, 17), Theme.TEXT));
-        brand.setBorder(Theme.padding(0, 0, 18, 0));
-        sidebar.add(brand, BorderLayout.NORTH);
+        JPanel brand = Theme.transparent(new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0)));
+        Logo logo = new Logo();
+        logo.setToolTipText("ÁvilaOS");
+        brand.add(logo);
+        brand.setBorder(Theme.padding(0, 0, 22, 0));
+        rail.add(brand, BorderLayout.NORTH);
 
         navList.setLayout(new BoxLayout(navList, BoxLayout.Y_AXIS));
-        sidebar.add(navList, BorderLayout.CENTER);
-
-        JPanel actions = Theme.transparent(new JPanel());
-        actions.setLayout(new BoxLayout(actions, BoxLayout.Y_AXIS));
-        actions.add(UiKit.divider());
-        actions.add(Box.createVerticalStrut(6));
-        JLabel heading = Theme.label("AJUSTES", Theme.SMALL_BOLD, Theme.MUTED);
-        heading.setBorder(Theme.padding(0, 12, 6, 0));
-        actions.add(heading);
-        for (UiKit.Button button : new UiKit.Button[] {planningButton, configButton}) {
-            button.setHorizontalAlignment(JButton.LEFT);
-            button.setAlignmentX(LEFT_ALIGNMENT);
-            button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
-            actions.add(button);
-        }
-        planningButton.setToolTipText("Política de cada computador y quantum de Round Robin");
-        configButton.setToolTipText("Computadores, RAM, carga inicial y archivo CSV");
-        heading.setAlignmentX(LEFT_ALIGNMENT);
-        sidebar.add(actions, BorderLayout.SOUTH);
-        return sidebar;
+        rail.add(navList, BorderLayout.CENTER);
+        return rail;
     }
 
     private JPanel buildMain() {
@@ -238,7 +225,12 @@ public final class MainWindow extends JFrame {
         controls.add(Theme.label("Ciclo (ms)", Theme.SMALL, Theme.MUTED));
         cycleDurationSpinner.setPreferredSize(new Dimension(80, 32));
         cycleDurationSpinner.setToolTipText("Duración de cada ciclo de reloj en milisegundos");
-        controls.add(cycleDurationSpinner);
+        controls.add(new UiKit.RoundedBox(cycleDurationSpinner, 10, Theme.BORDER_STRONG));
+        controls.add(Box.createHorizontalStrut(4));
+        planningButton.setToolTipText("Política de cada computador y quantum de Round Robin");
+        configButton.setToolTipText("Computadores, RAM, carga inicial y archivo CSV");
+        controls.add(planningButton);
+        controls.add(configButton);
         controls.add(Box.createHorizontalStrut(4));
         createProcessButton.setToolTipText("Crear un proceso nuevo");
         createBufferButton.setToolTipText("Crear un buffer productor-consumidor");
@@ -270,8 +262,7 @@ public final class MainWindow extends JFrame {
                 "Ocupación, valor de cada semáforo y los procesos que esperan en él"), BorderLayout.NORTH);
         JScrollPane table = Theme.scroll(newTable(bufferModel, BufferTableModel.COLUMN_TIPS,
                 BufferTableModel.COLUMN_WIDTHS));
-        table.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
-        card.add(table, BorderLayout.CENTER);
+        card.add(UiKit.rounded(table), BorderLayout.CENTER);
         return wrapView(card);
     }
 
@@ -283,9 +274,8 @@ public final class MainWindow extends JFrame {
                 + " procesos TERMINADOS; la utilización de CPU es la acumulada hasta ahora."), BorderLayout.NORTH);
         JScrollPane table = Theme.scroll(newTable(metricsModel, MetricsTableModel.COLUMN_TIPS,
                 MetricsTableModel.COLUMN_WIDTHS));
-        table.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
         table.setPreferredSize(new Dimension(600, 150));
-        tableCard.add(table, BorderLayout.CENTER);
+        tableCard.add(UiKit.rounded(table), BorderLayout.CENTER);
 
         UiKit.Card chartCard = new UiKit.Card(new BorderLayout(0, 10));
         chartCard.setBorder(Theme.padding(16, 18, 14, 18));
@@ -314,8 +304,7 @@ public final class MainWindow extends JFrame {
         card.add(cardHeading("Log de eventos", "Decisiones del SO en orden: lo más reciente queda abajo"),
                 BorderLayout.NORTH);
         JScrollPane scroll = Theme.scroll(logArea);
-        scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
-        card.add(scroll, BorderLayout.CENTER);
+        card.add(UiKit.rounded(scroll), BorderLayout.CENTER);
         return wrapView(card);
     }
 
@@ -381,20 +370,22 @@ public final class MainWindow extends JFrame {
     // ---------- Navegación ----------
 
     /**
-     * Agrega una vista al menú y al centro de la ventana (ej. "Disco" en el Proyecto 2).
+     * Adds a view to the side rail and to the center of the window (e.g. "Disco" in Project 2).
      *
-     * @param name  nombre en el menú y título de la página
-     * @param color color del punto en el menú
-     * @param view  panel de la vista
+     * @param name       full name: page title and rail tooltip
+     * @param shortLabel one short word shown under the icon
+     * @param icon       icon of the rail item
+     * @param view       panel of the view
      */
-    public void addView(String name, Color color, JComponent view) {
-        UiKit.NavItem item = new UiKit.NavItem(name, color);
+    public void addView(String name, String shortLabel, NavIcon icon, JComponent view) {
+        UiKit.RailItem item = new UiKit.RailItem(shortLabel, icon);
+        item.setToolTipText(name);
         item.addActionListener(e -> showView(name));
         navList.add(item);
-        navList.add(Box.createVerticalStrut(2));
+        navList.add(Box.createVerticalStrut(10));
         views.add(view, name);
 
-        UiKit.NavItem[] items = new UiKit.NavItem[navItems.length + 1];
+        UiKit.RailItem[] items = new UiKit.RailItem[navItems.length + 1];
         String[] names = new String[navNames.length + 1];
         System.arraycopy(navItems, 0, items, 0, navItems.length);
         System.arraycopy(navNames, 0, names, 0, navNames.length);
@@ -452,7 +443,8 @@ public final class MainWindow extends JFrame {
      */
     public void showBuffers(LinkedList<BoundedBuffer> buffers, LinkedList<BufferStats> stats) {
         bufferModel.setBuffers(buffers, stats);
-        setBadge(VIEW_BUFFERS, String.valueOf(bufferModel.getRowCount()));
+        int bufferCount = bufferModel.getRowCount();
+        setBadge(VIEW_BUFFERS, bufferCount == 0 ? "" : String.valueOf(bufferCount));
     }
 
     /**
@@ -487,7 +479,7 @@ public final class MainWindow extends JFrame {
         memoryKpi.show(usedMb + " / " + totalMb + " MB", percent + " % en uso");
         processKpi.show(live + (live == 1 ? " vivo" : " vivos"),
                 blocked + " bloqueados · " + terminated + " terminados");
-        setBadge(VIEW_COMPUTERS, live == 0 ? "" : live + " vivos");
+        setBadge(VIEW_COMPUTERS, live == 0 ? "" : String.valueOf(live));
     }
 
     /** Agrega a la gráfica los puntos nuevos de utilización de CPU (SystemMetrics.getComputers()). */
@@ -586,7 +578,7 @@ public final class MainWindow extends JFrame {
         private static final long serialVersionUID = 1L;
 
         Logo() {
-            setPreferredSize(new Dimension(30, 30));
+            setPreferredSize(new Dimension(36, 36));
         }
 
         @Override
@@ -594,7 +586,8 @@ public final class MainWindow extends JFrame {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setColor(Theme.ACCENT);
-            g2.fillRoundRect(0, 0, 30, 30, 8, 8);
+            g2.fillRoundRect(0, 0, 36, 36, 10, 10);
+            g2.translate(3, 3);
             g2.setColor(Color.WHITE);
             g2.setStroke(new java.awt.BasicStroke(2.2f, java.awt.BasicStroke.CAP_ROUND,
                     java.awt.BasicStroke.JOIN_ROUND));
