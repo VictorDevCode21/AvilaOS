@@ -130,6 +130,10 @@ public final class MainWindow extends JFrame {
     private final transient OwnerPalette ownerPalette = new OwnerPalette();
     private final DiskPanel diskPanel = new DiskPanel(ownerPalette, DISK_POLICIES);
     private final FileSystemPanel fileSystemPanel = new FileSystemPanel(ownerPalette);
+    /** Mode selector (administrator / user) at the bottom of the rail, always visible. */
+    private final SessionControl sessionControl = new SessionControl();
+    /** Banner for rejected operations and other notices, visible from every view. */
+    private final NoticeBar noticeBar = new NoticeBar();
 
     private final ComputerPanel[] computerPanels;
 
@@ -201,6 +205,14 @@ public final class MainWindow extends JFrame {
 
         navList.setLayout(new BoxLayout(navList, BoxLayout.Y_AXIS));
         rail.add(navList, BorderLayout.CENTER);
+        JPanel session = Theme.transparent(new JPanel());
+        session.setLayout(new BoxLayout(session, BoxLayout.Y_AXIS));
+        JLabel modeTitle = Theme.label("MODO", Theme.SMALL_BOLD.deriveFont(10f), Theme.MUTED);
+        modeTitle.setAlignmentX(CENTER_ALIGNMENT);
+        session.add(modeTitle);
+        session.add(Box.createVerticalStrut(6));
+        session.add(sessionControl);
+        rail.add(session, BorderLayout.SOUTH);
         return rail;
     }
 
@@ -216,6 +228,7 @@ public final class MainWindow extends JFrame {
         kpis.add(processKpi);
         kpis.add(performanceKpi);
         header.add(kpis, BorderLayout.CENTER);
+        header.add(noticeBar, BorderLayout.SOUTH);
         main.add(header, BorderLayout.NORTH);
         main.add(views, BorderLayout.CENTER);
         return main;
@@ -501,6 +514,34 @@ public final class MainWindow extends JFrame {
         }
         showOverview(0, "", 0, 0, 0, 0, 0);
         performanceKpi.show("—", "Aún no termina ningún proceso");
+    }
+
+    // ---------- User mode and notices ----------
+
+    /** Who is told when the user picks a mode at the bottom of the rail (the simulation decides). */
+    public void setSessionListener(SessionControl.SessionListener listener) {
+        sessionControl.setSessionListener(listener);
+    }
+
+    /** Users offered in the mode menu (e.g. the owners of the file system JSON). */
+    public void setUsers(String[] users) {
+        sessionControl.setUsers(users);
+    }
+
+    /** Shows the mode the simulation is really using, in the rail and in the Files view. */
+    public void showSession(DiskData.Session session) {
+        sessionControl.showSession(session);
+        fileSystemPanel.showSession(session);
+    }
+
+    /** Red banner, visible from any view: the operation was rejected and why (nothing stops). */
+    public void showRejected(String reason) {
+        noticeBar.showError(reason);
+    }
+
+    /** Neutral banner, visible from any view (e.g. "Ahora estás como user2"). */
+    public void showNotice(String message) {
+        noticeBar.showInfo(message);
     }
 
     /** "Disco" view: block map, head, disk policy and I/O queue. */

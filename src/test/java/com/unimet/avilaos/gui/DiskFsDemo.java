@@ -26,7 +26,7 @@ public final class DiskFsDemo {
     private static final int TOTAL = 256;
     private static final int SWAP_START = 224;
     private static final int STEP = 4;                 // head positions per cycle
-    private static final String SESSION_USER = "user1";
+    private DiskData.Session session = new DiskData.Session(false, "user1");
 
     private final MainWindow window = new MainWindow(1);
     private File loadedFs;
@@ -53,6 +53,13 @@ public final class DiskFsDemo {
         });
         window.getFileSystemPanel().setFileActionListener(this::onFileAction);
         window.setLoadJsonAction(e -> openLoadDialog());
+        window.setUsers(new String[] {"user1", "user2"});
+        window.showSession(session);
+        window.setSessionListener(chosen -> {
+            session = chosen;
+            window.showSession(session);
+            window.showNotice("Ahora estás en modo " + session.longText() + ".");
+        });
         window.setCreateIoProcessAction(e -> openIoForm(null, window.getFileSystemPanel().getSelectedPath()));
         window.showLoadedJson(null, null);
         showComputer();
@@ -207,7 +214,7 @@ public final class DiskFsDemo {
         }
     }
 
-    /** Fake permission rules (session user1), then the request goes to the disk queue. */
+    /** Fake permission rules of the user mode, then the request goes to the disk queue. */
     private void submit(DiskData.IoProcess request) {
         String operation = request.operation();
         String path = request.path();
@@ -217,15 +224,10 @@ public final class DiskFsDemo {
             view.showRejected("La ruta " + path + " ya no existe.");
             return;
         }
-        boolean mine = entry.owner().equals(SESSION_USER);
-        if ("READ".equals(operation) && !entry.isPublic() && !mine) {
-            view.showRejected(entry.name() + " es privado de " + entry.owner() + " y la sesión es " + SESSION_USER
-                    + ". La simulación sigue corriendo.");
-            return;
-        }
-        if (!"READ".equals(operation) && !mine) {
-            view.showRejected("En modo usuario solo puedes modificar tus propios archivos; " + entry.name()
-                    + " es de " + entry.owner() + ".");
+        String reason = session.admin() ? null : userRule(operation, entry);
+        if (reason != null) {
+            view.showRejected(reason);
+            window.showRejected(reason);
             return;
         }
         DiskData.Request queued = enqueue(operation, path);
@@ -233,6 +235,24 @@ public final class DiskFsDemo {
                 + (request.newName() == null ? "" : " \u2192 " + request.newName())
                 + ". Su solicitud entró a la cola del disco.");
         refresh();
+    }
+
+    /** Why a user (not admin) cannot do it, or null if allowed. Fake rules, as in the statement. */
+    private String userRule(String operation, DiskData.FileEntry entry) {
+        String user = session.user();
+        boolean mine = entry.owner().equals(user);
+        if ("READ".equals(operation) && !entry.isPublic() && !mine) {
+            return entry.name() + " es privado de " + entry.owner() + " y la sesión es " + user + ".";
+        }
+        if ("CREATE".equals(operation) && !mine) {
+            return "En modo usuario solo puedes crear archivos dentro de tus directorios; " + entry.path()
+                    + " es de " + entry.owner() + ".";
+        }
+        if (("UPDATE".equals(operation) || "DELETE".equals(operation)) && !mine) {
+            return "En modo usuario no puedes modificar archivos del sistema ni de otros usuarios; "
+                    + entry.name() + " es de " + entry.owner() + ".";
+        }
+        return null;
     }
 
     // ---------- Fake disk ----------

@@ -54,6 +54,7 @@ public final class FileSystemPanel extends JPanel {
     private String treeKey = "";
 
     // Tree
+    private final UiKit.Pill sessionPill = new UiKit.Pill("Administrador (admin)", Theme.KERNEL_BG, Theme.KERNEL_FG);
     private final DefaultTreeModel treeModel = new DefaultTreeModel(new DefaultMutableTreeNode("/"));
     private final JTree tree = new JTree(treeModel);
 
@@ -98,7 +99,8 @@ public final class FileSystemPanel extends JPanel {
         card.setBorder(Theme.padding(16, 18, 16, 18));
         JPanel head = Theme.transparent(new JPanel(new BorderLayout()));
         head.add(Theme.label("Sistema de archivos", Theme.SECTION, Theme.TEXT), BorderLayout.WEST);
-        head.add(Theme.label("JTree", Theme.SMALL, Theme.MUTED), BorderLayout.EAST);
+        sessionPill.setToolTipText("Modo actual: se cambia abajo en la barra de la izquierda");
+        head.add(sessionPill, BorderLayout.EAST);
         card.add(head, BorderLayout.NORTH);
 
         tree.setRootVisible(true);
@@ -247,6 +249,13 @@ public final class FileSystemPanel extends JPanel {
             throw new IllegalArgumentException("El listener no puede ser null");
         }
         this.listener = listener;
+    }
+
+    /** Shows the active mode next to the tree title (e.g. "Usuario: user2"). */
+    public void showSession(DiskData.Session session) {
+        sessionPill.setText(session.longText());
+        sessionPill.setColors(session.admin() ? Theme.KERNEL_BG : Theme.USER_BG,
+                session.admin() ? Theme.KERNEL_FG : Theme.USER_FG);
     }
 
     /** Green message: the I/O process was created. */
