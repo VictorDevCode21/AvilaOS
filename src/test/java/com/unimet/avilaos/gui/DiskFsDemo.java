@@ -53,6 +53,7 @@ public final class DiskFsDemo {
         });
         window.getFileSystemPanel().setFileActionListener(this::onFileAction);
         window.setLoadJsonAction(e -> openLoadDialog());
+        window.setCreateIoProcessAction(e -> openIoForm(null, window.getFileSystemPanel().getSelectedPath()));
         window.showLoadedJson(null, null);
         showComputer();
         String[][] first = {{"READ", "/sistema/config.sys"}, {"READ", "/usuarios/video.mp4"},
@@ -187,7 +188,29 @@ public final class DiskFsDemo {
 
     // ---------- Buttons of the Files view (fake permission rules, as user1) ----------
 
+    /** The file buttons open the form with the operation and the selected path already chosen. */
     private void onFileAction(String operation, String path) {
+        openIoForm(operation, path);
+    }
+
+    private void openIoForm(String operation, String path) {
+        int free = 0;
+        for (int b = 0; b < SWAP_START; b++) {
+            if (blocks[b] == null) {
+                free++;
+            }
+        }
+        DiskData.IoProcess request = IoProcessDialog.showDialog(window,
+                new IoProcessDialog.Limits(files, free, 256), operation, path, nextPid);
+        if (request != null) {
+            submit(request);
+        }
+    }
+
+    /** Fake permission rules (session user1), then the request goes to the disk queue. */
+    private void submit(DiskData.IoProcess request) {
+        String operation = request.operation();
+        String path = request.path();
         DiskData.FileEntry entry = find(path);
         FileSystemPanel view = window.getFileSystemPanel();
         if (entry == null) {
@@ -205,8 +228,9 @@ public final class DiskFsDemo {
                     + " es de " + entry.owner() + ".");
             return;
         }
-        DiskData.Request request = enqueue(operation, path);
-        view.showAccepted("Se creó " + request.pid() + " · " + operation + " " + path
+        DiskData.Request queued = enqueue(operation, path);
+        view.showAccepted("Se creó " + queued.pid() + " (" + request.processName() + ") · " + operation + " " + path
+                + (request.newName() == null ? "" : " \u2192 " + request.newName())
                 + ". Su solicitud entró a la cola del disco.");
         refresh();
     }
