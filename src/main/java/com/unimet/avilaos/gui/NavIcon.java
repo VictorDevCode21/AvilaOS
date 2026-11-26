@@ -129,6 +129,34 @@ public enum NavIcon {
         }
     },
 
+    /** A person: user mode (restricted access). */
+    USER {
+        @Override
+        void draw(Graphics2D g, float u) {
+            g.drawOval(Math.round(8 * u), Math.round(3 * u), Math.round(8 * u), Math.round(8 * u));
+            g.drawArc(Math.round(4 * u), Math.round(14 * u), Math.round(16 * u), Math.round(14 * u), 0, 180);
+        }
+    },
+
+    /** A shield with a check: administrator mode (every operation allowed). */
+    ADMIN {
+        @Override
+        void draw(Graphics2D g, float u) {
+            Path2D shield = new Path2D.Float();
+            shield.moveTo(12 * u, 2.5f * u);
+            shield.lineTo(20 * u, 5.5f * u);
+            shield.curveTo(20 * u, 13 * u, 17 * u, 18.5f * u, 12 * u, 21.5f * u);
+            shield.curveTo(7 * u, 18.5f * u, 4 * u, 13 * u, 4 * u, 5.5f * u);
+            shield.closePath();
+            g.draw(shield);
+            Path2D check = new Path2D.Float();
+            check.moveTo(8.5f * u, 12 * u);
+            check.lineTo(11 * u, 14.5f * u);
+            check.lineTo(15.5f * u, 9.5f * u);
+            g.draw(check);
+        }
+    },
+
     /** A padlock: private file. */
     LOCK {
         @Override

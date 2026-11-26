@@ -51,6 +51,27 @@ public final class DiskData {
     }
 
     /**
+     * Who is using the simulator and in which mode.
+     *
+     * PROVISIONAL: the mode will come from the UserMode enum (file system).
+     *
+     * @param admin true = administrator (every operation), false = user (restricted access)
+     * @param user  user name of the session (e.g. "admin", "user1")
+     */
+    public record Session(boolean admin, String user) {
+
+        /** Short text for the rail and the Files view, e.g. "Admin" or "user2". */
+        public String shortText() {
+            return admin ? "Admin" : user;
+        }
+
+        /** Full text, e.g. "Administrador (admin)" or "Usuario: user2". */
+        public String longText() {
+            return admin ? "Administrador (" + user + ")" : "Usuario: " + user;
+        }
+    }
+
+    /**
      * What the user asked for in the "Nuevo proceso de E/S" form. The GUI only builds this request:
      * the simulation creates the I/O process (or rejects it) and the disk does the operation.
      *
