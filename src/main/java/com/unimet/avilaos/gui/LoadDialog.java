@@ -146,8 +146,14 @@ public final class LoadDialog extends JDialog {
         boolean ready = fileSystemRow.ok && processesRow.ok;
         startButton.setEnabled(ready);
         startButton.setToolTipText(ready ? null : "Carga los dos archivos para poder iniciar");
-        String warning = ready && crossValidator != null
-                ? crossValidator.warning(fileSystemRow.file, processesRow.file) : null;
+        String warning = null;
+        if (ready && crossValidator != null) {
+            try {
+                warning = crossValidator.warning(fileSystemRow.file, processesRow.file);
+            } catch (RuntimeException e) {
+                warning = "no se pudo comparar los dos archivos: " + e.getMessage();
+            }
+        }
         warningText.setText(warning == null ? "" : "Atención: " + warning);
         warningCard.setVisible(warning != null);
         pack();
@@ -200,7 +206,13 @@ public final class LoadDialog extends JDialog {
         void choose(File chosen) {
             file = chosen;
             lastFolder = chosen.getParentFile();
-            JsonPreCheck.Result check = validator.check(chosen);
+            JsonPreCheck.Result check;
+            try {
+                check = validator.check(chosen);
+            } catch (RuntimeException e) {
+                // A validator must never leave the row in its previous state: any error = not usable
+                check = JsonPreCheck.Result.fail("No se pudo validar el archivo: " + e.getMessage());
+            }
             ok = check.ok();
             if (ok) {
                 setStatus(StatusIcon.OK, chosen.getName() + " · " + check.message(), Theme.MUTED, new Color(0xF0FDF4),

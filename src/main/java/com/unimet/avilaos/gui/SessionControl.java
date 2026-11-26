@@ -71,6 +71,9 @@ public final class SessionControl extends JButton {
 
     /** Shows the mode the simulation is really using. */
     public void showSession(DiskData.Session session) {
+        if (session == null) {
+            throw new IllegalArgumentException("La sesión no puede ser null");
+        }
         this.session = session;
         setText(session.shortText());
         setForeground(session.admin() ? Theme.KERNEL_FG : Theme.USER_FG);

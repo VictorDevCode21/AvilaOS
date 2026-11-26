@@ -2,7 +2,6 @@ package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.config.ProcessConfig;
 import java.awt.BorderLayout;
-import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -56,8 +55,12 @@ public final class IoProcessDialog extends JDialog {
     private final JLabel targetLabel = Theme.label("Archivo", Theme.SMALL_BOLD, Theme.TEXT);
     private final JComboBox<String> targetCombo = new JComboBox<>();
 
-    private final CardLayout extraLayout = new CardLayout();
-    private final JPanel extra = Theme.transparent(new JPanel(extraLayout));
+    /** Holds only the fields of the current operation, so the card is as tall as they need. */
+    private final JPanel extra = Theme.transparent(new JPanel(new BorderLayout()));
+    private JComponent createFields;
+    private JComponent renameFields;
+    /** Last suggested process name: it is replaced on a change of operation only if the user kept it. */
+    private String suggestedName = "";
     private final JComboBox<String> createKind = new JComboBox<>(new String[] {"Archivo", "Directorio"});
     private final JTextField newFileName = new JTextField("nuevo.txt");
     private final JTextField sizeField = new JTextField("5");
@@ -159,10 +162,8 @@ public final class IoProcessDialog extends JDialog {
         create.add(field("Permiso", permissionCombo));
         JPanel rename = Theme.transparent(new JPanel(new BorderLayout()));
         rename.add(field("Nombre nuevo (sin /)", renameField), BorderLayout.NORTH);
-        JPanel none = Theme.transparent(new JPanel());
-        extra.add(create, "CREATE");
-        extra.add(rename, "UPDATE");
-        extra.add(none, "NONE");
+        createFields = create;
+        renameFields = rename;
         middle.add(extra, BorderLayout.CENTER);
         card.add(middle, BorderLayout.CENTER);
         return card;
@@ -215,6 +216,10 @@ public final class IoProcessDialog extends JDialog {
     /** Shows the right target list and extra fields for the operation. */
     private void selectOperation(String chosen) {
         operation = chosen;
+        // Errors of the previous operation may be on fields that are about to be hidden: start clean
+        errorCard.setVisible(false);
+        FormValidator.clearErrors(newFileName, sizeField, renameField, processName, memoryField, priorityField,
+                deadlineField);
         operationSelector.setSelected(chosen);
         Object previous = targetCombo.getSelectedItem();
         targetCombo.removeAllItems();
@@ -235,26 +240,41 @@ public final class IoProcessDialog extends JDialog {
             case "CREATE" -> {
                 targetLabel.setText("Directorio donde se crea");
                 operationHint.setText("Crea un archivo (ocupa bloques con asignación encadenada) o un directorio.");
-                extraLayout.show(extra, "CREATE");
+                showExtra(createFields);
             }
             case "UPDATE" -> {
                 targetLabel.setText("Archivo o directorio a renombrar");
                 operationHint.setText("Cambia el nombre; los bloques no se mueven.");
-                extraLayout.show(extra, "UPDATE");
+                showExtra(renameFields);
             }
             case "DELETE" -> {
                 targetLabel.setText("Archivo o directorio a eliminar");
                 operationHint.setText("Libera sus bloques. Un directorio se elimina con todo su contenido.");
-                extraLayout.show(extra, "NONE");
+                showExtra(null);
             }
             default -> {
                 targetLabel.setText("Archivo a leer");
                 operationHint.setText("Lee el archivo bloque por bloque siguiendo su cadena.");
-                extraLayout.show(extra, "NONE");
+                showExtra(null);
             }
         }
-        processName.setText("IO_" + chosen.charAt(0) + chosen.substring(1).toLowerCase() + "_" + nextNumber);
+        String suggestion = "IO_" + chosen.charAt(0) + chosen.substring(1).toLowerCase() + "_" + nextNumber;
+        String typed = processName.getText().trim();
+        if (typed.isEmpty() || typed.equals(suggestedName)) {     // keep a name the user wrote
+            processName.setText(suggestion);
+        }
+        suggestedName = suggestion;
         pack();
+    }
+
+    /** Shows only the given fields under the target (null = none), so the card shrinks for READ/DELETE. */
+    private void showExtra(JComponent fields) {
+        extra.removeAll();
+        if (fields != null) {
+            extra.add(fields, BorderLayout.CENTER);
+        }
+        extra.revalidate();
+        extra.repaint();
     }
 
     /** Checks every field; if something is wrong it is listed and the form stays open. */

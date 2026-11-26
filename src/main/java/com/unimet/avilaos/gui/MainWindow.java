@@ -135,6 +135,8 @@ public final class MainWindow extends JFrame {
     private final SessionControl sessionControl = new SessionControl();
     /** Banner for rejected operations and other notices, visible from every view. */
     private final NoticeBar noticeBar = new NoticeBar();
+    /** KPI strip: the floating notice is placed over it (read-only cards, nothing to click). */
+    private final JPanel kpiStrip = Theme.transparent(new JPanel());
 
     private final ComputerPanel[] computerPanels;
 
@@ -159,6 +161,14 @@ public final class MainWindow extends JFrame {
         root.add(buildRail(), BorderLayout.WEST);
         root.add(buildMain(), BorderLayout.CENTER);
         setContentPane(root);
+        // The notice floats over the views (layered pane), so showing it never moves them
+        getLayeredPane().add(noticeBar, javax.swing.JLayeredPane.POPUP_LAYER);
+        addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                placeNotice();
+            }
+        });
 
         addView(VIEW_COMPUTERS, "Equipos", NavIcon.COMPUTER, buildComputersView());
         addView(VIEW_DISK, "Disco", NavIcon.DISK, diskPanel);
@@ -223,13 +233,12 @@ public final class MainWindow extends JFrame {
 
         JPanel header = Theme.transparent(new JPanel(new BorderLayout(0, 14)));
         header.add(buildControlBar(), BorderLayout.NORTH);
-        JPanel kpis = Theme.transparent(new JPanel(new GridLayout(1, 4, 12, 0)));
-        kpis.add(cpuKpi);
-        kpis.add(memoryKpi);
-        kpis.add(processKpi);
-        kpis.add(performanceKpi);
-        header.add(kpis, BorderLayout.CENTER);
-        header.add(noticeBar, BorderLayout.SOUTH);
+        kpiStrip.setLayout(new GridLayout(1, 4, 12, 0));
+        kpiStrip.add(cpuKpi);
+        kpiStrip.add(memoryKpi);
+        kpiStrip.add(processKpi);
+        kpiStrip.add(performanceKpi);
+        header.add(kpiStrip, BorderLayout.CENTER);
         main.add(header, BorderLayout.NORTH);
         main.add(views, BorderLayout.CENTER);
         return main;
@@ -555,6 +564,9 @@ public final class MainWindow extends JFrame {
 
     /** Shows the mode the simulation is really using, in the rail and in the Files view. */
     public void showSession(DiskData.Session session) {
+        if (session == null) {
+            throw new IllegalArgumentException("La sesión no puede ser null");
+        }
         sessionControl.showSession(session);
         fileSystemPanel.showSession(session);
     }
@@ -562,11 +574,29 @@ public final class MainWindow extends JFrame {
     /** Red banner, visible from any view: the operation was rejected and why (nothing stops). */
     public void showRejected(String reason) {
         noticeBar.showError(reason);
+        placeNotice();
     }
 
     /** Neutral banner, visible from any view (e.g. "Ahora estás como user2"). */
     public void showNotice(String message) {
         noticeBar.showInfo(message);
+        placeNotice();
+    }
+
+    /**
+     * Puts the floating notice over the right end of the KPI strip. The KPI cards only show data,
+     * so the notice never hides a control of any view (e.g. the disk policy selector).
+     */
+    private void placeNotice() {
+        if (!kpiStrip.isShowing()) {
+            return;
+        }
+        java.awt.Dimension size = noticeBar.getPreferredSize();
+        int y = Math.max(0, (kpiStrip.getHeight() - size.height) / 2);
+        java.awt.Point corner = javax.swing.SwingUtilities.convertPoint(kpiStrip, kpiStrip.getWidth() - size.width,
+                y, getLayeredPane());
+        noticeBar.setBounds(Math.max(12, corner.x), corner.y, size.width, size.height);
+        noticeBar.revalidate();
     }
 
     /** "Disco" view: block map, head, disk policy and I/O queue. */

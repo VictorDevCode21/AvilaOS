@@ -150,6 +150,16 @@ public final class FormValidator {
         errors.append("• ").append(message).append('\n');
     }
 
+    /**
+     * Removes the red border from the fields (e.g. when a form hides them because the user changed
+     * an option, so no error is left on a field that cannot be seen).
+     */
+    public static void clearErrors(JTextField... fields) {
+        for (JTextField field : fields) {
+            ok(field);
+        }
+    }
+
     private static void ok(JTextField field) {
         Object original = field.getClientProperty(ORIGINAL_BORDER);
         if (original instanceof Border border) {

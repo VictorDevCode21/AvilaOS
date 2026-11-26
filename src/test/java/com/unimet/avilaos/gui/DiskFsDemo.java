@@ -230,7 +230,6 @@ public final class DiskFsDemo {
         }
         String reason = session.admin() ? null : userRule(operation, entry);
         if (reason != null) {
-            view.showRejected(reason);
             window.showRejected(reason);
             return;
         }
@@ -252,7 +251,10 @@ public final class DiskFsDemo {
             return "En modo usuario solo puedes crear archivos dentro de tus directorios; " + entry.path()
                     + " es de " + entry.owner() + ".";
         }
-        if (("UPDATE".equals(operation) || "DELETE".equals(operation)) && !mine) {
+        if ("UPDATE".equals(operation)) {             // the statement gives renaming to the administrator
+            return "En modo usuario no se puede cambiar el nombre de archivos ni directorios; solo el administrador.";
+        }
+        if ("DELETE".equals(operation) && !mine) {
             return "En modo usuario no puedes modificar archivos del sistema ni de otros usuarios; "
                     + entry.name() + " es de " + entry.owner() + ".";
         }
