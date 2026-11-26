@@ -4,10 +4,8 @@ import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.events.LogEntry;
-import com.unimet.avilaos.metrics.BufferStats;
 import com.unimet.avilaos.metrics.ComputerMetrics;
 import com.unimet.avilaos.metrics.MetricsSnapshot;
-import com.unimet.avilaos.os.sync.BoundedBuffer;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
@@ -45,9 +43,9 @@ import javax.swing.text.DefaultCaret;
  * Ventana principal del simulador ÁvilaOS.
  *
  * Izquierda: barra angosta con un ícono y un texto corto por vista (Computadores, Disco,
- * Archivos, Buffers, Métricas, Log de eventos).
+ * Archivos, Métricas, Log de eventos). Proyecto 2: ya no hay vista de Buffers.
  * Arriba: el nombre de la vista, el ciclo de reloj y los controles (iniciar/pausar,
- * reiniciar, duración del ciclo, crear proceso y buffer, Planificación y Configuración), y una
+ * reiniciar, duración del ciclo, cargar los JSON, crear proceso, Planificación y Configuración), y una
  * franja de indicadores que se ve en todas las vistas (CPUs, memoria, procesos, rendimiento).
  * Centro: UNA vista a la vez, para no saturar la pantalla.
  *
@@ -78,7 +76,6 @@ public final class MainWindow extends JFrame {
 
     // Nombres de las vistas (también son el título de la página)
     static final String VIEW_COMPUTERS = "Computadores";
-    static final String VIEW_BUFFERS = "Buffers";
     static final String VIEW_METRICS = "Métricas";
     static final String VIEW_LOG = "Log de eventos";
     static final String VIEW_DISK = "Disco";
@@ -98,7 +95,9 @@ public final class MainWindow extends JFrame {
     private final JSpinner cycleDurationSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_CYCLE_MS,
             (int) SimulationConfig.MIN_CYCLE_MS, (int) SimulationConfig.MAX_CYCLE_MS, 50));
     private final UiKit.Button createProcessButton = new UiKit.Button("+ Proceso", UiKit.Kind.SECONDARY);
-    private final UiKit.Button createBufferButton = new UiKit.Button("+ Buffer", UiKit.Kind.SECONDARY);
+    private final UiKit.Button loadJsonButton = new UiKit.Button("Cargar JSON", UiKit.Kind.SECONDARY);
+    /** Shows if both JSON files (file system, processes and config) are loaded. */
+    private final UiKit.Pill jsonPill = new UiKit.Pill("Faltan los JSON", Theme.KERNEL_BG, Theme.KERNEL_FG);
     private final UiKit.Button planningButton = new UiKit.Button("Planificación", UiKit.Kind.GHOST);
     private final UiKit.Button configButton = new UiKit.Button("Configuración", UiKit.Kind.GHOST);
 
@@ -118,14 +117,13 @@ public final class MainWindow extends JFrame {
     private String[] navNames = new String[0];
 
     // ---------- Indicadores (franja superior) ----------
-    private final UiKit.Kpi cpuKpi = new UiKit.Kpi("CPUs");
+    private final UiKit.Kpi cpuKpi;
     private final UiKit.Kpi memoryKpi = new UiKit.Kpi("Memoria");
     private final UiKit.Kpi processKpi = new UiKit.Kpi("Procesos");
     private final UiKit.Kpi performanceKpi = new UiKit.Kpi("Rendimiento");
 
     // ---------- Contenido de las vistas ----------
     private final JTextArea logArea = new JTextArea();
-    private final BufferTableModel bufferModel = new BufferTableModel();
     private final MetricsTableModel metricsModel = new MetricsTableModel();
     private final CpuUsageChart cpuChart = new CpuUsageChart();
     /** Shared by the Disk and Files views so a file has the same color in both. */
@@ -144,9 +142,10 @@ public final class MainWindow extends JFrame {
             throw new IllegalArgumentException("Se necesita al menos 1 computador");
         }
 
+        cpuKpi = new UiKit.Kpi(computerCount == 1 ? "CPU" : "CPUs");
         computerPanels = new ComputerPanel[computerCount];
         for (int i = 0; i < computerCount; i++) {
-            computerPanels[i] = new ComputerPanel(i + 1);
+            computerPanels[i] = new ComputerPanel(i + 1, computerCount == 1);
         }
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -159,7 +158,6 @@ public final class MainWindow extends JFrame {
         addView(VIEW_COMPUTERS, "Equipos", NavIcon.COMPUTER, buildComputersView());
         addView(VIEW_DISK, "Disco", NavIcon.DISK, diskPanel);
         addView(VIEW_FILES, "Archivos", NavIcon.FILES, fileSystemPanel);
-        addView(VIEW_BUFFERS, "Buffers", NavIcon.BUFFERS, buildBuffersView());
         addView(VIEW_METRICS, "Métricas", NavIcon.METRICS, buildMetricsView());
         addView(VIEW_LOG, "Log", NavIcon.LOG, buildLogView());
         showView(VIEW_COMPUTERS);
@@ -171,7 +169,7 @@ public final class MainWindow extends JFrame {
 
         // Hasta que alguien los conecte, los botones avisan "en construcción" en vez de quedarse mudos.
         for (JButton button : new JButton[] {startPauseButton, resetButton, createProcessButton,
-            createBufferButton, planningButton, configButton}) {
+            loadJsonButton, planningButton, configButton}) {
             button.addActionListener(notAvailable);
         }
     }
@@ -246,10 +244,11 @@ public final class MainWindow extends JFrame {
         controls.add(planningButton);
         controls.add(configButton);
         controls.add(Box.createHorizontalStrut(4));
+        loadJsonButton.setToolTipText("Sistema de archivos y procesos: los dos son obligatorios antes de iniciar");
+        controls.add(jsonPill);
+        controls.add(loadJsonButton);
         createProcessButton.setToolTipText("Crear un proceso nuevo");
-        createBufferButton.setToolTipText("Crear un buffer productor-consumidor");
         controls.add(createProcessButton);
-        controls.add(createBufferButton);
         bar.add(controls, BorderLayout.EAST);
         return bar;
     }
@@ -267,17 +266,6 @@ public final class MainWindow extends JFrame {
         scroll.getViewport().setOpaque(false);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         return scroll;
-    }
-
-    private JPanel buildBuffersView() {
-        UiKit.Card card = new UiKit.Card(new BorderLayout(0, 12));
-        card.setBorder(Theme.padding(16, 18, 16, 18));
-        card.add(cardHeading("Buffers productor-consumidor",
-                "Ocupación, valor de cada semáforo y los procesos que esperan en él"), BorderLayout.NORTH);
-        JScrollPane table = Theme.scroll(newTable(bufferModel, BufferTableModel.COLUMN_TIPS,
-                BufferTableModel.COLUMN_WIDTHS));
-        card.add(UiKit.rounded(table), BorderLayout.CENTER);
-        return wrapView(card);
     }
 
     private JPanel buildMetricsView() {
@@ -449,19 +437,6 @@ public final class MainWindow extends JFrame {
     }
 
     /**
-     * Muestra el estado de los buffers: ocupación, semáforos, quién espera en cada uno
-     * y producidos/consumidos.
-     *
-     * @param buffers copia de la lista de buffers (Cluster.getBuffers())
-     * @param stats   contadores de cada buffer (SystemMetrics.getBufferStats())
-     */
-    public void showBuffers(LinkedList<BoundedBuffer> buffers, LinkedList<BufferStats> stats) {
-        bufferModel.setBuffers(buffers, stats);
-        int bufferCount = bufferModel.getRowCount();
-        setBadge(VIEW_BUFFERS, bufferCount == 0 ? "" : String.valueOf(bufferCount));
-    }
-
-    /**
      * Muestra la tabla de métricas: una fila por computador y la fila "Sistema".
      *
      * @param computers foto de cada computador (índice 0 = Computador 1)
@@ -487,8 +462,13 @@ public final class MainWindow extends JFrame {
      */
     public void showOverview(int busyCpus, String runningNames, int usedMb, int totalMb, int live, int blocked,
             int terminated) {
-        cpuKpi.show(busyCpus + " de " + computerPanels.length + " ocupadas",
-                runningNames.isEmpty() ? "Todas ociosas" : runningNames);
+        if (computerPanels.length == 1) {
+            cpuKpi.show(busyCpus == 1 ? "Ocupada" : "Ociosa",
+                    runningNames.isEmpty() ? "Esperando un proceso en Listos" : runningNames);
+        } else {
+            cpuKpi.show(busyCpus + " de " + computerPanels.length + " ocupadas",
+                    runningNames.isEmpty() ? "Todas ociosas" : runningNames);
+        }
         int percent = totalMb == 0 ? 0 : (int) Math.round(usedMb * 100.0 / totalMb);
         memoryKpi.show(usedMb + " / " + totalMb + " MB", percent + " % en uso");
         processKpi.show(live + (live == 1 ? " vivo" : " vivos"),
@@ -506,12 +486,11 @@ public final class MainWindow extends JFrame {
         startPauseButton.setText(running ? "Pausar" : "Iniciar");
     }
 
-    /** Deja la vista como al abrir el programa: ciclo 0, y log, buffers, métricas, gráfica y paneles vacíos. */
+    /** Deja la vista como al abrir el programa: ciclo 0, y log, métricas, gráfica y paneles vacíos. */
     public void resetView() {
         setCycle(0);
         setRunning(false);
         logArea.setText("");
-        bufferModel.clear();
         metricsModel.clear();
         cpuChart.clear();
         diskPanel.clear();
@@ -569,9 +548,24 @@ public final class MainWindow extends JFrame {
         replaceAction(createProcessButton, action);
     }
 
-    /** Qué hacer al pulsar "+ Buffer". */
-    public void setCreateBufferAction(ActionListener action) {
-        replaceAction(createBufferButton, action);
+    /** Qué hacer al pulsar "Cargar JSON" (normalmente abrir el LoadDialog). */
+    public void setLoadJsonAction(ActionListener action) {
+        replaceAction(loadJsonButton, action);
+    }
+
+    /**
+     * Shows which JSON files are loaded next to the "Cargar JSON" button.
+     *
+     * @param fileSystemName name of the file system JSON, or null if missing
+     * @param processesName  name of the processes and config JSON, or null if missing
+     */
+    public void showLoadedJson(String fileSystemName, String processesName) {
+        boolean both = fileSystemName != null && processesName != null;
+        jsonPill.setText(both ? "JSON cargados" : fileSystemName == null && processesName == null
+                ? "Faltan los JSON" : "Falta un JSON");
+        jsonPill.setColors(both ? Theme.USER_BG : Theme.KERNEL_BG, both ? Theme.USER_FG : Theme.KERNEL_FG);
+        jsonPill.setToolTipText("Sistema de archivos: " + (fileSystemName == null ? "falta" : fileSystemName)
+                + " · Procesos: " + (processesName == null ? "falta" : processesName));
     }
 
     /** Qué hacer al pulsar "Planificación". */

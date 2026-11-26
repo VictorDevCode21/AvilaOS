@@ -109,7 +109,6 @@ public final class GuiDemo {
         });
         window.getCycleDurationSpinner().addChangeListener(e ->
                 timer.setDelay((Integer) window.getCycleDurationSpinner().getValue()));
-        window.setCreateBufferAction(e -> createBuffer());
         window.setCreateProcessAction(e -> createProcess());
     }
 
@@ -162,16 +161,6 @@ public final class GuiDemo {
     }
 
     // ---------- Vista 1 ----------
-
-    private void createBuffer() {
-        BufferConfig data = BufferFormDialog.showDialog(window, config);
-        if (data != null && add(() -> config.addBuffer(data))) {
-            eventLog.log(cycle, "Computador " + data.hostComputerId(),
-                    "se crea el buffer " + data.name() + " (capacidad " + data.capacity() + ", "
-                    + data.memorySize() + " MB)");
-            refresh(CpuMode.KERNEL, CpuMode.KERNEL);
-        }
-    }
 
     private void createProcess() {
         ProcessConfig data = ProcessFormDialog.showDialog(window, config);

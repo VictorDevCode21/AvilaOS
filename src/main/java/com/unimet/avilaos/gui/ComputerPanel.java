@@ -43,6 +43,8 @@ public final class ComputerPanel extends UiKit.Card {
     private static final String NONE = "—";
 
     private final int computerId;
+    /** True when this is the only computer: the card uses the whole window and the queues go in a grid. */
+    private final boolean wide;
 
     // ---------- CPU (PCB del proceso en ejecución) ----------
     private final StatusDot cpuDot = new StatusDot();
@@ -71,13 +73,32 @@ public final class ComputerPanel extends UiKit.Card {
     private final UiKit.SectionHeader blockedHeader = new UiKit.SectionHeader("Bloqueados", Theme.STATE_BLOCKED);
     private final UiKit.SectionHeader terminatedHeader = new UiKit.SectionHeader("Terminados",
             Theme.STATE_TERMINATED);
+    // Seven-state model (Project 2): processes moved to the swap area by the medium-term scheduler
+    private final ProcessTableModel readySuspendedModel = new ProcessTableModel();
+    private final ProcessTableModel blockedSuspendedModel = new ProcessTableModel();
+    private final UiKit.SectionHeader readySuspendedHeader = new UiKit.SectionHeader("Listos / Suspendidos",
+            Theme.STATE_READY_SUSPENDED);
+    private final UiKit.SectionHeader blockedSuspendedHeader = new UiKit.SectionHeader(
+            "Bloqueados / Suspendidos", Theme.STATE_BLOCKED_SUSPENDED);
 
     /**
+     * Card for one of several computers (queues one under the other).
+     *
      * @param computerId número del computador (1, 2, ...)
      */
     public ComputerPanel(int computerId) {
+        this(computerId, false);
+    }
+
+    /**
+     * @param computerId computer number (1, 2, ...)
+     * @param wide       true if it is the only computer (Project 2): the six queues go in a 3 x 2 grid,
+     *                   with each suspended queue under its normal one
+     */
+    public ComputerPanel(int computerId, boolean wide) {
         super(new BorderLayout(0, 12));
         this.computerId = computerId;
+        this.wide = wide;
         setBorder(Theme.padding(16, 16, 16, 16));
         add(buildHeader(), BorderLayout.NORTH);
 
@@ -168,11 +189,25 @@ public final class ComputerPanel extends UiKit.Card {
     }
 
     private JPanel buildQueuesSection() {
+        if (wide) {
+            // Seven-state layout: top row New, Ready, Blocked; bottom row Terminated and each
+            // suspended queue right under its normal one (Ready/Suspended under Ready...)
+            JPanel queues = Theme.transparent(new JPanel(new GridLayout(2, 3, 14, 12)));
+            queues.add(queue(newHeader, newModel));
+            queues.add(queue(readyHeader, readyModel));
+            queues.add(queue(blockedHeader, blockedModel));
+            queues.add(queue(terminatedHeader, terminatedModel));
+            queues.add(queue(readySuspendedHeader, readySuspendedModel));
+            queues.add(queue(blockedSuspendedHeader, blockedSuspendedModel));
+            return queues;
+        }
         // Una cola debajo de la otra: cada tabla usa todo el ancho y el motivo no se corta
-        JPanel queues = Theme.transparent(new JPanel(new GridLayout(4, 1, 0, 12)));
+        JPanel queues = Theme.transparent(new JPanel(new GridLayout(6, 1, 0, 12)));
         queues.add(queue(newHeader, newModel));
         queues.add(queue(readyHeader, readyModel));
         queues.add(queue(blockedHeader, blockedModel));
+        queues.add(queue(readySuspendedHeader, readySuspendedModel));
+        queues.add(queue(blockedSuspendedHeader, blockedSuspendedModel));
         queues.add(queue(terminatedHeader, terminatedModel));
         return queues;
     }
@@ -215,7 +250,7 @@ public final class ComputerPanel extends UiKit.Card {
             columns.removeColumn(columns.getColumn(hidden));
         }
         int[] widths = {60, 72, 34, 42, 44, 90};               // suman ~342: lo que mide una tarjeta con 3 computadores
-        String[] headers = {"ID", "Nombre", "Pr", "Rest", "DL", "Estado"};   // cortos; el nombre completo va en el tooltip
+        String[] headers = {"ID", "Nombre", "Pr", "Rest", "DL", "Estado / motivo"};   // cortos; el nombre completo va en el tooltip
         for (int i = 0; i < widths.length; i++) {
             columns.getColumn(i).setPreferredWidth(widths[i]);
             columns.getColumn(i).setHeaderValue(headers[i]);
@@ -326,6 +361,20 @@ public final class ComputerPanel extends UiKit.Card {
     }
 
     /**
+     * Shows the two suspended queues of the seven-state model (Project 2). Same rule as showQueues:
+     * it receives COPIES taken with the owner's lock.
+     *
+     * @param readySuspended   processes in swap that are ready and wait for RAM
+     * @param blockedSuspended processes in swap that still wait for their event
+     */
+    public void showSuspendedQueues(LinkedList<Pcb> readySuspended, LinkedList<Pcb> blockedSuspended) {
+        readySuspendedModel.setProcesses(readySuspended);
+        blockedSuspendedModel.setProcesses(blockedSuspended);
+        readySuspendedHeader.setCount(readySuspendedModel.getRowCount());
+        blockedSuspendedHeader.setCount(blockedSuspendedModel.getRowCount());
+    }
+
+    /**
      * Muestra la política que tiene el planificador del computador ahora.
      *
      * @param label   etiqueta de la política (PolicyType.getLabel())
@@ -344,8 +393,10 @@ public final class ComputerPanel extends UiKit.Card {
         readyModel.clear();
         blockedModel.clear();
         terminatedModel.clear();
+        readySuspendedModel.clear();
+        blockedSuspendedModel.clear();
         for (UiKit.SectionHeader header : new UiKit.SectionHeader[] {newHeader, readyHeader, blockedHeader,
-            terminatedHeader}) {
+            terminatedHeader, readySuspendedHeader, blockedSuspendedHeader}) {
             header.setCount(0);
         }
     }

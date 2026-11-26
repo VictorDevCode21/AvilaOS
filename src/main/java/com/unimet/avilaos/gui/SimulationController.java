@@ -2,7 +2,6 @@ package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.cluster.Cluster;
 import com.unimet.avilaos.cluster.Computer;
-import com.unimet.avilaos.config.BufferConfig;
 import com.unimet.avilaos.config.ProcessConfig;
 import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.datastructures.LinkedList;
@@ -68,7 +67,6 @@ public final class SimulationController {
         window.setStartPauseAction(e -> startOrPause());
         window.setResetAction(e -> reset());
         window.setCreateProcessAction(e -> createProcess());
-        window.setCreateBufferAction(e -> createBuffer());
         window.setConfigAction(e -> configure());
         window.setPlanningAction(e -> openPlanning());
         planningDialog.setPlanningListener(this::applyPlanning);
@@ -143,26 +141,6 @@ public final class SimulationController {
             config.addProcess(process);
         } catch (IllegalArgumentException ex) {
             showError("No se pudo crear el proceso", ex);
-        }
-        refresh();
-    }
-
-    /**
-     * Orden: 1) la configuración valida sin agregar (es la que se vuelve a cargar al reiniciar),
-     * 2) el clúster lo crea (puede no haber RAM libre ahora mismo), 3) recién entonces se agrega
-     * a la configuración. Así la configuración y la simulación nunca discrepan.
-     */
-    private void createBuffer() {
-        BufferConfig buffer = BufferFormDialog.showDialog(window, config);
-        if (buffer == null) {
-            return;
-        }
-        try {
-            config.checkBuffer(buffer);
-            cluster.createBuffer(buffer);
-            config.addBuffer(buffer);
-        } catch (IllegalArgumentException ex) {
-            showError("No se pudo crear el buffer", ex);
         }
         refresh();
     }
@@ -264,7 +242,6 @@ public final class SimulationController {
             }
         }
         window.showOverview(busy, running.toString(), usedMb, totalMb, live, blocked, terminated);
-        window.showBuffers(cluster.getBuffers(), cluster.getSystemMetrics().getBufferStats());
         MetricsSnapshot[] perComputer = new MetricsSnapshot[cluster.getComputerCount()];
         for (int id = 1; id <= perComputer.length; id++) {
             perComputer[id - 1] = cluster.getComputer(id).getMetrics().getSnapshot();

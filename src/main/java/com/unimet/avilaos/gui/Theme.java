@@ -51,6 +51,10 @@ public final class Theme {
     public static final Color STATE_RUNNING = new Color(0x16A34A);
     public static final Color STATE_BLOCKED = new Color(0xD97706);
     public static final Color STATE_TERMINATED = new Color(0x6B7280);
+    /** Ready/Suspended: in the swap area, waiting for RAM. */
+    public static final Color STATE_READY_SUSPENDED = new Color(0x7C3AED);
+    /** Blocked/Suspended: in the swap area and still waiting for its event. */
+    public static final Color STATE_BLOCKED_SUSPENDED = new Color(0xDB2777);
 
     // ---------- Modo de la CPU ----------
     public static final Color USER_BG = new Color(0xE7F6EC);

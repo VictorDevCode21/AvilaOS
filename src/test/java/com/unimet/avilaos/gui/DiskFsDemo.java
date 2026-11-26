@@ -1,10 +1,16 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.datastructures.LinkedList;
+import com.unimet.avilaos.hardware.CpuMode;
+import com.unimet.avilaos.os.process.BlockReason;
+import com.unimet.avilaos.os.process.Pcb;
+import java.io.File;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 /**
- * Demo of the "Disco" and "Archivos" views with fake data (no kernel, no real disk).
+ * Demo of the Project 2 GUI with fake data (no kernel, no real disk): one computer with the seven
+ * queues, the "Disco" and "Archivos" views, and the "Cargar JSON" dialog (try the files in samples/).
  *
  * It loads the file system of the Project 2 statement (plus a chained file and two suspended
  * processes), moves the head toward the requests with the selected policy, and lets you click the
@@ -22,7 +28,9 @@ public final class DiskFsDemo {
     private static final int STEP = 4;                 // head positions per cycle
     private static final String SESSION_USER = "user1";
 
-    private final MainWindow window = new MainWindow(2);
+    private final MainWindow window = new MainWindow(1);
+    private File loadedFs;
+    private File loadedProcs;
     private final DiskData.Block[] blocks = new DiskData.Block[TOTAL];
     private DiskData.FileEntry[] files;
     private DiskData.Request[] queue = new DiskData.Request[0];
@@ -44,6 +52,9 @@ public final class DiskFsDemo {
             refresh();
         });
         window.getFileSystemPanel().setFileActionListener(this::onFileAction);
+        window.setLoadJsonAction(e -> openLoadDialog());
+        window.showLoadedJson(null, null);
+        showComputer();
         String[][] first = {{"READ", "/sistema/config.sys"}, {"READ", "/usuarios/video.mp4"},
             {"UPDATE", "/usuarios/notas.txt"}, {"DELETE", "/usuarios/img1.png"}, {"READ", "/sistema/boot.bin"},
             {"UPDATE", "/usuarios/data.csv"}, {"READ", "/sistema/script.py"}, {"READ", "/sistema/core.dll"}};
@@ -58,9 +69,72 @@ public final class DiskFsDemo {
         SwingUtilities.invokeLater(() -> {
             Theme.install();
             DiskFsDemo demo = new DiskFsDemo();
-            demo.window.showView(MainWindow.VIEW_DISK);
+            demo.window.showView(MainWindow.VIEW_COMPUTERS);
             demo.window.setVisible(true);
         });
+    }
+
+    // ---------- Load dialog ----------
+
+    private void openLoadDialog() {
+        LoadDialog.Selection files = new LoadDialog(window, JsonPreCheck::checkFileSystem,
+                JsonPreCheck::checkProcesses, JsonPreCheck::crossCheck, loadedFs, loadedProcs).showDialog();
+        if (files != null) {
+            loadedFs = files.fileSystem();
+            loadedProcs = files.processes();
+            window.showLoadedJson(loadedFs.getName(), loadedProcs.getName());
+        }
+    }
+
+    // ---------- Fake computer (seven-state queues) ----------
+
+    private void showComputer() {
+        ComputerPanel panel = window.getComputerPanel(1);
+        Pcb running = Pcb.cpuBound("Proc_34", 2, 16, 2, 500, 1, 0);
+        running.markReady();
+        running.markRunning(0);
+        panel.showRunning(running, CpuMode.KERNEL, 2, 1);
+        panel.showMemory(208, 256);
+        panel.showPolicy("Round Robin", 4);
+        LinkedList<Pcb> newQueue = new LinkedList<>();
+        newQueue.addLast(Pcb.cpuBound("Proc_200", 1, 64, 40, 900, 1, 0));
+        LinkedList<Pcb> ready = new LinkedList<>();
+        for (String name : new String[] {"Proc_180", "Proc_123", "Calculo_A"}) {
+            Pcb p = Pcb.cpuBound(name, 3, 16, 20, 500, 1, 0);
+            p.markReady();
+            ready.addLast(p);
+        }
+        LinkedList<Pcb> blocked = new LinkedList<>();
+        String[][] waits = {{"Proc_11", "IO", "disco · READ /sistema/boot.bin"},
+            {"Proc_new", "IO", "disco · CREATE /usuarios/user1/tarea2.txt"},
+            {"Sync_B", "SEMAPHORE", "mutex del log"}};
+        for (String[] w : waits) {
+            Pcb p = Pcb.cpuBound(w[0], 2, 16, 10, 500, 1, 0);
+            p.markReady();
+            p.markRunning(0);
+            p.markBlocked(BlockReason.valueOf(w[1]), w[2]);
+            blocked.addLast(p);
+        }
+        LinkedList<Pcb> done = new LinkedList<>();
+        Pcb finished = Pcb.cpuBound("Proc_119", 2, 16, 1, 500, 1, 0);
+        finished.markReady();
+        finished.markRunning(0);
+        finished.markTerminated(412, false);
+        done.addLast(finished);
+        panel.showQueues(newQueue, ready, blocked, done);
+        // Until the seven-state enum exists, the suspended ones are shown with their current state
+        LinkedList<Pcb> readySuspended = new LinkedList<>();
+        Pcb rs = Pcb.cpuBound("Proc_62", 3, 16, 8, 500, 1, 0);
+        rs.markReady();
+        readySuspended.addLast(rs);
+        LinkedList<Pcb> blockedSuspended = new LinkedList<>();
+        Pcb bs = Pcb.cpuBound("Proc_95", 4, 16, 8, 500, 1, 0);
+        bs.markReady();
+        bs.markRunning(0);
+        bs.markBlocked(BlockReason.IO, "disco · READ /sistema/config.sys (en swap 224–239)");
+        blockedSuspended.addLast(bs);
+        panel.showSuspendedQueues(readySuspended, blockedSuspended);
+        window.showOverview(1, running.toString(), 208, 256, 10, 3, 1);
     }
 
     // ---------- Fake file system (the statement's example) ----------
