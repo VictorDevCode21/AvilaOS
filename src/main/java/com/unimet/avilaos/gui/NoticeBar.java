@@ -7,8 +7,9 @@ import javax.swing.Timer;
 
 /**
  * Floating notice (toast) for messages that must be seen from any view, mainly rejected
- * operations ("Operación rechazada: ..."). MainWindow places it over the top-right corner of the
- * current view, in the window's layered pane, so showing or hiding it never moves the views.
+ * operations ("Operación rechazada: ..."). MainWindow places it over the right end of the KPI strip,
+ * in the window's layered pane: showing or hiding it never moves the views, and it never covers a
+ * control. It also takes the mouse clicks that land on it, so they never reach what is underneath.
  * It never blocks: no dialog, the simulation keeps running, and it hides by itself after a few
  * seconds (or with its × button).
  *
@@ -34,6 +35,8 @@ public final class NoticeBar extends UiKit.Card {
         close.addActionListener(e -> setVisible(false));
         add(close, BorderLayout.EAST);
         hideTimer.setRepeats(false);
+        // Clicks on the notice stop here: they must never reach (and press) what is underneath
+        addMouseListener(new java.awt.event.MouseAdapter() { });
         setVisible(false);
     }
 

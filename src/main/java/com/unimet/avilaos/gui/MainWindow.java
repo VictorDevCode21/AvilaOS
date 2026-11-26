@@ -134,6 +134,8 @@ public final class MainWindow extends JFrame {
     private final SessionControl sessionControl = new SessionControl();
     /** Banner for rejected operations and other notices, visible from every view. */
     private final NoticeBar noticeBar = new NoticeBar();
+    /** KPI strip: the floating notice is placed over it (read-only cards, nothing to click). */
+    private final JPanel kpiStrip = Theme.transparent(new JPanel());
 
     private final ComputerPanel[] computerPanels;
 
@@ -230,12 +232,12 @@ public final class MainWindow extends JFrame {
 
         JPanel header = Theme.transparent(new JPanel(new BorderLayout(0, 14)));
         header.add(buildControlBar(), BorderLayout.NORTH);
-        JPanel kpis = Theme.transparent(new JPanel(new GridLayout(1, 4, 12, 0)));
-        kpis.add(cpuKpi);
-        kpis.add(memoryKpi);
-        kpis.add(processKpi);
-        kpis.add(performanceKpi);
-        header.add(kpis, BorderLayout.CENTER);
+        kpiStrip.setLayout(new GridLayout(1, 4, 12, 0));
+        kpiStrip.add(cpuKpi);
+        kpiStrip.add(memoryKpi);
+        kpiStrip.add(processKpi);
+        kpiStrip.add(performanceKpi);
+        header.add(kpiStrip, BorderLayout.CENTER);
         main.add(header, BorderLayout.NORTH);
         main.add(views, BorderLayout.CENTER);
         return main;
@@ -556,14 +558,18 @@ public final class MainWindow extends JFrame {
         placeNotice();
     }
 
-    /** Puts the floating notice at the top-right corner of the current view. */
+    /**
+     * Puts the floating notice over the right end of the KPI strip. The KPI cards only show data,
+     * so the notice never hides a control of any view (e.g. the disk policy selector).
+     */
     private void placeNotice() {
-        if (!views.isShowing()) {
+        if (!kpiStrip.isShowing()) {
             return;
         }
         java.awt.Dimension size = noticeBar.getPreferredSize();
-        java.awt.Point corner = javax.swing.SwingUtilities.convertPoint(views, views.getWidth() - size.width - 12, 12,
-                getLayeredPane());
+        int y = Math.max(0, (kpiStrip.getHeight() - size.height) / 2);
+        java.awt.Point corner = javax.swing.SwingUtilities.convertPoint(kpiStrip, kpiStrip.getWidth() - size.width,
+                y, getLayeredPane());
         noticeBar.setBounds(Math.max(12, corner.x), corner.y, size.width, size.height);
         noticeBar.revalidate();
     }
