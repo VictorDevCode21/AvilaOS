@@ -51,6 +51,25 @@ public final class DiskData {
     }
 
     /**
+     * What the user asked for in the "Nuevo proceso de E/S" form. The GUI only builds this request:
+     * the simulation creates the I/O process (or rejects it) and the disk does the operation.
+     *
+     * @param processName name of the new I/O process
+     * @param operation   CREATE, READ, UPDATE or DELETE
+     * @param path        target: the file or directory (for CREATE, the directory where it goes)
+     * @param newName     CREATE: name of the new file or directory; UPDATE: the new name; else null
+     * @param directory   CREATE only: true to create a directory instead of a file
+     * @param sizeBlocks  CREATE of a file: size in blocks; else 0
+     * @param isPublic    CREATE only: permission of the new file or directory
+     * @param memory      memory the process needs (RAM units)
+     * @param priority    priority (0 = highest)
+     * @param deadline    deadline in cycles
+     */
+    public record IoProcess(String processName, String operation, String path, String newName, boolean directory,
+            int sizeBlocks, boolean isPublic, int memory, int priority, int deadline) {
+    }
+
+    /**
      * One node of the file system (file or directory).
      *
      * @param path       full path, e.g. "/usuarios/notas.txt" ("/" is the root)

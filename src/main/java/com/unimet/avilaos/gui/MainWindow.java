@@ -95,9 +95,9 @@ public final class MainWindow extends JFrame {
     private final JSpinner cycleDurationSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_CYCLE_MS,
             (int) SimulationConfig.MIN_CYCLE_MS, (int) SimulationConfig.MAX_CYCLE_MS, 50));
     private final UiKit.Button createProcessButton = new UiKit.Button("+ Proceso", UiKit.Kind.SECONDARY);
+    private final UiKit.Button createIoProcessButton = new UiKit.Button("+ Proceso de E/S", UiKit.Kind.SECONDARY);
+    /** Its text says if both JSON files (file system, processes and config) are loaded. */
     private final UiKit.Button loadJsonButton = new UiKit.Button("Cargar JSON", UiKit.Kind.SECONDARY);
-    /** Shows if both JSON files (file system, processes and config) are loaded. */
-    private final UiKit.Pill jsonPill = new UiKit.Pill("Faltan los JSON", Theme.KERNEL_BG, Theme.KERNEL_FG);
     private final UiKit.Button planningButton = new UiKit.Button("Planificación", UiKit.Kind.GHOST);
     private final UiKit.Button configButton = new UiKit.Button("Configuración", UiKit.Kind.GHOST);
 
@@ -168,7 +168,7 @@ public final class MainWindow extends JFrame {
         setLocationRelativeTo(null);
 
         // Hasta que alguien los conecte, los botones avisan "en construcción" en vez de quedarse mudos.
-        for (JButton button : new JButton[] {startPauseButton, resetButton, createProcessButton,
+        for (JButton button : new JButton[] {startPauseButton, resetButton, createProcessButton, createIoProcessButton,
             loadJsonButton, planningButton, configButton}) {
             button.addActionListener(notAvailable);
         }
@@ -234,9 +234,8 @@ public final class MainWindow extends JFrame {
         resetButton.setToolTipText("Detiene la simulación y la vuelve al ciclo 0 con la carga inicial");
         controls.add(resetButton);
         controls.add(Box.createHorizontalStrut(4));
-        controls.add(Theme.label("Ciclo (ms)", Theme.SMALL, Theme.MUTED));
         cycleDurationSpinner.setPreferredSize(new Dimension(80, 32));
-        cycleDurationSpinner.setToolTipText("Duración de cada ciclo de reloj en milisegundos");
+        cycleDurationSpinner.setToolTipText("Ciclo (ms): duración de cada ciclo de reloj en milisegundos");
         controls.add(new UiKit.RoundedBox(cycleDurationSpinner, 10, Theme.BORDER_STRONG));
         controls.add(Box.createHorizontalStrut(4));
         planningButton.setToolTipText("Política de cada computador y quantum de Round Robin");
@@ -245,10 +244,11 @@ public final class MainWindow extends JFrame {
         controls.add(configButton);
         controls.add(Box.createHorizontalStrut(4));
         loadJsonButton.setToolTipText("Sistema de archivos y procesos: los dos son obligatorios antes de iniciar");
-        controls.add(jsonPill);
         controls.add(loadJsonButton);
         createProcessButton.setToolTipText("Crear un proceso nuevo");
         controls.add(createProcessButton);
+        createIoProcessButton.setToolTipText("Crear un proceso que crea, lee, renombra o elimina un archivo");
+        controls.add(createIoProcessButton);
         bar.add(controls, BorderLayout.EAST);
         return bar;
     }
@@ -400,7 +400,8 @@ public final class MainWindow extends JFrame {
     /** Muestra una vista por su nombre y la marca en el menú. */
     public void showView(String name) {
         viewLayout.show(views, name);
-        pageTitle.setText(name);
+        // With one computer (Project 2) the page is "Computador", singular
+        pageTitle.setText(VIEW_COMPUTERS.equals(name) && computerPanels.length == 1 ? "Computador" : name);
         for (int i = 0; i < navItems.length; i++) {
             navItems[i].setActive(navNames[i].equals(name));
         }
@@ -548,6 +549,11 @@ public final class MainWindow extends JFrame {
         replaceAction(createProcessButton, action);
     }
 
+    /** Qué hacer al pulsar "+ Proceso de E/S" (normalmente abrir el IoProcessDialog). */
+    public void setCreateIoProcessAction(ActionListener action) {
+        replaceAction(createIoProcessButton, action);
+    }
+
     /** Qué hacer al pulsar "Cargar JSON" (normalmente abrir el LoadDialog). */
     public void setLoadJsonAction(ActionListener action) {
         replaceAction(loadJsonButton, action);
@@ -561,10 +567,10 @@ public final class MainWindow extends JFrame {
      */
     public void showLoadedJson(String fileSystemName, String processesName) {
         boolean both = fileSystemName != null && processesName != null;
-        jsonPill.setText(both ? "JSON cargados" : fileSystemName == null && processesName == null
-                ? "Faltan los JSON" : "Falta un JSON");
-        jsonPill.setColors(both ? Theme.USER_BG : Theme.KERNEL_BG, both ? Theme.USER_FG : Theme.KERNEL_FG);
-        jsonPill.setToolTipText("Sistema de archivos: " + (fileSystemName == null ? "falta" : fileSystemName)
+        loadJsonButton.setText(both ? "JSON \u2713" : fileSystemName == null && processesName == null
+                ? "Cargar JSON" : "Falta un JSON");
+        loadJsonButton.setForeground(both ? Theme.USER_FG : Theme.TEXT);
+        loadJsonButton.setToolTipText("Sistema de archivos: " + (fileSystemName == null ? "falta" : fileSystemName)
                 + " · Procesos: " + (processesName == null ? "falta" : processesName));
     }
 
