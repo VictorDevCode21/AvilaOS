@@ -37,7 +37,10 @@ public final class SeekPlan {
      * @param startBlock     posición del cabezal al elegirla
      * @param sweepEdge      extremo al que barre antes (NONE si va directo)
      * @param jumpTo         bloque al que salta después del barrido (NONE si no salta)
-     * @param directionAfter dirección en la que queda el cabezal al llegar al objetivo
+     * @param directionAfter dirección en la que queda el cabezal al llegar al objetivo.
+     *                       La política es responsable de que sea coherente con el
+     *                       recorrido (por ejemplo, SCAN la invierte después del barrido);
+     *                       SeekPlan no la recalcula.
      * @throws IllegalArgumentException si algún dato no es válido
      */
     public SeekPlan(DiskRequest request, int startBlock, int sweepEdge, int jumpTo,
