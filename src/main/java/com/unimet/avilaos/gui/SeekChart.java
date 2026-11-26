@@ -54,6 +54,14 @@ public final class SeekChart extends JComponent {
         ToolTipManager.sharedInstance().registerComponent(this);
     }
 
+    /**
+     * Policy names the chart knows, in index order: the ones it was created with, then any new one
+     * it learned from addSample. The bars use them, so a bar and its chart stretch have the same name.
+     */
+    public String[] policyNames() {
+        return policies.clone();
+    }
+
     /** Color used for a policy (the legend of the metrics view uses the same). */
     public Color colorOf(String policy) {
         int index = indexOf(policy);

@@ -75,13 +75,17 @@ public final class DiskMetricsPanel extends JPanel {
 
     /** Shows a new copy of the metrics. */
     public void showMetrics(DiskData.DiskMetrics metrics) {
+        if (metrics == null || metrics.servedPerPolicy() == null) {
+            throw new IllegalArgumentException("Las métricas del disco no pueden ser null");
+        }
         seekKpi.show(metrics.totalSeek() + " bloques", "desde el ciclo 0");
-        waitKpi.show(String.format("%.1f ciclos", metrics.averageWait()),
+        double wait = metrics.averageWait();
+        waitKpi.show(Double.isFinite(wait) && wait >= 0 ? String.format("%.1f ciclos", wait) : "—",
                 metrics.served() == 0 ? "aún no se atiende ninguna" : "por solicitud atendida");
         servedKpi.show(String.valueOf(metrics.served()), "entre todas las políticas");
         suspendKpi.show(String.valueOf(metrics.suspensions()), "planificador a mediano plazo");
         resumeKpi.show(String.valueOf(metrics.reactivations()),
-                (metrics.suspensions() - metrics.reactivations()) + " siguen en swap");
+                Math.max(0, metrics.suspensions() - metrics.reactivations()) + " siguen en swap");
         bars.setCounts(metrics.servedPerPolicy());
     }
 
@@ -131,6 +135,18 @@ public final class DiskMetricsPanel extends JPanel {
             return Math.max(policies.length, counts.length);
         }
 
+        /**
+         * Name of row i: the GUI label, else the name the chart learned for that index (e.g. C-LOOK),
+         * so the bar has the same name and color as its chart stretch; "Otra n" only if nobody knows it.
+         */
+        private String nameOf(int i) {
+            if (i < policies.length) {
+                return policies[i];
+            }
+            String[] learned = colors.policyNames();
+            return i < learned.length ? learned[i] : "Otra " + (i - policies.length + 1);
+        }
+
         @Override
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
@@ -147,7 +163,7 @@ public final class DiskMetricsPanel extends JPanel {
             int barW = getWidth() - labelW - numberW - 8;
             for (int i = 0; i < rows(); i++) {
                 long count = i < counts.length ? counts[i] : 0;
-                String name = i < policies.length ? policies[i] : "Otra " + (i - policies.length + 1);
+                String name = nameOf(i);
                 int y = i * ROW + 6;
                 g2.setColor(Theme.TEXT);
                 g2.drawString(name, 0, y + 12);
