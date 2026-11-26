@@ -32,9 +32,9 @@ public final class SegmentedControl extends JPanel {
     private final Option[] options;
     private transient ChoiceListener listener = option -> { };
 
-    /** @param labels the options, in order */
+    /** @param labels the options, in order (they wrap to a second row if they do not fit) */
     public SegmentedControl(String[] labels) {
-        super(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        super(new WrapLayout(FlowLayout.LEFT, 6, 6));
         setOpaque(false);
         options = new Option[labels.length];
         for (int i = 0; i < labels.length; i++) {
