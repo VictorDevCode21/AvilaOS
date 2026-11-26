@@ -12,7 +12,6 @@ import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.RenderingHints;
 import java.awt.event.MouseEvent;
-import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JComponent;
@@ -77,30 +76,63 @@ public final class ComputerPanel extends UiKit.Card {
      * @param computerId número del computador (1, 2, ...)
      */
     public ComputerPanel(int computerId) {
-        super(new BorderLayout(0, 14));
+        super(new BorderLayout(0, 12));
         this.computerId = computerId;
         setBorder(Theme.padding(16, 16, 16, 16));
-        add(buildTopSection(), BorderLayout.NORTH);
-        add(buildQueuesSection(), BorderLayout.CENTER);
+        add(buildHeader(), BorderLayout.NORTH);
+
+        // Each computer has its own color (the same as its line in the CPU chart). Inside the card,
+        // two tints of that color show where the hardware ends and the processes begin.
+        Color color = Theme.computerColor(computerId);
+        colors(Theme.SURFACE, Theme.tint(color, Theme.ZONE_BORDER_ALPHA));
+        Color border = Theme.tint(color, Theme.ZONE_BORDER_ALPHA);
+        Color text = Theme.darker(color);
+        JPanel body = Theme.transparent(new JPanel(new BorderLayout(0, 12)));
+        body.add(zone("CPU y memoria", Theme.tint(color, Theme.ZONE_HARDWARE_ALPHA), border, text,
+                buildHardwareSection()), BorderLayout.NORTH);
+        body.add(zone("Procesos", Theme.tint(color, Theme.ZONE_PROCESSES_ALPHA), border, text,
+                buildQueuesSection()), BorderLayout.CENTER);
+        add(body, BorderLayout.CENTER);
         showIdle();
     }
 
     // ---------- Construcción de la vista ----------
 
-    private JPanel buildTopSection() {
+    /** Card title: computer name and its CPU policy. */
+    private JPanel buildHeader() {
+        JPanel header = Theme.transparent(new JPanel(new BorderLayout(8, 0)));
+        JPanel name = Theme.transparent(new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 0)));
+        name.add(new ColorMark(Theme.computerColor(computerId)));
+        name.add(Theme.label("Computador " + computerId, Theme.CARD_TITLE, Theme.TEXT));
+        header.add(name, BorderLayout.WEST);
+        policyPill.setToolTipText("Se cambia con Planificación, en la barra superior");
+        header.add(policyPill, BorderLayout.EAST);
+        return header;
+    }
+
+    /**
+     * Light, semi-transparent box with a small colored title, used to group a part of the card.
+     *
+     * @param title     text above the content (e.g. "Procesos")
+     * @param fill      background tint (with alpha)
+     * @param stroke    border tint (with alpha)
+     * @param titleText color of the title
+     * @param content   what goes inside
+     */
+    private static UiKit.Card zone(String title, Color fill, Color stroke, Color titleText, JComponent content) {
+        UiKit.Card zone = new UiKit.Card(new BorderLayout(0, 10)).colors(fill, stroke);
+        zone.setBorder(Theme.padding(10, 12, 12, 12));
+        zone.add(Theme.label(title.toUpperCase(), Theme.SMALL_BOLD, titleText), BorderLayout.NORTH);
+        zone.add(content, BorderLayout.CENTER);
+        return zone;
+    }
+
+    private JPanel buildHardwareSection() {
         JPanel top = Theme.transparent(new JPanel());
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
 
-        // Encabezado: nombre y política
-        JPanel header = Theme.transparent(new JPanel(new BorderLayout(8, 0)));
-        header.add(Theme.label("Computador " + computerId, Theme.CARD_TITLE, Theme.TEXT), BorderLayout.WEST);
-        policyPill.setToolTipText("Se cambia con Planificación, en el menú de la izquierda");
-        header.add(policyPill, BorderLayout.EAST);
-        top.add(fullWidth(header));
-        top.add(Box.createVerticalStrut(12));
-
-        // CPU: proceso, modo, detalle y registros
-        UiKit.Card cpu = new UiKit.Card(new BorderLayout(0, 8)).colors(Theme.SURFACE_ALT, Theme.BORDER);
+        // CPU: proceso, modo, detalle y registros (blanca, para que resalte sobre el tono de la zona)
+        UiKit.Card cpu = new UiKit.Card(new BorderLayout(0, 8)).colors(Theme.SURFACE, Theme.BORDER);
         cpu.setBorder(Theme.padding(12, 12, 12, 12));
         JPanel first = Theme.transparent(new JPanel(new BorderLayout(8, 0)));
         JPanel name = Theme.transparent(new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 0)));
@@ -152,7 +184,7 @@ public final class ComputerPanel extends UiKit.Card {
         return panel;
     }
 
-    private static JScrollPane wrapTable(ProcessTableModel model) {
+    private static JComponent wrapTable(ProcessTableModel model) {
         JTable table = new JTable(model) {
             private static final long serialVersionUID = 1L;
 
@@ -189,9 +221,8 @@ public final class ComputerPanel extends UiKit.Card {
             columns.getColumn(i).setHeaderValue(headers[i]);
         }
         JScrollPane scroll = Theme.scroll(table);
-        scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
         scroll.setPreferredSize(new Dimension(380, 88));        // las columnas se ajustan al ancho real
-        return scroll;
+        return UiKit.rounded(scroll);
     }
 
     private static JPanel register(String name, JLabel value, String tip) {
@@ -331,6 +362,27 @@ public final class ComputerPanel extends UiKit.Card {
     }
 
     /** Punto de color del estado de la CPU (verde = ejecutando, gris = ociosa). */
+    /** Small rounded square with the computer's color, next to its name. */
+    private static final class ColorMark extends JComponent {
+
+        private static final long serialVersionUID = 1L;
+        private final Color color;
+
+        ColorMark(Color color) {
+            this.color = color;
+            setPreferredSize(new Dimension(12, 12));
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(color);
+            g2.fillRoundRect(0, (getHeight() - 12) / 2, 12, 12, 5, 5);
+            g2.dispose();
+        }
+    }
+
     private static final class StatusDot extends JComponent {
 
         private static final long serialVersionUID = 1L;

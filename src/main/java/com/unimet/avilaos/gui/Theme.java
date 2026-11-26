@@ -79,7 +79,18 @@ public final class Theme {
     public static final Font MONO_FONT = new Font(MONO, Font.PLAIN, 12);
     public static final Font MONO_BOLD = new Font(MONO, Font.BOLD, 15);
 
-    public static final int RADIUS = 12;
+    public static final int RADIUS = 16;
+
+    /** Corner radius of tables, inputs and small boxes (smaller than the cards). */
+    public static final int RADIUS_SMALL = 12;
+
+    // ---------- Computer colors ----------
+    /** Alpha of the hardware zone (CPU and memory) of a computer card: the stronger tint. */
+    public static final int ZONE_HARDWARE_ALPHA = 26;
+    /** Alpha of the process zone (queues) of a computer card: the lighter tint. */
+    public static final int ZONE_PROCESSES_ALPHA = 11;
+    /** Alpha of the zone borders. */
+    public static final int ZONE_BORDER_ALPHA = 60;
 
     private Theme() {
     }
@@ -143,6 +154,29 @@ public final class Theme {
         UIManager.put("ScrollPane.border", BorderFactory.createLineBorder(BORDER));
         UIManager.put("Button.border", BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER_STRONG), BorderFactory.createEmptyBorder(5, 12, 5, 12)));
+    }
+
+    // ---------- Computer colors ----------
+
+    /**
+     * Color of a computer: the same one its line uses in the CPU chart, so a card and its line
+     * are easy to match.
+     *
+     * @param computerId computer number (1, 2, ...)
+     */
+    public static Color computerColor(int computerId) {
+        return SERIES[(Math.max(computerId, 1) - 1) % SERIES.length];
+    }
+
+    /** The same color with the given alpha (0-255): a light, semi-transparent tint over white. */
+    public static Color tint(Color color, int alpha) {
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
+    }
+
+    /** A darker version of the color, readable as text over its own tint. */
+    public static Color darker(Color color) {
+        return new Color((int) (color.getRed() * 0.55), (int) (color.getGreen() * 0.55),
+                (int) (color.getBlue() * 0.55));
     }
 
     // ---------- Fábricas de piezas comunes ----------
