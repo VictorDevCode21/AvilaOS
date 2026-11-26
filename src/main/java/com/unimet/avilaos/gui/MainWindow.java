@@ -130,6 +130,7 @@ public final class MainWindow extends JFrame {
     private final transient OwnerPalette ownerPalette = new OwnerPalette();
     private final DiskPanel diskPanel = new DiskPanel(ownerPalette, DISK_POLICIES);
     private final FileSystemPanel fileSystemPanel = new FileSystemPanel(ownerPalette);
+    private final DiskMetricsPanel diskMetricsPanel = new DiskMetricsPanel(DISK_POLICIES);
     /** Mode selector (administrator / user) at the bottom of the rail, always visible. */
     private final SessionControl sessionControl = new SessionControl();
     /** Banner for rejected operations and other notices, visible from every view. */
@@ -281,7 +282,7 @@ public final class MainWindow extends JFrame {
         return scroll;
     }
 
-    private JPanel buildMetricsView() {
+    private JComponent buildMetricsView() {
         UiKit.Card tableCard = new UiKit.Card(new BorderLayout(0, 10));
         tableCard.setBorder(Theme.padding(16, 18, 14, 18));
         tableCard.add(cardHeading("Métricas de rendimiento",
@@ -297,11 +298,24 @@ public final class MainWindow extends JFrame {
         chartCard.add(cardHeading("Utilización de CPU", "Porcentaje de ciclos ocupados de cada computador"),
                 BorderLayout.NORTH);
         chartCard.add(cpuChart, BorderLayout.CENTER);
+        chartCard.setPreferredSize(new Dimension(600, 300));
 
-        JPanel view = Theme.transparent(new JPanel(new BorderLayout(0, 14)));
-        view.add(tableCard, BorderLayout.NORTH);
-        view.add(chartCard, BorderLayout.CENTER);
-        return view;
+        // Project 2 disk metrics on top, then the Project 1 metrics; the whole view scrolls
+        JPanel view = new WidthTrackingPanel(new GridLayout(0, 1, 0, 14));
+        view.setOpaque(false);
+        JPanel stack = Theme.transparent(new JPanel(new BorderLayout(0, 14)));
+        stack.add(diskMetricsPanel, BorderLayout.NORTH);
+        JPanel cpuPart = Theme.transparent(new JPanel(new BorderLayout(0, 14)));
+        cpuPart.add(tableCard, BorderLayout.NORTH);
+        cpuPart.add(chartCard, BorderLayout.CENTER);
+        stack.add(cpuPart, BorderLayout.CENTER);
+        view.add(stack);
+        JScrollPane scroll = new JScrollPane(view);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        return scroll;
     }
 
     private JPanel buildLogView() {
@@ -490,6 +504,16 @@ public final class MainWindow extends JFrame {
         setBadge(VIEW_COMPUTERS, live == 0 ? "" : String.valueOf(live));
     }
 
+    /** Disk and suspension metrics (Project 2): indicators and requests served per policy. */
+    public void showDiskMetrics(DiskData.DiskMetrics metrics) {
+        diskMetricsPanel.showMetrics(metrics);
+    }
+
+    /** Adds a point to the cumulative head displacement chart. */
+    public void addSeekSample(long cycle, long cumulativeSeek, String policy) {
+        diskMetricsPanel.addSeekSample(cycle, cumulativeSeek, policy);
+    }
+
     /** Agrega a la gráfica los puntos nuevos de utilización de CPU (SystemMetrics.getComputers()). */
     public void showCpuHistory(LinkedList<ComputerMetrics> computers) {
         cpuChart.showHistory(computers);
@@ -508,6 +532,7 @@ public final class MainWindow extends JFrame {
         metricsModel.clear();
         cpuChart.clear();
         diskPanel.clear();
+        diskMetricsPanel.clear();
         fileSystemPanel.clearMessage();
         for (ComputerPanel panel : computerPanels) {
             panel.clear();
