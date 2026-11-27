@@ -65,7 +65,9 @@ import java.util.concurrent.Semaphore;
  *
  * Planificador a mediano plazo y modelo de 7 estados (Proyecto 2). Corre al inicio de cada
  * ciclo, antes de admitir Nuevos (mediumTerm):
- *  1. Un Nuevo por el que ya se suspendieron procesos entra apenas su RAM queda libre.
+ *  1. Un Nuevo por el que ya se suspendieron procesos entra apenas cabe, aunque sus
+ *     víctimas todavía se estén escribiendo (si otro proceso terminó y liberó RAM antes,
+ *     no espera de balde); las víctimas en camino siguen y después se reactivan normalmente.
  *  2. Reactivar: si hay RAM, el Listo/Suspendido de mayor prioridad (empate: el que lleva
  *     más tiempo suspendido) pide volver; su RAM se reserva al pedirlo y una solicitud
  *     RESUME pasa por la cola del disco. Al terminar, libera sus bloques del swap y pasa a
@@ -416,11 +418,19 @@ public class Kernel implements InterruptHandler {
         }
     }
 
+    /**
+     * Admite a cada Nuevo con reserva apenas cabe, sin esperar a que terminen de escribirse
+     * sus víctimas: si la RAM ya está (por ejemplo, otro proceso terminó), esperar sería
+     * dejarla ociosa. Respeta la RAM de las reservas que van antes que él.
+     */
     private void admitReservedNewcomers() {
         LinkedList<Reservation> all = reservations.copy();
+        int keepForEarlier = 0;
         while (!all.isEmpty()) {
             Reservation r = all.removeFirst();
-            if (r.pendingVictims == 0 && memory.admitOne(r.newcomer)) {
+            if (!memory.admitOne(r.newcomer, keepForEarlier)) {
+                keepForEarlier += r.newcomer.getMemorySize();
+            } else {
                 reservations.remove(r);
                 r.newcomer.markReady();
                 scheduler.addReady(r.newcomer);
@@ -524,7 +534,6 @@ public class Kernel implements InterruptHandler {
             } finally {
                 mutex.release();
             }
-            suspensions++;
             storage.diskScheduler().enqueue(new DiskRequest(rt.pcb.getId(), IoOperation.SUSPEND, DiskRequest.SWAP_TARGET,
                     rt.swapBlock, size, cycle));
             log.log(cycle, MEDIUM_TERM_SOURCE, "Se suspende al proceso " + rt.pcb + " para admitir a " + newcomer
@@ -564,6 +573,7 @@ public class Kernel implements InterruptHandler {
             rt.swappingOut = false;
             memory.release(rt.pcb);
             victimDone(rt.suspendedFor);
+            suspensions++;                                  // se cuenta al completarse, igual que las reactivaciones
             log.log(cycle, MEDIUM_TERM_SOURCE, "El proceso " + rt.pcb + " ya está en el swap: se liberan " + size
                     + " MB de RAM para " + rt.suspendedFor);
             return;
@@ -1241,7 +1251,11 @@ public class Kernel implements InterruptHandler {
         }
     }
 
-    /** Suspensiones hechas por el planificador a mediano plazo (métrica del enunciado). */
+    /**
+     * Suspensiones completadas: procesos que el disco terminó de escribir en el swap
+     * (métrica del enunciado). Se cuentan al completarse, igual que las reactivaciones:
+     * una suspensión cancelada porque la víctima murió antes no cuenta.
+     */
     public long getSuspensions() {
         return suspensions;
     }

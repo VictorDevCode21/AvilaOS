@@ -145,18 +145,18 @@ public class MemoryManager {
     }
 
     /**
-     * Admite a un Nuevo en particular si cabe (el que causó una suspensión, cuando su RAM
-     * ya quedó libre). Lo saca de la cola de Nuevos y le reserva la RAM.
+     * Admite a un Nuevo en particular si cabe dejando libres al menos keepFree MB (el que
+     * causó una suspensión). Lo saca de la cola de Nuevos y le reserva la RAM.
      *
      * @return true si se admitió; false si no está en Nuevos o todavía no cabe
      */
-    public boolean admitOne(Pcb pcb) {
+    public boolean admitOne(Pcb pcb, int keepFree) {
         mutex.acquireUninterruptibly();
         try {
             if (pcb.getState() != ProcessState.NEW || !newQueue.contains(pcb)) {
                 return false;
             }
-            if (!memory.allocate(pcb.getMemorySize())) {
+            if (memory.getFreeSize() - keepFree < pcb.getMemorySize() || !memory.allocate(pcb.getMemorySize())) {
                 return false;
             }
             newQueue.remove(pcb);
