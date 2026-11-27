@@ -64,6 +64,8 @@ public class Disk implements ClockListener {
     private long servedRequests;
     private long cancelledRequests;
     private long busyCycles;
+    private long startCycle;             // ciclo en que empezó a atender la solicitud actual
+    private long totalWait;              // suma de los ciclos que esperaron en la cola las atendidas
 
     /**
      * @param cpu               CPU a la que avisa con la interrupción de fin de E/S de disco
@@ -130,6 +132,7 @@ public class Disk implements ClockListener {
             cancelledWhileFetching.clear();
             if (plan == null && next != null) {
                 start(next);
+                startCycle = cycle;
             }
             if (plan != null) {
                 busyCycles++;
@@ -139,6 +142,7 @@ public class Disk implements ClockListener {
                     finished = new Interrupt(InterruptType.DISK_COMPLETION, request.getProcessId());
                     direction = plan.getDirectionAfter();
                     servedRequests++;
+                    totalWait += startCycle - request.getArrivalCycle();   // espera en la cola de E/S
                     clear();
                 }
             }
@@ -286,6 +290,31 @@ public class Disk implements ClockListener {
         mutex.acquireUninterruptibly();
         try {
             return servedRequests;
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /**
+     * Suma de los ciclos que esperaron en la cola de E/S las solicitudes atendidas:
+     * desde que llegaron hasta que el disco empezó a atenderlas (una solicitud que llega
+     * con el disco libre espera 1 ciclo: entra a la cola en un ciclo y el disco la toma
+     * en el siguiente).
+     */
+    public long getTotalWaitCycles() {
+        mutex.acquireUninterruptibly();
+        try {
+            return totalWait;
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /** Tiempo promedio de espera en la cola de E/S (métrica del enunciado), o 0 si no atendió ninguna. */
+    public double getAverageWait() {
+        mutex.acquireUninterruptibly();
+        try {
+            return servedRequests == 0 ? 0.0 : (double) totalWait / servedRequests;
         } finally {
             mutex.release();
         }
