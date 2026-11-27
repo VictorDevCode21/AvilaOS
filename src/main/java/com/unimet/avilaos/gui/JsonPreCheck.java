@@ -131,12 +131,12 @@ public final class JsonPreCheck {
         } catch (IllegalArgumentException e) {
             return Result.fail("\"policy\" (CPU) no es válida: " + policy + ".");
         }
-        // Round Robin needs a quantum of at least 1; the other policies ignore it (0 is fine)
+        // a policy that uses the quantum needs at least 1; the others ignore it (0 is fine)
         int quantum = requiredInt(text, "quantum", "quantum de Round Robin");
-        int minQuantum = cpu == PolicyType.ROUND_ROBIN ? 1 : 0;
+        int minQuantum = cpu.usesQuantum() ? 1 : 0;
         if (quantum < minQuantum || quantum > SimulationConfig.MAX_QUANTUM) {
             return Result.fail("\"quantum\" es " + quantum + ": debe estar entre " + minQuantum + " y "
-                    + SimulationConfig.MAX_QUANTUM + (minQuantum == 1 ? " con Round Robin." : "."));
+                    + SimulationConfig.MAX_QUANTUM + (minQuantum == 1 ? " con " + cpu.getLabel() + "." : "."));
         }
         int processes = count(text, "\"name\"");
         Matcher memory = valuesOf(text, "memory");
