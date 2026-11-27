@@ -730,10 +730,11 @@ public class Kernel implements InterruptHandler {
             return;
         }
         DiskRequest done = plan.getRequest();
-        diskMetrics.requestServed(cycle, plan.getChosenBy());   // atendida por la política que la eligió
-        // La política que ELIGIÓ la solicitud, no la vigente ahora (pueden haberla cambiado)
+        // La política que ELIGIÓ la solicitud, no la vigente ahora (pueden haberla cambiado);
+        // si no viniera anotada, la vigente: así el log y las métricas nunca quedan sin política
         String policy = plan.getChosenBy() != null ? plan.getChosenBy()
                 : storage.diskScheduler().getPolicyType().getLabel();
+        diskMetrics.requestServed(cycle, policy);
         ProcessRuntime rt = findById(done.getProcessId());
         if (!done.getOperation().isFileOperation()) {
             swapCompleted(rt, done, policy);                // SUSPEND o RESUME
@@ -1065,7 +1066,8 @@ public class Kernel implements InterruptHandler {
         if (aborted) {
             log.log(cycle, DISK_SOURCE, "aborta la solicitud de " + pcb + " que estaba atendiendo (" + cause + ")");
         } else if (removedFromQueue > 0) {
-            log.log(cycle, DISK_SOURCE, "saca de su cola la solicitud de " + pcb + " (" + cause + ")");
+            log.log(cycle, DISK_SOURCE, "saca de su cola " + (removedFromQueue == 1 ? "la solicitud"
+                    : "las " + removedFromQueue + " solicitudes") + " de " + pcb + " (" + cause + ")");
         }
         if (freedSwap > 0) {
             log.log(cycle, MEDIUM_TERM_SOURCE, "se liberan los " + freedSwap + " bloques del swap de " + pcb);

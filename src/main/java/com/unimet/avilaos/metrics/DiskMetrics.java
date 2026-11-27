@@ -80,15 +80,18 @@ public class DiskMetrics {
      * El disco terminó una solicitud (de archivo o del swap).
      *
      * @param cycle    ciclo en que terminó
-     * @param chosenBy etiqueta de la política que la eligió (SeekPlan.getChosenBy), o null si no se sabe
+     * @param chosenBy etiqueta de la política que la eligió (SeekPlan.getChosenBy; el kernel pasa
+     *                 la vigente si no viniera anotada)
+     * @throws IllegalArgumentException si falta la política: el total debe cuadrar con el detalle
      */
     public void requestServed(long cycle, String chosenBy) {
+        if (chosenBy == null || chosenBy.isBlank()) {
+            throw new IllegalArgumentException("Una solicitud atendida necesita la política que la eligió");
+        }
         long cumulative = disk.getTotalSeek();               // fuera del mutex: el disco tiene el suyo
         mutex.acquireUninterruptibly();
         try {
-            if (chosenBy != null) {
-                servedPerPolicy[DiskPolicyType.fromLabel(chosenBy).ordinal()]++;
-            }
+            servedPerPolicy[DiskPolicyType.fromLabel(chosenBy).ordinal()]++;
             served++;
             samples.addLast(new SeekSample(cycle, cumulative, chosenBy));
         } finally {
