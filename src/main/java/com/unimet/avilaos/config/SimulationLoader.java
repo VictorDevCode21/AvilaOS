@@ -33,7 +33,10 @@ import java.nio.file.Path;
  *
  * crossCheck avisa (sin impedir la carga) de lo que hará fallar a un proceso: una
  * ruta que no existe, un archivo que se crea donde ya hay otro, etc. El proceso
- * igual se crea y, al pedir su operación, termina con el motivo en el log.
+ * igual se crea y, al pedir su operación, termina con el motivo en el log. También
+ * avisa de nombres repetidos (el enunciado no exige nombres únicos: en la tabla de
+ * archivos se distinguen por el PID, "P5 (Proc_95)") y de una lista sin procesos
+ * ("el disco y la RAM quedarán vacíos", como dice el enunciado).
  *
  * @author NicollPinzon
  */
@@ -113,16 +116,40 @@ public final class SimulationLoader {
         FileSystem trial = new FileSystem(new BlockMap(fileBlocks, 0), Computer.ROOT_OWNER);
         FileSystemJson.load(fileSystem, trial);
         StringBuilder sb = new StringBuilder();
+        if (processes.processes().isEmpty()) {
+            sb.append("No hay procesos: el disco y la RAM quedan vacíos hasta que se cree uno.");
+        }
         LinkedList<ProcessesJson.ProcessSpec> all = processes.processes().copy();
+        LinkedList<String> seen = new LinkedList<>();
         while (!all.isEmpty()) {
             ProcessesJson.ProcessSpec p = all.removeFirst();
             String problem = problemOf(p, trial);
             if (problem != null) {
-                sb.append(sb.length() == 0 ? "" : "\n").append("Proceso ").append(p.number()).append(" (")
-                        .append(p.name()).append("): ").append(problem);
+                warn(sb, p, problem);
+            }
+            if (containsText(seen, p.name())) {
+                warn(sb, p, "el nombre se repite; en la tabla de archivos se distinguen por su PID, como \"P<PID> ("
+                        + p.name() + ")\"");
+            } else {
+                seen.addLast(p.name());
             }
         }
         return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private static void warn(StringBuilder sb, ProcessesJson.ProcessSpec p, String problem) {
+        sb.append(sb.length() == 0 ? "" : "\n").append("Proceso ").append(p.number()).append(" (").append(p.name())
+                .append("): ").append(problem);
+    }
+
+    /** LinkedList.contains compara referencias; aquí hace falta comparar el texto. */
+    private static boolean containsText(LinkedList<String> list, String text) {
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i).equals(text)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String problemOf(ProcessesJson.ProcessSpec p, FileSystem fs) {
