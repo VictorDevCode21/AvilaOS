@@ -425,7 +425,8 @@ public final class SimulationController {
                     ? FsOperation.createDirectory(r.path(), r.newName(), r.owner(), permission, creator)
                     : FsOperation.createFile(r.path(), r.newName(), r.sizeBlocks(), permission, creator);
             case READ -> FsOperation.read(r.path(), creator);
-            case UPDATE -> FsOperation.rename(r.path(), r.newName(), creator);
+            case UPDATE -> r.newName() == null ? FsOperation.update(r.path(), creator)     // en su lugar
+                    : FsOperation.rename(r.path(), r.newName(), creator);
             case DELETE -> FsOperation.delete(r.path(), creator);
             default -> throw new IllegalArgumentException(r.operation().getLabel()
                     + " no es una operación sobre archivos");
