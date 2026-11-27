@@ -45,7 +45,8 @@ public final class FsOperation {
      * @param name       nombre del archivo
      * @param sizeBlocks tamaño en bloques (1 o más)
      * @param permission público o privado
-     * @param creator    proceso que lo crea (por ejemplo "P3")
+     * @param creator    nombre del proceso que lo crea (por ejemplo "NuevoArchivo"), el que el
+     *                   usuario escribió al crearlo; el PID cambia en cada corrida
      */
     public static FsOperation createFile(String parentPath, String name, int sizeBlocks, Permission permission,
             String creator) {
