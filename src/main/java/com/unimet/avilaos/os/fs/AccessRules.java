@@ -12,6 +12,7 @@ package com.unimet.avilaos.os.fs;
  *       crean directorios;</li>
  *   <li>todos ven la estructura y leen sus archivos propios o los públicos;</li>
  *   <li>cambiar el nombre es del administrador.</li>
+ *   <li>no se pueden modificar archivos del sistema ni de otros usuarios.</li>
  * </ul>
  * Decisiones del equipo (el enunciado no las fija):
  * <ul>
@@ -22,6 +23,8 @@ package com.unimet.avilaos.os.fs;
  *   <li>el dueño de la raíz ("admin") no puede usar el modo usuario;</li>
  *   <li>leer un archivo público ajeno está permitido: el enunciado dice "leer sus
  *       archivos propios o los públicos", y leer no modifica nada.</li>
+ *   <li>actualizar sin nombre nuevo (reescribir el archivo en su lugar) lo pueden
+ *       hacer el administrador y el dueño del archivo.</li>
  * </ul>
  *
  * @author NicollPinzon
@@ -61,6 +64,13 @@ final class AccessRules {
             return null;
         }
         return "El archivo " + file.path() + " es privado de " + file.owner + ".";
+    }
+
+    static String canWrite(UserSession session, FsNode file) {
+        if (session.isAdmin() || file.owner.equals(session.getUserName())) {
+            return null;
+        }
+        return "Solo puedes actualizar tus propios archivos: " + file.path() + " es de " + file.owner + ".";
     }
 
     static String canRename(UserSession session) {

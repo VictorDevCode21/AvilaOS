@@ -45,8 +45,8 @@ public final class FsOperation {
      * @param name       nombre del archivo
      * @param sizeBlocks tamaño en bloques (1 o más)
      * @param permission público o privado
-     * @param creator    nombre del proceso que lo crea (por ejemplo "NuevoArchivo"), el que el
-     *                   usuario escribió al crearlo; el PID cambia en cada corrida
+     * @param creator    proceso que lo crea: el proceso arma la operación con su nombre y el
+     *                   kernel la aplica con "P5 (NuevoArchivo)" (ver withCreator)
      */
     public static FsOperation createFile(String parentPath, String name, int sizeBlocks, Permission permission,
             String creator) {
@@ -72,9 +72,27 @@ public final class FsOperation {
         return new FsOperation(IoOperation.CREATE, parentPath, name, true, 0, permission, cleanOwner, creator);
     }
 
+    /**
+     * La misma operación con otro creador. El kernel la usa al aplicarla para que la
+     * tabla de archivos muestre el PID y el nombre, "P5 (Proc_95)": los nombres se
+     * pueden repetir, el PID no (Stallings, cap. 3: el proceso se identifica por su PID).
+     */
+    public FsOperation withCreator(String creator) {
+        return new FsOperation(operation, path, newName, directory, sizeBlocks, permission, owner, creator);
+    }
+
     /** Leer un archivo (o listar un directorio). */
     public static FsOperation read(String path, String creator) {
         return new FsOperation(IoOperation.READ, path, null, false, 0, null, null, creator);
+    }
+
+    /**
+     * Actualizar un archivo en su lugar, sin cambiarle el nombre: el disco reescribe
+     * sus bloques y el árbol no cambia. Es lo que hace un UPDATE del JSON de procesos
+     * que no trae "newName". Lo pueden hacer el administrador y el dueño del archivo.
+     */
+    public static FsOperation update(String path, String creator) {
+        return new FsOperation(IoOperation.UPDATE, path, null, false, 0, null, null, creator);
     }
 
     /** Cambiar el nombre de un archivo o directorio (solo el administrador). */
@@ -97,7 +115,12 @@ public final class FsOperation {
         return path;
     }
 
-    /** CREATE: nombre del nuevo; UPDATE: el nuevo nombre; en las demás, null. */
+    /** UPDATE: true si cambia el nombre; false si reescribe el archivo en su lugar. */
+    public boolean isRename() {
+        return operation == IoOperation.UPDATE && newName != null;
+    }
+
+    /** CREATE: nombre del nuevo; UPDATE: el nuevo nombre (null si se reescribe en su lugar); en las demás, null. */
     public String getNewName() {
         return newName;
     }
@@ -138,7 +161,7 @@ public final class FsOperation {
             case CREATE -> directory ? "crear directorio " + getCreatedPath()
                     : "crear archivo " + getCreatedPath() + " (" + sizeBlocks + (sizeBlocks == 1 ? " bloque)" : " bloques)");
             case READ -> "leer " + path;
-            case UPDATE -> "renombrar " + path + " como " + newName;
+            case UPDATE -> newName == null ? "actualizar " + path : "renombrar " + path + " como " + newName;
             case DELETE -> "eliminar " + path;
             default -> operation.getLabel() + " " + path;
         };

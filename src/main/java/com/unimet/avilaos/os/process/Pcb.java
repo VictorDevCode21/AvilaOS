@@ -167,6 +167,7 @@ public class Pcb {
      * disco la atiende; después ejecuta el resto de sus instrucciones como usuario.
      *
      * @param operation operación del sistema de archivos; su creador debe ser el nombre del proceso
+     *                  (al aplicarla, el kernel guarda "P5 (nombre)", ver creatorLabel)
      * @param session   usuario en cuyo nombre actúa: el de la sesión activa, o el
      *                  administrador para los procesos que carga el JSON
      */
@@ -178,8 +179,8 @@ public class Pcb {
         if (session == null) {
             throw new IllegalArgumentException("El proceso de E/S necesita el usuario en cuyo nombre actúa");
         }
-        // El creador que queda en la tabla de archivos es el nombre del proceso: se exige aquí
-        // para que nadie arme la operación con otro nombre por error.
+        // La operación se arma con el nombre del proceso: se exige aquí para que nadie la arme
+        // con otro nombre por error (el kernel le agrega el PID al aplicarla).
         if (name != null && !operation.getCreator().equals(name.trim())) {
             throw new IllegalArgumentException("La operación de " + name.trim() + " tiene como creador a "
                     + operation.getCreator() + ": debe ser el nombre del proceso");
@@ -202,7 +203,7 @@ public class Pcb {
         state = next;
     }
 
-    /** NEW → READY (admitido porque había RAM) o BLOCKED/RUNNING → READY. */
+    /** NEW → READY (admitido), BLOCKED/RUNNING → READY o READY_SUSPENDED → READY (reactivado). */
     public void markReady() {
         stateMutex.acquireUninterruptibly();
         try {
@@ -243,6 +244,31 @@ public class Pcb {
             transitionTo(ProcessState.BLOCKED);
             blockReason = reason;
             blockDetail = detail;
+        } finally {
+            stateMutex.release();
+        }
+    }
+
+    /**
+     * BLOCKED → BLOCKED_SUSPENDED: el planificador a mediano plazo lo saca de la RAM.
+     * Conserva el motivo del bloqueo: sigue esperando el mismo evento.
+     */
+    public void markSuspended() {
+        stateMutex.acquireUninterruptibly();
+        try {
+            transitionTo(ProcessState.BLOCKED_SUSPENDED);
+        } finally {
+            stateMutex.release();
+        }
+    }
+
+    /** BLOCKED_SUSPENDED → READY_SUSPENDED: su evento ocurrió mientras estaba en el swap. */
+    public void markReadySuspended() {
+        stateMutex.acquireUninterruptibly();
+        try {
+            transitionTo(ProcessState.READY_SUSPENDED);
+            blockReason = null;
+            blockDetail = null;
         } finally {
             stateMutex.release();
         }
@@ -397,6 +423,14 @@ public class Pcb {
     public long getFinishCycle() { return finishCycle; }
     public long getBlockedOnSemaphoreCycles() { return blockedOnSemaphoreCycles; }
     public long getReadyCycles() { return readyCycles; }
+
+    /**
+     * Cómo queda el proceso como creador de un archivo: "P5 (Proc_95)". El PID lo
+     * distingue aunque haya dos procesos con el mismo nombre.
+     */
+    public String creatorLabel() {
+        return "P" + id + " (" + name + ")";
+    }
 
     /** Operación que pide un proceso de E/S de archivo, o null si es de otro tipo. */
     public IoOperation getIoOperation() {

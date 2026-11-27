@@ -241,7 +241,8 @@ public class ComputerMetrics {
                     completed == 0 ? 0.0 : (double) turnaroundSum / completed,
                     judged == 0 ? 0.0 : (double) onTime / judged,
                     jain(fairnessCount, fairnessSum, fairnessSquareSum),
-                    bufferUsers == 0 ? 0.0 : (double) semaphoreBlockedSum / bufferUsers);
+                    bufferUsers == 0 ? 0.0 : (double) semaphoreBlockedSum / bufferUsers,
+                    failed);
         }
     }
 

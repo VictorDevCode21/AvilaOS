@@ -99,6 +99,25 @@ public class Cpu implements ClockListener {
         }
     }
 
+    /**
+     * true si hay una interrupción pendiente para ese proceso: su E/S (o su solicitud
+     * de disco) ya terminó en este ciclo, pero la CPU recién la entrega al final del
+     * ciclo. El planificador a mediano plazo no debe suspenderlo: ya no está esperando.
+     */
+    public boolean hasPendingInterruptFor(int processId) {
+        interruptMutex.acquireUninterruptibly();
+        try {
+            for (int i = 0; i < pendingInterrupts.size(); i++) {
+                if (pendingInterrupts.get(i).processId() == processId) {
+                    return true;
+                }
+            }
+            return false;
+        } finally {
+            interruptMutex.release();
+        }
+    }
+
     // ---------- Cambio de contexto (lo usa el kernel) ----------
 
     /** Carga el contexto de un proceso: la CPU deja de estar ociosa. */
