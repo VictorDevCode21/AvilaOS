@@ -20,26 +20,26 @@ package com.unimet.avilaos.os.scheduling;
  */
 public enum PolicyType {
 
-    FCFS("FCFS", "el que llegó antes a listos", "No", false) {
+    FCFS("FCFS", null, "el que llegó antes a listos", "No", false) {
         @Override
         public SchedulingPolicy newPolicy() {
             return new FcfsPolicy();
         }
     },
-    ROUND_ROBIN("Round Robin", "el que llegó antes, por turnos de 'quantum' ciclos",
+    ROUND_ROBIN("Round Robin", "RR", "el que llegó antes, por turnos de 'quantum' ciclos",
             "Sí, al agotar el quantum", true) {
         @Override
         public SchedulingPolicy newPolicy() {
             return new RoundRobinPolicy();
         }
     },
-    EDF("EDF", "el de deadline más cercano", "Sí, si llega un deadline menor", false) {
+    EDF("EDF", null, "el de deadline más cercano", "Sí, si llega un deadline menor", false) {
         @Override
         public SchedulingPolicy newPolicy() {
             return new EdfPolicy();
         }
     },
-    PREEMPTIVE_PRIORITY("Prioridades apropiativas", "el de mayor prioridad (número menor)",
+    PREEMPTIVE_PRIORITY("Prioridades apropiativas", null, "el de mayor prioridad (número menor)",
             "Sí, si llega más prioridad", false) {
         @Override
         public SchedulingPolicy newPolicy() {
@@ -48,12 +48,14 @@ public enum PolicyType {
     };
 
     private final String label;
+    private final String alias;          // abreviatura que también se acepta al leer (por ejemplo "RR"), o null
     private final String criterion;
     private final String preemption;
     private final boolean quantum;
 
-    PolicyType(String label, String criterion, String preemption, boolean quantum) {
+    PolicyType(String label, String alias, String criterion, String preemption, boolean quantum) {
         this.label = label;
+        this.alias = alias;
         this.criterion = criterion;
         this.preemption = preemption;
         this.quantum = quantum;
@@ -82,18 +84,33 @@ public enum PolicyType {
     public abstract SchedulingPolicy newPolicy();
 
     /**
-     * Busca por etiqueta ("Round Robin") o por nombre del enum ("ROUND_ROBIN"),
-     * sin importar mayúsculas: sirve para el selector de la GUI y para archivos
-     * de configuración escritos con cualquiera de los dos.
+     * Busca por etiqueta ("Round Robin"), por nombre del enum ("ROUND_ROBIN") o por
+     * su abreviatura ("RR"), sin importar mayúsculas: sirve para el selector de la GUI
+     * y para los archivos de configuración y el JSON de procesos escritos con cualquiera.
+     *
+     * @throws IllegalArgumentException si no es ninguna; el mensaje lista los valores válidos
      */
     public static PolicyType fromLabel(String label) {
         String text = label == null ? "" : label.trim();
         for (PolicyType type : values()) {
-            if (type.label.equalsIgnoreCase(text) || type.name().equalsIgnoreCase(text)) {
+            if (type.label.equalsIgnoreCase(text) || type.name().equalsIgnoreCase(text)
+                    || (type.alias != null && type.alias.equalsIgnoreCase(text))) {
                 return type;
             }
         }
-        throw new IllegalArgumentException("Política desconocida: " + label);
+        throw new IllegalArgumentException("Política desconocida: " + label + " (se aceptan: " + accepted() + ")");
+    }
+
+    /** "FCFS, Round Robin (RR), EDF, Prioridades apropiativas": para los mensajes de error. */
+    public static String accepted() {
+        StringBuilder sb = new StringBuilder();
+        for (PolicyType type : values()) {
+            sb.append(sb.length() == 0 ? "" : ", ").append(type.label);
+            if (type.alias != null) {
+                sb.append(" (").append(type.alias).append(')');
+            }
+        }
+        return sb.toString();
     }
 
     /** Etiquetas en orden, para llenar el selector de la GUI. */

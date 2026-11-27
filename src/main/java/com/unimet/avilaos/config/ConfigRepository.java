@@ -204,7 +204,7 @@ public class ConfigRepository {
             try {
                 return PolicyType.fromLabel(value);     // también acepta "Round Robin"
             } catch (IllegalArgumentException notALabel) {
-                throw r.error("política desconocida '" + value + "'");
+                throw r.error("política desconocida '" + value + "' (se aceptan: " + PolicyType.accepted() + ")");
             }
         }
     }

@@ -31,7 +31,9 @@ import java.nio.file.Path;
  *   <li>proceso: "priority" (por defecto 1); "newName" (UPDATE que renombra; sin él,
  *       UPDATE reescribe el archivo en su lugar); para CREATE, "targetPath" es la ruta
  *       nueva y se agregan "blocks" (archivo), "permissions" (por defecto public),
- *       "type" (FILE o DIRECTORY, por defecto FILE) y "owner" (dueño de un directorio).</li>
+ *       "type" (FILE o DIRECTORY, por defecto FILE) y "owner" (dueño de un directorio; si
+ *       falta o está vacío, el dueño es el usuario de la sesión que lo crea, el administrador
+ *       para los procesos del JSON).</li>
  * </ul>
  *
  * Decisiones:
