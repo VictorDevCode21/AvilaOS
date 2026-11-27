@@ -35,6 +35,11 @@ public final class DiskPanel extends JPanel {
         void requested(DiskPolicyType policy);
     }
 
+    private static final String IDLE_POLICY_STATUS = "se cambia en caliente";
+
+    /** "se cambia en caliente", or the chosen policy while it waits for the next cycle. */
+    private final JLabel policyStatus = Theme.label(IDLE_POLICY_STATUS, Theme.SMALL, Theme.MUTED);
+
     private final transient OwnerPalette palette;
     private final BlockMapPanel blockMap;
     private final JLabel mapSubtitle = Theme.label(" ", Theme.SMALL, Theme.MUTED);
@@ -95,7 +100,7 @@ public final class DiskPanel extends JPanel {
         policyCard.setBorder(Theme.padding(16, 18, 16, 18));
         JPanel policyHead = Theme.transparent(new JPanel(new BorderLayout()));
         policyHead.add(Theme.label("Política de disco", Theme.SECTION, Theme.TEXT), BorderLayout.WEST);
-        policyHead.add(Theme.label("se cambia en caliente", Theme.SMALL, Theme.MUTED), BorderLayout.EAST);
+        policyHead.add(policyStatus, BorderLayout.EAST);
         policyCard.add(policyHead, BorderLayout.NORTH);
         policyCard.add(policySelector, BorderLayout.CENTER);
         UiKit.Card next = new UiKit.Card(new BorderLayout(0, 2)).colors(Theme.SURFACE_ALT, Theme.BORDER);
@@ -165,18 +170,18 @@ public final class DiskPanel extends JPanel {
     /**
      * Shows the I/O queue in the order the active policy will serve it.
      *
-     * @param serving  request the disk is working on now, or null if it is idle
-     * @param progress blocks already read/written of the current request
-     * @param queue    waiting requests, first = next to be served
+     * @param serving request the disk is working on now, or null if it is idle
+     * @param status  what the disk is doing with it (e.g. "Moviendo el cabezal"), or null
+     * @param queue   waiting requests, first = next to be served
      */
-    public void showQueue(DiskData.Request serving, int progress, DiskData.Request[] queue) {
+    public void showQueue(DiskData.Request serving, String status, DiskData.Request[] queue) {
         queueModel.setRequests(queue);
         queueCount.setText(String.valueOf(queue.length));
         if (serving == null) {
             currentLabel.setText("El disco está libre");
         } else {
             currentLabel.setText("Atendiendo: " + serving.pid() + " · " + operationName(serving) + " · "
-                    + serving.target() + " · bloque " + serving.block() + " · " + progress + " bloques hechos");
+                    + serving.target() + " · bloque " + serving.block() + (status == null ? "" : " · " + status));
         }
         currentLabel.setToolTipText(currentLabel.getText());
         nextLabel.setText(queue.length == 0 ? "—" : queue[0].pid() + " → bloque " + queue[0].block()
@@ -189,8 +194,31 @@ public final class DiskPanel extends JPanel {
 
     /** Marks the policy the disk is really using (DiskScheduler.getPolicyType()). */
     public void showPolicy(DiskPolicyType policy) {
-        if (policy != null) {
-            policySelector.setSelected(policy.getLabel());
+        showPolicy(policy, null);
+    }
+
+    /**
+     * Marks the policy the user chose and says whether the disk already uses it. A change is applied
+     * at the start of the next cycle, so while paused (or during that cycle) it is shown as pending.
+     *
+     * @param current policy the disk scheduler uses now
+     * @param pending policy chosen but not applied yet, or null
+     */
+    public void showPolicy(DiskPolicyType current, DiskPolicyType pending) {
+        boolean waiting = pending != null && pending != current;
+        DiskPolicyType shown = waiting ? pending : current;
+        if (shown != null) {
+            policySelector.setSelected(shown.getLabel());
+        }
+        if (waiting) {
+            policyStatus.setText(pending.getLabel() + ": se aplica en el próximo ciclo");
+            policyStatus.setForeground(Theme.ACCENT);
+            policyStatus.setToolTipText("El disco sigue con " + (current == null ? "—" : current.getLabel())
+                    + " hasta que empiece el próximo ciclo (si está en pausa, al reanudar).");
+        } else {
+            policyStatus.setText(IDLE_POLICY_STATUS);
+            policyStatus.setForeground(Theme.MUTED);
+            policyStatus.setToolTipText(null);
         }
     }
 

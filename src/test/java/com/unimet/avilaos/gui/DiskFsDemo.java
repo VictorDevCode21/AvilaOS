@@ -392,12 +392,12 @@ public final class DiskFsDemo {
         for (long n : servedPerPolicy) {
             served += n;
         }
-        window.showDiskMetrics(new DiskData.DiskMetrics(totalSeek, served == 0 ? 0 : waitSum / (double) served,
+        window.showDiskMetrics(DiskData.DiskMetrics.withCounts(totalSeek, served == 0 ? 0 : waitSum / (double) served,
                 servedPerPolicy.clone(), 2, 1));
         window.addSeekSample(cycle, totalSeek, policy);
         window.getDiskPanel().showSnapshot(new DiskData.Snapshot(TOTAL, SWAP_START, head,
                 movingUp ? HeadDirection.UP : HeadDirection.DOWN, blocks.clone()));
-        window.getDiskPanel().showQueue(serving, servingDone, order());
+        window.getDiskPanel().showQueue(serving, servingDone + " bloques hechos", order());
         window.getFileSystemPanel().showFiles(files);
     }
 }

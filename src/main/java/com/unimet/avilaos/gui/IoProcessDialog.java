@@ -43,9 +43,19 @@ public final class IoProcessDialog extends JDialog {
      * @param files      every file and directory, to fill the target list and spot repeated names
      * @param freeBlocks free blocks of the disk (data area), the biggest file that can be created
      * @param maxMemory  RAM of the computer: the most memory a process can ask for
+     * @param users      known user names, offered as the owner of a new directory (another
+     *                   name can be typed)
      */
-    public record Limits(DiskData.FileEntry[] files, int freeBlocks, int maxMemory) {
+    public record Limits(DiskData.FileEntry[] files, int freeBlocks, int maxMemory, String[] users) {
+
+        /** Limits without a list of users (only "admin" is offered as the owner of a directory). */
+        public Limits(DiskData.FileEntry[] files, int freeBlocks, int maxMemory) {
+            this(files, freeBlocks, maxMemory, new String[0]);
+        }
     }
+
+    private static final String ADMIN = "admin";
+    private static final int USER_NAME_MAX = 20;
 
     private final transient Limits limits;
     private transient DiskData.IoProcess result;
@@ -64,6 +74,8 @@ public final class IoProcessDialog extends JDialog {
     /** Last suggested process name: it is replaced on a change of operation only if the user kept it. */
     private String suggestedName = "";
     private final JComboBox<String> createKind = new JComboBox<>(new String[] {"Archivo", "Directorio"});
+    /** Owner of a new directory: the administrator makes a folder for a user (e.g. /usuarios/user1). */
+    private final JComboBox<String> ownerCombo = new JComboBox<>();
     private final JTextField newFileName = new JTextField("nuevo.txt");
     private final JTextField sizeField = new JTextField("5");
     private final JComboBox<String> permissionCombo = new JComboBox<>(new String[] {"Público", "Privado"});
@@ -128,9 +140,21 @@ public final class IoProcessDialog extends JDialog {
         setContentPane(content);
 
         operationSelector.setChoiceListener(name -> selectOperation(IoOperation.valueOf(name)));
-        createKind.addActionListener(e -> sizeField.setEnabled("Archivo".equals(createKind.getSelectedItem())));
-        FormValidator.clearErrorOnEdit(newFileName, sizeField, renameField, processName, memoryField, priorityField,
-                deadlineField);
+        ownerCombo.setEditable(true);
+        ownerCombo.addItem(ADMIN);
+        for (String user : limits.users()) {
+            if (user != null && !user.isBlank() && !ADMIN.equals(user)) {
+                ownerCombo.addItem(user);
+            }
+        }
+        ownerCombo.setEnabled(false);
+        createKind.addActionListener(e -> {
+            boolean file = "Archivo".equals(createKind.getSelectedItem());
+            sizeField.setEnabled(file);
+            ownerCombo.setEnabled(!file);
+        });
+        FormValidator.clearErrorOnEdit(newFileName, sizeField, ownerEditor(), renameField, processName, memoryField,
+                priorityField, deadlineField);
         selectOperation(operation);
         if (presetPath != null) {
             targetCombo.setSelectedItem(presetPath);
@@ -159,11 +183,12 @@ public final class IoProcessDialog extends JDialog {
         target.add(targetCombo, BorderLayout.CENTER);
         middle.add(target, BorderLayout.NORTH);
 
-        JPanel create = Theme.transparent(new JPanel(new GridLayout(2, 2, 12, 10)));
+        JPanel create = Theme.transparent(new JPanel(new GridLayout(3, 2, 12, 10)));
         create.add(field("Crear", createKind));
         create.add(field("Nombre (sin /)", newFileName));
         create.add(field("Tamaño (bloques) · libres: " + limits.freeBlocks(), sizeField));
         create.add(field("Permiso", permissionCombo));
+        create.add(field("Dueño (solo directorios)", ownerCombo));
         JPanel rename = Theme.transparent(new JPanel(new BorderLayout()));
         rename.add(field("Nombre nuevo (sin /)", renameField), BorderLayout.NORTH);
         createFields = create;
@@ -222,8 +247,8 @@ public final class IoProcessDialog extends JDialog {
         operation = chosen;
         // Errors of the previous operation may be on fields that are about to be hidden: start clean
         errorCard.setVisible(false);
-        FormValidator.clearErrors(newFileName, sizeField, renameField, processName, memoryField, priorityField,
-                deadlineField);
+        FormValidator.clearErrors(newFileName, sizeField, ownerEditor(), renameField, processName, memoryField,
+                priorityField, deadlineField);
         operationSelector.setSelected(chosen.name());
         Object previous = targetCombo.getSelectedItem();
         targetCombo.removeAllItems();
@@ -297,6 +322,7 @@ public final class IoProcessDialog extends JDialog {
         boolean directory = false;
         int size = 0;
         boolean isPublic = true;
+        String owner = null;
         if (operation == IoOperation.CREATE) {
             directory = "Directorio".equals(createKind.getSelectedItem());
             newName = fileName(v, newFileName, "Nombre");
@@ -313,6 +339,9 @@ public final class IoProcessDialog extends JDialog {
                 }
             }
             isPublic = "Público".equals(permissionCombo.getSelectedItem());
+            if (directory) {
+                owner = userName(v, ownerEditor(), "Dueño");
+            }
         } else if (operation == IoOperation.UPDATE) {
             newName = fileName(v, renameField, "Nombre nuevo");
             if (newName != null && path != null) {
@@ -339,8 +368,8 @@ public final class IoProcessDialog extends JDialog {
             pack();
             return;
         }
-        result = new DiskData.IoProcess(name, operation, path, newName, directory, size, isPublic, memory, priority,
-                deadline);
+        result = new DiskData.IoProcess(name, operation, path, newName, directory, size, isPublic, owner, memory,
+                priority, deadline);
         dispose();
     }
 
@@ -362,6 +391,27 @@ public final class IoProcessDialog extends JDialog {
             }
         }
         return value;
+    }
+
+    /** A user name: not empty, letters, digits, dash and underscore only. */
+    private static String userName(FormValidator v, JTextField field, String label) {
+        String value = v.text(field, label, USER_NAME_MAX);
+        if (value == null) {
+            return null;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (!Character.isLetterOrDigit(c) && c != '-' && c != '_') {
+                v.addError(field, label + ": solo letras, números, guion y guion bajo.");
+                return null;
+            }
+        }
+        return value;
+    }
+
+    /** Text field of the editable owner combo (where a new user name can be typed). */
+    private JTextField ownerEditor() {
+        return (JTextField) ownerCombo.getEditor().getEditorComponent();
     }
 
     private boolean exists(String path) {
