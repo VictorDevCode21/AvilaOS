@@ -91,6 +91,8 @@ public final class SimulationController {
     private int nextIoNumber = 1;         // for the default name of an I/O process ("IO_Read_3")
     /** Disk policy chosen in the Disk view that the kernel hasn't applied yet (next cycle), or null. */
     private DiskPolicyType pendingDiskPolicy;
+    /** Puntos de la gráfica del cabezal ya dibujados (DiskMetrics guarda uno por solicitud atendida). */
+    private int seekSamplesShown;
     /** Los dos JSON de la última carga (llenan de antemano el diálogo de carga), o null. */
     private File fileSystemFile;
     private File processesFile;
@@ -224,6 +226,7 @@ public final class SimulationController {
         window.resetView();
         usersKey = "";
         pendingDiskPolicy = null;                 // the new cluster starts with the configured policy
+        seekSamplesShown = 0;                     // resetView vació la gráfica
         lastLogSequence = -1;
         hadWork = false;
         showInitialSettings();
@@ -496,10 +499,21 @@ public final class SimulationController {
         }
 
         // Métricas del disco y de la suspensión (DiskMetrics): una copia por refresco
-        DiskMetrics.Snapshot m = computer.getDiskMetrics().getSnapshot();
+        DiskMetrics diskMetrics = computer.getDiskMetrics();
+        DiskMetrics.Snapshot m = diskMetrics.getSnapshot();
         window.showDiskMetrics(new DiskData.DiskMetrics(m.totalSeek(), m.averageWait(), m.served(),
                 m.servedPerPolicy(), (int) m.suspensions(), (int) m.reactivations()));
-        window.addSeekSample(cycle, disk.getTotalSeek(), scheduler.getPolicyType().getLabel());
+        // Gráfica: solo los puntos nuevos, uno por solicitud atendida, con la política que la ELIGIÓ
+        // (no la vigente: tras un cambio en caliente, cada tramo queda con el color que le corresponde)
+        LinkedList<DiskMetrics.SeekSample> samples = diskMetrics.getSamplesSince(seekSamplesShown);
+        if (seekSamplesShown == 0 && !samples.isEmpty()) {
+            window.addSeekSample(0, 0, samples.get(0).policy());   // la línea sale del origen
+        }
+        seekSamplesShown += samples.size();
+        while (!samples.isEmpty()) {
+            DiskMetrics.SeekSample sample = samples.removeFirst();
+            window.addSeekSample(sample.cycle(), sample.cumulative(), sample.policy());
+        }
     }
 
     // ---------- Planificación ----------

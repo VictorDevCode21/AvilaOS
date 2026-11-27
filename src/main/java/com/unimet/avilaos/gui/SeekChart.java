@@ -75,7 +75,7 @@ public final class SeekChart extends JComponent {
      *
      * @param cycle      clock cycle
      * @param cumulative total head displacement so far, in blocks
-     * @param policy     disk policy active at that cycle
+     * @param policy     política que eligió la solicitud que terminó en ese ciclo (DiskMetrics.SeekSample)
      */
     public void addSample(long cycle, long cumulative, String policy) {
         if (size > 0 && cycle < cycles[size - 1]) {
