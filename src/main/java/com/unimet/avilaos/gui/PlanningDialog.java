@@ -161,8 +161,8 @@ public final class PlanningDialog extends JDialog {
             }
         };
         for (PolicyType type : PolicyType.values()) {
-            model.addRow(new Object[] {type.getLabel(), criterion(type), preemptive(type),
-                type == PolicyType.ROUND_ROBIN ? "Sí" : "No"});
+            model.addRow(new Object[] {type.getLabel(), type.getCriterion(), type.getPreemption(),
+                type.usesQuantum() ? "Sí" : "No"});
         }
         JTable table = new JTable(model);
         Theme.styleTable(table);
@@ -176,24 +176,6 @@ public final class PlanningDialog extends JDialog {
         scroll.setBorder(BorderFactory.createTitledBorder("Cómo decide cada política"));
         scroll.setPreferredSize(new java.awt.Dimension(760, 162));
         return scroll;
-    }
-
-    private static String criterion(PolicyType type) {
-        return switch (type) {
-            case FCFS -> "el que llegó antes a listos";
-            case ROUND_ROBIN -> "el que llegó antes, por turnos de 'quantum' ciclos";
-            case EDF -> "el de deadline más cercano";
-            case PREEMPTIVE_PRIORITY -> "el de mayor prioridad (número menor)";
-        };
-    }
-
-    private static String preemptive(PolicyType type) {
-        return switch (type) {
-            case FCFS -> "No";
-            case ROUND_ROBIN -> "Sí, al agotar el quantum";
-            case EDF -> "Sí, si llega un deadline menor";
-            case PREEMPTIVE_PRIORITY -> "Sí, si llega más prioridad";
-        };
     }
 
     private JPanel buildButtons() {

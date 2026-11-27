@@ -236,7 +236,7 @@ public final class SimulationController {
             terminated += terminatedQueue.size();
             Scheduler scheduler = kernel.getScheduler();
             PolicyType policy = scheduler.getPolicyType();
-            panel.showPolicy(policy.getLabel(), policy == PolicyType.ROUND_ROBIN ? scheduler.getQuantum() : 0);
+            panel.showPolicy(policy.getLabel(), policy.usesQuantum() ? scheduler.getQuantum() : 0);
             if (planningDialog.isVisible()) {
                 planningDialog.showComputer(id, policy, scheduler.getQuantum(), scheduler.getReadyCount());
             }
