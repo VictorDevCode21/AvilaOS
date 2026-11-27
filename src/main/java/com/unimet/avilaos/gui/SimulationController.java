@@ -30,6 +30,7 @@ import com.unimet.avilaos.os.scheduling.Scheduler;
 import java.io.File;
 import java.io.IOException;
 import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 /**
@@ -47,9 +48,11 @@ import javax.swing.Timer;
  * disk policy selector), the Files view (tree and allocation table from the file system), the
  * user mode selector and the "Nuevo proceso de E/S" form, and shows the disk metrics.
  *
- * El enunciado pide que la interfaz EXIJA los dos JSON antes de iniciar el reloj global: "Iniciar"
- * abre el diálogo de carga mientras la simulación actual no salió de ellos, y su "Iniciar
- * simulación" la arma con SimulationLoader (los JSON mandan; la configuración solo da las claves
+ * El enunciado pide que la interfaz EXIJA los dos JSON antes de iniciar el reloj global: el diálogo
+ * de carga se abre solo al arrancar y, si se cierra sin cargar, "Iniciar" lo vuelve a abrir. Mientras
+ * no hay JSON, la simulación es un relleno armado con la configuración por defecto: la tarjeta y los
+ * indicadores dicen que falta cargar la simulación (no muestran ese relleno) y crear procesos se
+ * rechaza con el motivo. Su "Iniciar simulación" la arma con SimulationLoader (los JSON mandan; la configuración solo da las claves
  * opcionales) y arranca el reloj. "Reiniciar" la vuelve a armar desde los mismos dos JSON.
  *
  * Reiniciar con procesos nuevos conservando el disco (punto del enunciado): con una simulación ya
@@ -130,6 +133,9 @@ public final class SimulationController {
         refresh();
         window.setVisible(true);
         refreshTimer.start();
+        // El enunciado exige los dos JSON antes de iniciar: el diálogo se abre solo al arrancar. Si se
+        // cierra sin cargar, la ventana queda usable y "Iniciar" lo vuelve a abrir.
+        SwingUtilities.invokeLater(this::loadJson);
     }
 
     // ---------- Conexiones (una sola vez: siempre usan el clúster actual) ----------
@@ -234,6 +240,9 @@ public final class SimulationController {
      * y al clúster. El formulario ya validó con la misma configuración.
      */
     private void createProcess() {
+        if (notLoadedYet()) {
+            return;
+        }
         ProcessConfig process = ProcessFormDialog.showDialog(window, config);
         if (process == null) {
             return;
@@ -265,6 +274,19 @@ public final class SimulationController {
     }
 
     // ---------- Los dos JSON (Proyecto 2) ----------
+
+    /**
+     * Antes de cargar los dos JSON, la simulación es solo un relleno que la carga reemplaza: crear
+     * procesos en ella no tiene sentido. Muestra el motivo y devuelve true si todavía no hay carga.
+     */
+    private boolean notLoadedYet() {
+        if (loadedFromJson()) {
+            return false;
+        }
+        window.showRejected("Primero carga la simulación: los dos JSON (sistema de archivos y procesos), con"
+                + " «Cargar JSON» o «Iniciar».");
+        return true;
+    }
 
     private boolean loadedFromJson() {
         return fileSystemImage != null && processesImage != null;
@@ -367,6 +389,9 @@ public final class SimulationController {
      * @param path   selected path in the tree, or null
      */
     private void createIoProcess(IoOperation preset, String path) {
+        if (notLoadedYet()) {
+            return;
+        }
         Computer computer = computer();
         FileSystem fileSystem = computer.getFileSystem();
         IoProcessDialog.Limits limits = new IoProcessDialog.Limits(DiskData.FileEntry.fromList(fileSystem.list()),
@@ -540,6 +565,13 @@ public final class SimulationController {
     // ---------- Refresco ----------
 
     private void refresh() {
+        if (!loadedFromJson()) {
+            // La simulación de relleno (configuración por defecto) no se muestra como si fuera la real
+            window.setCycle(cluster.getCurrentCycle());
+            window.showNotLoaded();
+            appendNewLogEntries();
+            return;
+        }
         pauseWhenIdle();
         window.setCycle(cluster.getCurrentCycle());
         int busy = 0;
