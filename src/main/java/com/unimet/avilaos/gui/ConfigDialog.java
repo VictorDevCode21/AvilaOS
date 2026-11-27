@@ -1,17 +1,12 @@
 package com.unimet.avilaos.gui;
 
-import com.unimet.avilaos.config.BufferConfig;
-import com.unimet.avilaos.config.ComputerConfig;
 import com.unimet.avilaos.config.ConfigRepository;
 import com.unimet.avilaos.config.DiskConfig;
-import com.unimet.avilaos.config.ProcessConfig;
 import com.unimet.avilaos.config.SimulationConfig;
-import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.hardware.HeadDirection;
-import com.unimet.avilaos.os.disk.DiskPolicyType;
 import java.awt.BorderLayout;
-import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.Frame;
 import java.awt.GridLayout;
 import java.awt.event.KeyEvent;
@@ -19,37 +14,40 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
-import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import javax.swing.KeyStroke;
-import javax.swing.ListSelectionModel;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 /**
  * Vista de configuración: arma una SimulationConfig NUEVA a partir de la actual.
  *
- * Permite cambiar la duración del ciclo, el quantum, el disco (bloques, swap, política inicial,
- * cabezal, dirección y velocidad) y la carga inicial de procesos de CPU (con el mismo formulario
- * de la ventana principal). También guarda la configuración en avilaos-config.csv y carga otra
- * desde un archivo CSV.
+ * Proyecto 2: los dos JSON (obligatorios antes de iniciar) mandan en casi todo: el ciclo, el
+ * quantum, la RAM, la política de CPU, los procesos y, del disco, los bloques, el swap, la política
+ * inicial y el cabezal inicial. Por eso el diálogo solo muestra lo que todavía tiene efecto: la
+ * dirección inicial del cabezal y las posiciones que recorre por ciclo, que son el valor por
+ * defecto de las claves opcionales "initialDirection" y "positionsPerCycle" del JSON de procesos
+ * (ver SimulationLoader). Nada de esto se aplica en caliente; la duración del ciclo se cambia en la
+ * barra superior.
  *
- * Proyecto 2: un solo computador y sin productor-consumidor, así que el diálogo ya no muestra la
- * lista de computadores, los buffers ni la latencia de red. Si el archivo los trae (CSV del P1),
- * se conservan tal cual para que "Guardar" no los pierda, pero no se editan.
+ * Los otros cuatro datos del disco que el enunciado pide en la configuración (bloques, área de
+ * intercambio, política de disco inicial y cabezal inicial) se muestran solo para lectura, con el
+ * valor de la configuración actual: después de cargar los JSON son los de los JSON.
+ *
+ * Lo que no se muestra (ciclo, quantum, latencia, computador, buffers, procesos y el resto del
+ * disco) se conserva tal como vino de la configuración o del archivo CSV, para que "Guardar" no lo
+ * pierda.
  *
  * El diálogo solo junta datos: la validación es la de SimulationConfig (la misma del CSV).
  * Nada se aplica hasta "Aceptar"; quien lo abre decide qué hacer con la configuración
- * (SimulationController reinicia la simulación con ella).
+ * (SimulationController arma la simulación de nuevo con ella).
  *
  * @author victor1102
  */
@@ -57,35 +55,17 @@ public final class ConfigDialog extends JDialog {
 
     private static final long serialVersionUID = 1L;
 
-    private final Frame owner;
-    private final JTextField cycleField = new JTextField(8);
-    private final JTextField quantumField = new JTextField(8);
-    /**
-     * Latencia de red del archivo (P1: solo cuenta con buffers en OTRO computador). Con un solo
-     * computador no se usa ni se muestra; se conserva para que "Guardar" no la pierda.
-     */
-    private int networkLatency;
+    /** La configuración de la que se parte (la actual o la del CSV cargado): da todo lo que no se edita. */
+    private transient SimulationConfig base;
 
-    // Disco (Proyecto 2): DiskConfig
-    private final JTextField fileBlocksField = new JTextField(8);
-    private final JTextField swapField = new JTextField(8);
-    private final JComboBox<String> diskPolicyCombo = new JComboBox<>(DiskPolicyType.labels());
-    private final JTextField headField = new JTextField(8);
     private final JComboBox<String> directionCombo = new JComboBox<>(directionLabels());
     private final JTextField positionsField = new JTextField(8);
 
-    /**
-     * El computador del archivo (su RAM y su política inicial). Proyecto 2: uno solo, y al cargar
-     * los JSON su RAM y su política salen del JSON de procesos, así que no se muestra; se conserva
-     * para armar la configuración y para que "Guardar" no lo pierda.
-     */
-    private transient LinkedList<ComputerConfig> computers = new LinkedList<>();
-
-    // Carga inicial: se guarda aparte y se vuelve a validar al armar la configuración
-    /** Buffers del archivo (P1): no se muestran ni se crean; se conservan para "Guardar". */
-    private transient LinkedList<BufferConfig> buffers = new LinkedList<>();
-    private transient LinkedList<ProcessConfig> processes = new LinkedList<>();
-    private final JList<String> processList = new JList<>();
+    // Solo lectura: los manda el JSON (se muestran porque el enunciado los pide en la configuración)
+    private final JTextField fileBlocksValue = readOnlyField();
+    private final JTextField swapValue = readOnlyField();
+    private final JTextField diskPolicyValue = readOnlyField();
+    private final JTextField headValue = readOnlyField();
 
     private transient SimulationConfig result;
 
@@ -104,20 +84,11 @@ public final class ConfigDialog extends JDialog {
 
     private ConfigDialog(Frame owner, SimulationConfig current) {
         super(owner, "Configuración", true);
-        this.owner = owner;
-        FormValidator.clearErrorOnEdit(cycleField, quantumField, fileBlocksField, swapField, headField,
-                positionsField);
-        processList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-
-        JPanel center = new JPanel();
-        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
-        center.add(buildGeneralFields());
-        center.add(buildDiskFields());
-        center.add(buildLoadArea());
+        FormValidator.clearErrorOnEdit(positionsField);
 
         JPanel content = new JPanel(new BorderLayout(8, 8));
         content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        content.add(center, BorderLayout.CENTER);
+        content.add(buildDiskFields(), BorderLayout.CENTER);
         content.add(buildButtons(), BorderLayout.SOUTH);
         setContentPane(content);
 
@@ -128,40 +99,50 @@ public final class ConfigDialog extends JDialog {
 
     // ---------- Construcción ----------
 
-    private JPanel buildGeneralFields() {
-        JPanel panel = new JPanel(new GridLayout(0, 2, 6, 6));
-        panel.setBorder(BorderFactory.createTitledBorder("Parámetros generales"));
-        addRow(panel, "Duración del ciclo (" + SimulationConfig.MIN_CYCLE_MS + "-"
-                + SimulationConfig.MAX_CYCLE_MS + " ms):", cycleField);
-        addRow(panel, "Quantum de Round Robin (1-" + SimulationConfig.MAX_QUANTUM + " ciclos):", quantumField);
-        return panel;
-    }
-
-    /**
-     * El disco de la configuración del enunciado: bloques, swap, política inicial, cabezal y su
-     * dirección, y velocidad. Debajo, una nota con la precedencia frente a los JSON.
-     */
+    /** Lo que sigue teniendo efecto: dirección inicial y velocidad del cabezal, con su nota. */
     private JPanel buildDiskFields() {
+        JPanel fixed = new JPanel(new GridLayout(0, 2, 6, 6));
+        addRow(fixed, "Bloques para archivos:", fileBlocksValue);
+        addRow(fixed, "Área de intercambio (bloques):", swapValue);
+        addRow(fixed, "Política de disco inicial:", diskPolicyValue);
+        addRow(fixed, "Posición inicial del cabezal:", headValue);
+        JLabel fixedTitle = new JLabel("Vienen de los JSON cargados (antes de cargarlos, de la configuración):"
+                + " no se editan aquí.");
+        fixedTitle.setFont(fixedTitle.getFont().deriveFont(Font.ITALIC,
+                fixedTitle.getFont().getSize2D() - 1f));
+        JPanel fixedPart = new JPanel(new BorderLayout(4, 6));
+        fixedPart.add(fixedTitle, BorderLayout.NORTH);
+        fixedPart.add(fixed, BorderLayout.CENTER);
+
         JPanel panel = new JPanel(new GridLayout(0, 2, 6, 6));
-        addRow(panel, "Bloques para archivos (" + DiskConfig.MIN_FILE_BLOCKS + "-" + DiskConfig.MAX_FILE_BLOCKS + "):",
-                fileBlocksField);
-        addRow(panel, "Área de intercambio (0-" + DiskConfig.MAX_SWAP_BLOCKS + " bloques, después de los archivos):",
-                swapField);
-        addRow(panel, "Política de disco inicial:", comboCell(diskPolicyCombo));
-        addRow(panel, "Posición inicial del cabezal (0 a archivos + swap − 1):", headField);
         addRow(panel, "Dirección inicial del cabezal:", comboCell(directionCombo));
         addRow(panel, "Posiciones del cabezal por ciclo (1-" + DiskConfig.MAX_POSITIONS_PER_CYCLE + "):",
                 positionsField);
-        JLabel help = new JLabel("<html>Si se cargan los JSON, mandan en lo que traen: bloques y cabezal (sistema de"
-                + " archivos), swap y política de disco (procesos). De aquí solo se usan la dirección y las"
-                + " posiciones por ciclo cuando el JSON de procesos no las trae.</html>");
+        // Con un ancho fijo, el HTML calcula solo cuántas líneas ocupa (no se corta)
+        JLabel help = new JLabel("<html><div style='width:420px'>Se usan cuando el JSON de procesos no trae"
+                + " \"initialDirection\" ni"
+                + " \"positionsPerCycle\" (los JSON del enunciado no los traen). El ciclo, el quantum, la RAM,"
+                + " la política de CPU y los procesos también salen de los dos JSON que se cargan antes de"
+                + " iniciar. La duración del ciclo se cambia en la barra superior.</div></html>");
         help.setFont(help.getFont().deriveFont(help.getFont().getSize2D() - 1f));
-        help.setPreferredSize(new Dimension(1, help.getPreferredSize().height * 3));
-        JPanel section = new JPanel(new BorderLayout(4, 6));
+        JPanel editable = new JPanel(new BorderLayout(4, 6));
+        editable.add(panel, BorderLayout.CENTER);
+        editable.add(help, BorderLayout.SOUTH);
+        JPanel section = new JPanel(new BorderLayout(4, 12));
         section.setBorder(BorderFactory.createTitledBorder("Disco"));
-        section.add(panel, BorderLayout.CENTER);
-        section.add(help, BorderLayout.SOUTH);
+        section.add(fixedPart, BorderLayout.NORTH);
+        section.add(editable, BorderLayout.CENTER);
         return section;
+    }
+
+    /** Campo que solo muestra un valor (no se edita ni recibe el foco), atenuado para que se note. */
+    private static JTextField readOnlyField() {
+        JTextField field = new JTextField(8);
+        field.setEditable(false);
+        field.setFocusable(false);
+        field.setBackground(Theme.SURFACE_ALT);
+        field.setForeground(Theme.MUTED);
+        return field;
     }
 
     /** En un FlowLayout el combo conserva su altura normal en vez de llenar la celda de la grilla. */
@@ -189,31 +170,6 @@ public final class ConfigDialog extends JDialog {
         return HeadDirection.UP;
     }
 
-    private JPanel buildLoadArea() {
-        JButton addProcess = new JButton("Agregar proceso");
-        JButton removeProcess = new JButton("Quitar proceso");
-        addProcess.addActionListener(e -> addProcess());
-        removeProcess.addActionListener(e -> removeProcess());
-
-        JPanel panel = new JPanel(new GridLayout(1, 1, 8, 8));
-        panel.setBorder(BorderFactory.createTitledBorder("Carga inicial"));
-        panel.add(wrapList("Procesos de CPU", processList, addProcess, removeProcess));
-        return panel;
-    }
-
-    private static JPanel wrapList(String title, JList<String> list, JButton add, JButton remove) {
-        JScrollPane scroll = new JScrollPane(list);
-        scroll.setPreferredSize(new Dimension(350, 150));
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        buttons.add(add);
-        buttons.add(remove);
-        JPanel panel = new JPanel(new BorderLayout(4, 4));
-        panel.add(new JLabel(title), BorderLayout.NORTH);
-        panel.add(scroll, BorderLayout.CENTER);
-        panel.add(buttons, BorderLayout.SOUTH);
-        return panel;
-    }
-
     private JPanel buildButtons() {
         JButton load = new JButton("Cargar…");
         JButton save = new JButton("Guardar");
@@ -235,7 +191,8 @@ public final class ConfigDialog extends JDialog {
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         right.add(cancel);
         right.add(accept);
-        JLabel note = new JLabel("Al aceptar, la simulación actual se detiene y empieza una nueva con esta configuración.");
+        JLabel note = new JLabel("Al aceptar, la simulación se vuelve a armar: el diálogo de carga se abre con los"
+                + " mismos JSON.");
         note.setFont(note.getFont().deriveFont(note.getFont().getSize2D() - 1f));
 
         JPanel panel = new JPanel(new BorderLayout());
@@ -252,95 +209,27 @@ public final class ConfigDialog extends JDialog {
 
     // ---------- Mostrar una configuración ----------
 
-    /** Pone en el formulario todos los valores de la configuración (al abrir y al cargar un archivo). */
+    /** Toma la configuración de base y muestra lo que se edita (al abrir y al cargar un archivo). */
     private void showConfig(SimulationConfig config) {
-        cycleField.setText(String.valueOf(config.getCycleDurationMs()));
-        quantumField.setText(String.valueOf(config.getQuantum()));
-        networkLatency = config.getNetworkLatency();
+        base = config;
         DiskConfig disk = config.getDisk();
-        fileBlocksField.setText(String.valueOf(disk.fileBlocks()));
-        swapField.setText(String.valueOf(disk.swapBlocks()));
-        diskPolicyCombo.setSelectedItem(disk.initialPolicy().getLabel());
-        headField.setText(String.valueOf(disk.initialHead()));
         directionCombo.setSelectedItem(disk.initialDirection().getLabel());
         positionsField.setText(String.valueOf(disk.positionsPerCycle()));
-        computers = config.getComputers();      // ya son copias
-        buffers = config.getBuffers();          // ya son copias
-        processes = config.getProcesses();
-        refreshLists();
-    }
-
-    private void refreshLists() {
-        String[] processRows = new String[processes.size()];
-        for (int i = 0; i < processRows.length; i++) {
-            processRows[i] = describe(processes.get(i));
-        }
-        processList.setListData(processRows);
-    }
-
-    /**
-     * Ej. "Calculo — CPU bound, 128 MB, 60 instr." (un productor de un CSV del P1 agrega su buffer).
-     * Sin el computador: el Proyecto 2 tiene uno solo.
-     */
-    private static String describe(ProcessConfig p) {
-        StringBuilder sb = new StringBuilder(p.name()).append(" — ").append(p.type().getLabel())
-                .append(", ").append(p.memorySize()).append(" MB, ").append(p.instructions()).append(" instr.");
-        if (p.type().usesBuffer()) {
-            sb.append(", buffer ").append(p.bufferName());
-        }
-        return sb.toString();
-    }
-
-    // ---------- Carga inicial ----------
-
-    /** El formulario valida contra la configuración que se está armando. */
-    private void addProcess() {
-        SimulationConfig draft = buildConfig();
-        if (draft == null) {
-            return;
-        }
-        ProcessConfig process = ProcessFormDialog.showDialog(owner, draft);
-        if (process == null) {
-            return;
-        }
-        try {
-            draft.addProcess(process);
-            processes.addLast(process);
-            refreshLists();
-        } catch (IllegalArgumentException ex) {
-            showError("No se pudo agregar el proceso", ex.getMessage());
-        }
-    }
-
-    private void removeProcess() {
-        int index = processList.getSelectedIndex();
-        if (index < 0) {
-            showError("Quitar proceso", "Selecciona el proceso que quieres quitar.");
-            return;
-        }
-        processes.remove(processes.get(index));
-        refreshLists();
+        fileBlocksValue.setText(String.valueOf(disk.fileBlocks()));
+        swapValue.setText(String.valueOf(disk.swapBlocks()));
+        diskPolicyValue.setText(disk.initialPolicy().getLabel());
+        headValue.setText(String.valueOf(disk.initialHead()));
     }
 
     // ---------- Armar y validar ----------
 
     /**
-     * Arma la configuración con lo que hay en el formulario, en el orden que exige
-     * SimulationConfig (computadores → buffers → procesos), y la valida.
-     * Si algo está mal, lo muestra y devuelve null (el diálogo sigue abierto).
+     * Arma la configuración: todo lo de la base, con la dirección y las posiciones por ciclo del
+     * formulario, en el orden que exige SimulationConfig (computadores → buffers → procesos), y la
+     * valida. Si algo está mal, lo muestra y devuelve null (el diálogo sigue abierto).
      */
     private SimulationConfig buildConfig() {
         FormValidator v = new FormValidator();
-        int cycle = v.integer(cycleField, "Duración del ciclo (ms)",
-                (int) SimulationConfig.MIN_CYCLE_MS, (int) SimulationConfig.MAX_CYCLE_MS);
-        int quantum = v.integer(quantumField, "Quantum", 1, SimulationConfig.MAX_QUANTUM);
-        int fileBlocks = v.integer(fileBlocksField, "Bloques para archivos", DiskConfig.MIN_FILE_BLOCKS,
-                DiskConfig.MAX_FILE_BLOCKS);
-        int swap = v.integer(swapField, "Área de intercambio", 0, DiskConfig.MAX_SWAP_BLOCKS);
-        // El rango del cabezal depende de los dos tamaños; si uno está mal, solo se muestra ese error.
-        int lastBlock = fileBlocks > 0 && swap >= 0 ? fileBlocks + swap - 1
-                : DiskConfig.MAX_FILE_BLOCKS + DiskConfig.MAX_SWAP_BLOCKS - 1;
-        int head = v.integer(headField, "Posición inicial del cabezal", 0, lastBlock);
         int positions = v.integer(positionsField, "Posiciones del cabezal por ciclo", 1,
                 DiskConfig.MAX_POSITIONS_PER_CYCLE);
         if (v.hasErrors()) {
@@ -349,18 +238,20 @@ public final class ConfigDialog extends JDialog {
             return null;
         }
         try {
-            SimulationConfig config = new SimulationConfig(cycle, quantum, networkLatency);
-            config.setDisk(new DiskConfig(fileBlocks, swap,
-                    DiskPolicyType.fromLabel((String) diskPolicyCombo.getSelectedItem()), head,
-                    directionOf(directionCombo.getSelectedItem()), positions));
-            for (int i = 0; i < computers.size(); i++) {
-                config.addComputer(computers.get(i).ramSize(), computers.get(i).initialPolicy());
+            SimulationConfig config = new SimulationConfig(base.getCycleDurationMs(), base.getQuantum(),
+                    base.getNetworkLatency());
+            DiskConfig disk = base.getDisk();
+            config.setDisk(new DiskConfig(disk.fileBlocks(), disk.swapBlocks(), disk.initialPolicy(),
+                    disk.initialHead(), directionOf(directionCombo.getSelectedItem()), positions,
+                    disk.waitForInitialRequests()));
+            for (int i = 0; i < base.getComputers().size(); i++) {
+                config.addComputer(base.getComputers().get(i).ramSize(), base.getComputers().get(i).initialPolicy());
             }
-            for (int i = 0; i < buffers.size(); i++) {
-                config.addBuffer(buffers.get(i));
+            for (int i = 0; i < base.getBuffers().size(); i++) {
+                config.addBuffer(base.getBuffers().get(i));
             }
-            for (int i = 0; i < processes.size(); i++) {
-                config.addProcess(processes.get(i));
+            for (int i = 0; i < base.getProcesses().size(); i++) {
+                config.addProcess(base.getProcesses().get(i));
             }
             config.validate();
             return config;

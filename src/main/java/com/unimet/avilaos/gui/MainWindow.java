@@ -261,7 +261,7 @@ public final class MainWindow extends JFrame {
         showMillisecondsUnit(cycleDurationSpinner);
         controls.add(cycleDurationSpinner);        // rounded by RoundedInputs, like every spinner
         planningButton.setToolTipText("Política de planificación de CPU y quantum de Round Robin");
-        configButton.setToolTipText("Ciclo, quantum, disco, carga inicial de procesos de CPU y archivo CSV");
+        configButton.setToolTipText("Dirección y velocidad del cabezal por defecto, y archivo CSV de configuración");
         actions.add(planningButton);
         actions.add(configButton);
         actions.add(Box.createHorizontalStrut(4));
