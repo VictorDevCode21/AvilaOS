@@ -147,7 +147,7 @@ public class SimulationConfig {
     public void validate() {
         if (computers.size() != COMPUTER_COUNT) {
             throw new IllegalArgumentException("ÁvilaOS simula un solo computador y la configuración tiene "
-                    + computers.size());
+                    + computers.size() + " computadores");
         }
         LinkedList<ProcessConfig> all = processes.copy();
         while (!all.isEmpty()) {
