@@ -1,5 +1,6 @@
 package com.unimet.avilaos.os;
 
+import com.unimet.avilaos.datastructures.ElementComparator;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.hardware.Cpu;
@@ -62,6 +63,28 @@ import java.util.concurrent.Semaphore;
  *    para ejecutar el resto de sus instrucciones (o termina, si no le quedan).
  *  - Si muere esperando, su solicitud se cancela en la cola del disco y en el disco.
  *
+ * Planificador a mediano plazo y modelo de 7 estados (Proyecto 2). Corre al inicio de cada
+ * ciclo, antes de admitir Nuevos (mediumTerm):
+ *  1. Un Nuevo por el que ya se suspendieron procesos entra apenas cabe, aunque sus
+ *     víctimas todavía se estén escribiendo (si otro proceso terminó y liberó RAM antes,
+ *     no espera de balde); las víctimas en camino siguen y después se reactivan normalmente.
+ *  2. Reactivar: si hay RAM, el Listo/Suspendido de mayor prioridad (empate: el que lleva
+ *     más tiempo suspendido) pide volver; su RAM se reserva al pedirlo y una solicitud
+ *     RESUME pasa por la cola del disco. Al terminar, libera sus bloques del swap y pasa a
+ *     Listo. Se reactiva antes de admitir Nuevos porque ya estaban en el sistema.
+ *  3. Admitir Nuevos como en el P1, sin tocar la RAM prometida en el paso 1.
+ *  4. Suspender: si un Nuevo no cabe ni contando la RAM de las suspensiones que ya están en
+ *     camino, se eligen Bloqueados (por E/S) de menor prioridad y, si empatan, el que lleva
+ *     más tiempo bloqueado, hasta juntar la RAM que falta. Nunca el proceso cuya solicitud
+ *     está atendiendo el disco, ni uno cuya E/S ya terminó en este ciclo (su interrupción
+ *     está pendiente: la CPU la entrega al final del ciclo, después del mediano plazo). Si no alcanza (o no hay swap), no se suspende ninguno. Cada
+ *     uno reserva sus bloques del swap, pasa a Bloqueado/Suspendido y una solicitud SUSPEND
+ *     pasa por la cola del disco; su RAM se libera cuando el disco termina de escribirlo
+ *     (escribe y después libera, como dice el enunciado) y queda para ese Nuevo (así no la
+ *     toma otro y no hay thrashing). Un bloque del swap equivale a una unidad de RAM.
+ *  - Un Bloqueado/Suspendido cuyo evento ocurre pasa a Listo/Suspendido.
+ *  - Si un suspendido muere, se cancelan sus solicitudes y se liberan su swap y su RAM.
+ *
  * Hilos: todo lo de arriba corre en el hilo de su computador. Desde otros hilos solo
  * se llaman submit, deliverWakeup, requestPolicy, requestQuantum y las consultas,
  * que pasan por un mutex.
@@ -78,6 +101,31 @@ public class Kernel implements InterruptHandler {
 
     /** Origen de las líneas del log que escribe el disco. */
     private static final String DISK_SOURCE = "Disco";
+    /** Origen de las líneas del log del planificador a mediano plazo. */
+    private static final String MEDIUM_TERM_SOURCE = "Mediano plazo";
+
+    /** Un Nuevo por el que se suspendieron procesos: la RAM que liberen es para él. */
+    private static final class Reservation {
+        final Pcb newcomer;
+        int pendingVictims;             // suspensiones que todavía se están escribiendo
+
+        Reservation(Pcb newcomer, int pendingVictims) {
+            this.newcomer = newcomer;
+            this.pendingVictims = pendingVictims;
+        }
+    }
+
+    /** Menor prioridad primero (número más alto); empate: el que lleva más tiempo bloqueado. */
+    private static final ElementComparator<ProcessRuntime> VICTIM_ORDER = (a, b) -> {
+        int byPriority = Integer.compare(b.pcb.getPriority(), a.pcb.getPriority());
+        return byPriority != 0 ? byPriority : Long.compare(a.blockedCycle, b.blockedCycle);
+    };
+
+    /** Mayor prioridad primero (número más bajo); empate: el que lleva más tiempo suspendido. */
+    private static final ElementComparator<ProcessRuntime> RESUME_ORDER = (a, b) -> {
+        int byPriority = Integer.compare(a.pcb.getPriority(), b.pcb.getPriority());
+        return byPriority != 0 ? byPriority : Long.compare(a.suspendedCycle, b.suspendedCycle);
+    };
 
     private final int computerId;
     private final String source;
@@ -101,6 +149,11 @@ public class Kernel implements InterruptHandler {
     private final Semaphore mutex = new Semaphore(1, true);
     private final LinkedList<Pcb> blocked = new LinkedList<>();
     private final LinkedList<Pcb> terminated = new LinkedList<>();
+    private final LinkedList<Pcb> readySuspended = new LinkedList<>();
+    private final LinkedList<Pcb> blockedSuspended = new LinkedList<>();
+    private final LinkedList<Reservation> reservations = new LinkedList<>();   // solo el hilo del kernel
+    private volatile long suspensions;
+    private volatile long reactivations;
     private final LinkedList<Pcb> arrivals = new LinkedList<>();
     private final LinkedList<Wakeup> wakeups = new LinkedList<>();
     private PolicyType pendingPolicy;
@@ -225,7 +278,7 @@ public class Kernel implements InterruptHandler {
         applyRequests();
         acceptArrivals();
         deliverWakeups();
-        admitNewProcesses();
+        mediumTerm();
         preemptIfNeeded();
         planCpu();
         countReadyWaits();
@@ -322,8 +375,247 @@ public class Kernel implements InterruptHandler {
         }
     }
 
+    // =====================================================================
+    // Planificador a mediano plazo (ver el diseño arriba)
+    // =====================================================================
+
+    private void mediumTerm() {
+        dropFinishedReservations();
+        admitReservedNewcomers();
+        reactivateSuspended();
+        admitNewProcesses();
+        suspendForNewcomer();
+    }
+
+    /** RAM ya prometida a los Nuevos por los que se suspendieron procesos. */
+    private int reservedRam() {
+        int total = 0;
+        for (int i = 0; i < reservations.size(); i++) {
+            total += reservations.get(i).newcomer.getMemorySize();
+        }
+        return total;
+    }
+
+    /** RAM de los procesos que el disco está escribiendo en el swap (se liberará al terminar). */
+    private int ramOnTheWay() {
+        int total = 0;
+        LinkedList<ProcessRuntime> all = processes.copy();
+        while (!all.isEmpty()) {
+            ProcessRuntime rt = all.removeFirst();
+            if (rt.swappingOut) {
+                total += rt.pcb.getMemorySize();
+            }
+        }
+        return total;
+    }
+
+    private void dropFinishedReservations() {
+        LinkedList<Reservation> all = reservations.copy();
+        while (!all.isEmpty()) {
+            Reservation r = all.removeFirst();
+            if (r.newcomer.getState() != ProcessState.NEW) {
+                reservations.remove(r);                     // terminó por deadline esperando
+            }
+        }
+    }
+
+    /**
+     * Admite a cada Nuevo con reserva apenas cabe, sin esperar a que terminen de escribirse
+     * sus víctimas: si la RAM ya está (por ejemplo, otro proceso terminó), esperar sería
+     * dejarla ociosa. Respeta la RAM de las reservas que van antes que él.
+     */
+    private void admitReservedNewcomers() {
+        LinkedList<Reservation> all = reservations.copy();
+        int keepForEarlier = 0;
+        while (!all.isEmpty()) {
+            Reservation r = all.removeFirst();
+            if (!memory.admitOne(r.newcomer, keepForEarlier)) {
+                keepForEarlier += r.newcomer.getMemorySize();
+            } else {
+                reservations.remove(r);
+                r.newcomer.markReady();
+                scheduler.addReady(r.newcomer);
+                log.log(cycle, source, "admite el proceso " + r.newcomer + " con la RAM que liberaron las suspensiones ("
+                        + memory.getMemory().getFreeSize() + " MB libres)");
+            }
+        }
+    }
+
+    private void reactivateSuspended() {
+        LinkedList<ProcessRuntime> candidates = new LinkedList<>();
+        LinkedList<ProcessRuntime> all = processes.copy();
+        while (!all.isEmpty()) {
+            ProcessRuntime rt = all.removeFirst();
+            if (rt.pcb.getState() == ProcessState.READY_SUSPENDED && rt.swapBlock >= 0 && !rt.swappingOut
+                    && !rt.swappingIn) {
+                candidates.insertSorted(rt, RESUME_ORDER);
+            }
+        }
+        while (!candidates.isEmpty()) {
+            ProcessRuntime rt = candidates.removeFirst();
+            if (!memory.reserveForResume(rt.pcb, reservedRam())) {
+                continue;                                   // no cabe todavía; quizá uno más pequeño sí
+            }
+            int size = rt.pcb.getMemorySize();
+            rt.swappingIn = true;
+            storage.diskScheduler().enqueue(new DiskRequest(rt.pcb.getId(), IoOperation.RESUME, DiskRequest.SWAP_TARGET,
+                    rt.swapBlock, size, cycle));
+            log.log(cycle, MEDIUM_TERM_SOURCE, "Se reactiva al proceso " + rt.pcb + ": hay RAM y el disco lo trae del swap ("
+                    + size + " bloques desde el bloque " + rt.swapBlock + ")");
+        }
+    }
+
+    /**
+     * Si un Nuevo no cabe ni contando la RAM que viene en camino, suspende los Bloqueados
+     * necesarios (o ninguno si no alcanza). Atiende a un solo Nuevo por ciclo.
+     */
+    private void suspendForNewcomer() {
+        LinkedList<Pcb> waiting = memory.getNewProcesses();
+        while (!waiting.isEmpty()) {
+            Pcb newcomer = waiting.removeFirst();
+            if (newcomer.getState() != ProcessState.NEW || hasReservation(newcomer)) {
+                continue;
+            }
+            int future = memory.getMemory().getFreeSize() + ramOnTheWay() - reservedRam();
+            int missing = newcomer.getMemorySize() - future;
+            if (missing <= 0) {
+                continue;                                   // entra en cuanto se libere lo que viene
+            }
+            LinkedList<ProcessRuntime> victims = chooseVictims(missing);
+            if (victims != null) {
+                suspend(victims, newcomer);
+                return;
+            }
+        }
+    }
+
+    /** Los Bloqueados a suspender para juntar missing MB, o null si no alcanza (RAM o swap). */
+    private LinkedList<ProcessRuntime> chooseVictims(int missing) {
+        DiskRequest serving = storage.disk().getCurrentRequest();
+        int servingPid = serving == null ? -1 : serving.getProcessId();
+        LinkedList<ProcessRuntime> candidates = new LinkedList<>();
+        LinkedList<ProcessRuntime> all = processes.copy();
+        while (!all.isEmpty()) {
+            ProcessRuntime rt = all.removeFirst();
+            if (rt.pcb.getState() == ProcessState.BLOCKED && rt.pcb.getBlockReason() == BlockReason.IO
+                    && rt.pcb.getId() != servingPid && !rt.swappingIn && !rt.swappingOut && memory.isResident(rt.pcb)
+                    && !cpu.hasPendingInterruptFor(rt.pcb.getId())) {   // su E/S ya terminó: no espera nada
+                candidates.insertSorted(rt, VICTIM_ORDER);
+            }
+        }
+        int freeSwap = storage.disk().getBlockMap().getFreeSwapBlocks();
+        LinkedList<ProcessRuntime> chosen = new LinkedList<>();
+        int gathered = 0;
+        int swapUsed = 0;
+        while (!candidates.isEmpty() && gathered < missing) {
+            ProcessRuntime rt = candidates.removeFirst();
+            int size = rt.pcb.getMemorySize();
+            if (swapUsed + size <= freeSwap) {              // un bloque del swap por unidad de RAM
+                chosen.addLast(rt);
+                gathered += size;
+                swapUsed += size;
+            }
+        }
+        return gathered >= missing ? chosen : null;
+    }
+
+    private void suspend(LinkedList<ProcessRuntime> victims, Pcb newcomer) {
+        reservations.addLast(new Reservation(newcomer, victims.size()));
+        while (!victims.isEmpty()) {
+            ProcessRuntime rt = victims.removeFirst();
+            int size = rt.pcb.getMemorySize();
+            rt.swapBlock = storage.disk().getBlockMap().allocateSwap(size, rt.pcb.creatorLabel());
+            rt.swappingOut = true;
+            rt.suspendedCycle = cycle;
+            rt.suspendedFor = newcomer;
+            removeBlocked(rt.pcb);
+            rt.pcb.markSuspended();
+            mutex.acquireUninterruptibly();
+            try {
+                blockedSuspended.addLast(rt.pcb);
+            } finally {
+                mutex.release();
+            }
+            storage.diskScheduler().enqueue(new DiskRequest(rt.pcb.getId(), IoOperation.SUSPEND, DiskRequest.SWAP_TARGET,
+                    rt.swapBlock, size, cycle));
+            log.log(cycle, MEDIUM_TERM_SOURCE, "Se suspende al proceso " + rt.pcb + " para admitir a " + newcomer
+                    + ": el disco lo escribe en el swap (" + size + " bloques desde el bloque " + rt.swapBlock + ")");
+        }
+    }
+
+    private boolean hasReservation(Pcb pcb) {
+        for (int i = 0; i < reservations.size(); i++) {
+            if (reservations.get(i).newcomer == pcb) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Una suspensión hecha para newcomer terminó de escribirse (o se canceló). */
+    private void victimDone(Pcb newcomer) {
+        for (int i = 0; i < reservations.size(); i++) {
+            Reservation r = reservations.get(i);
+            if (r.newcomer == newcomer && r.pendingVictims > 0) {
+                r.pendingVictims--;
+                return;
+            }
+        }
+    }
+
+    /** El disco terminó de escribir (SUSPEND) o de traer (RESUME) a un proceso. */
+    private void swapCompleted(ProcessRuntime rt, DiskRequest done, String policy) {
+        log.log(cycle, DISK_SOURCE, "atiende la solicitud de " + (rt == null ? "P" + done.getProcessId() : rt.pcb)
+                + " en el bloque " + done.getTargetBlock() + " (" + policy + ")");
+        if (rt == null) {
+            return;                                          // ya terminó: terminate liberó todo
+        }
+        int size = rt.pcb.getMemorySize();
+        if (done.getOperation() == IoOperation.SUSPEND) {
+            rt.swappingOut = false;
+            memory.release(rt.pcb);
+            victimDone(rt.suspendedFor);
+            suspensions++;                                  // se cuenta al completarse, igual que las reactivaciones
+            log.log(cycle, MEDIUM_TERM_SOURCE, "El proceso " + rt.pcb + " ya está en el swap: se liberan " + size
+                    + " MB de RAM para " + rt.suspendedFor);
+            return;
+        }
+        rt.swappingIn = false;
+        storage.disk().getBlockMap().free(rt.swapBlock);
+        rt.swapBlock = -1;
+        removeSuspended(rt.pcb);
+        rt.pcb.markReady();
+        scheduler.addReady(rt.pcb);
+        reactivations++;
+        log.log(cycle, MEDIUM_TERM_SOURCE, "El proceso " + rt.pcb + " vuelve a la RAM (libera " + size
+                + " bloques del swap) y pasa a Listo");
+    }
+
+    /** Ocurrió el evento de un Bloqueado/Suspendido: sigue en el swap, pero ya está listo. */
+    private void eventWhileSuspended(ProcessRuntime rt, String why) {
+        mutex.acquireUninterruptibly();
+        try {
+            blockedSuspended.remove(rt.pcb);
+            readySuspended.addLast(rt.pcb);
+        } finally {
+            mutex.release();
+        }
+        rt.pcb.markReadySuspended();
+        log.log(cycle, source, "el proceso " + rt.pcb + " " + why + " estando suspendido y pasa a Listo/Suspendido");
+    }
+
+    private void removeSuspended(Pcb pcb) {
+        mutex.acquireUninterruptibly();
+        try {
+            readySuspended.remove(pcb);
+            blockedSuspended.remove(pcb);
+        } finally {
+            mutex.release();
+        }
+    }
+
     private void admitNewProcesses() {
-        LinkedList<Pcb> admitted = memory.admit();
+        LinkedList<Pcb> admitted = memory.admit(reservedRam());
         while (!admitted.isEmpty()) {
             Pcb pcb = admitted.removeFirst();
             pcb.markReady();
@@ -411,6 +703,11 @@ public class Kernel implements InterruptHandler {
             return;
         }
         ProcessRuntime rt = findById(interrupt.processId());
+        if (rt != null && rt.pcb.getState() == ProcessState.BLOCKED_SUSPENDED
+                && rt.pcb.getBlockReason() == BlockReason.IO) {
+            eventWhileSuspended(rt, "termina su E/S");
+            return;
+        }
         if (rt == null || rt.pcb.getState() != ProcessState.BLOCKED || rt.pcb.getBlockReason() != BlockReason.IO) {
             log.log(cycle, source, "ignora el fin de E/S de P" + interrupt.processId() + " (ya no la espera)");
             return;
@@ -433,8 +730,13 @@ public class Kernel implements InterruptHandler {
         String policy = plan.getChosenBy() != null ? plan.getChosenBy()
                 : storage.diskScheduler().getPolicyType().getLabel();
         ProcessRuntime rt = findById(done.getProcessId());
-        if (rt == null || !rt.pcb.getType().isFileIo() || rt.pcb.getState() != ProcessState.BLOCKED
-                || rt.pcb.getBlockReason() != BlockReason.IO) {
+        if (!done.getOperation().isFileOperation()) {
+            swapCompleted(rt, done, policy);                // SUSPEND o RESUME
+            return;
+        }
+        boolean waiting = rt != null && (rt.pcb.getState() == ProcessState.BLOCKED
+                || rt.pcb.getState() == ProcessState.BLOCKED_SUSPENDED);
+        if (!waiting || !rt.pcb.getType().isFileIo() || rt.pcb.getBlockReason() != BlockReason.IO) {
             log.log(cycle, DISK_SOURCE, "termina la solicitud de P" + done.getProcessId()
                     + ", pero el proceso ya no la espera");
             return;
@@ -451,6 +753,8 @@ public class Kernel implements InterruptHandler {
         log.log(cycle, source, "el proceso " + rt.pcb + ": " + result.getMessage());
         if (rt.pcb.isFinished()) {
             terminate(rt, false, null);                     // su única instrucción era la operación
+        } else if (rt.pcb.getState() == ProcessState.BLOCKED_SUSPENDED) {
+            eventWhileSuspended(rt, "termina su E/S de disco");
         } else {
             makeReady(rt, "termina su E/S de disco");
         }
@@ -673,9 +977,17 @@ public class Kernel implements InterruptHandler {
      */
     private void terminate(ProcessRuntime rt, boolean deadlineExpired, String failure) {
         Pcb pcb = rt.pcb;
-        boolean admitted = pcb.getState() != ProcessState.NEW;
         int removedFromQueue = 0;
         boolean aborted = false;
+        // Solicitudes al disco que hay que cancelar: su operación de archivo o su ida/vuelta al swap
+        boolean waitsForFile = pcb.getType().isFileIo() && pcb.getBlockReason() == BlockReason.IO
+                && (pcb.getState() == ProcessState.BLOCKED || pcb.getState() == ProcessState.BLOCKED_SUSPENDED);
+        if (waitsForFile || rt.swappingOut || rt.swappingIn) {
+            // Se cancela en los dos sin mirar lo que devuelven: si el disco estaba
+            // pidiendo la siguiente, Disk.cancel da false pero igual la descarta.
+            removedFromQueue = storage.diskScheduler().cancel(pcb.getId());
+            aborted = storage.disk().cancel(pcb.getId());
+        }
         switch (pcb.getState()) {
             case NEW -> memory.removeFromNew(pcb);
             case READY -> scheduler.remove(pcb);
@@ -688,12 +1000,7 @@ public class Kernel implements InterruptHandler {
                 removeBlocked(pcb);
                 switch (pcb.getBlockReason()) {
                     case IO -> {
-                        if (pcb.getType().isFileIo()) {
-                            // Se cancela en los dos sin mirar lo que devuelven: si el disco estaba
-                            // pidiendo la siguiente, Disk.cancel da false pero igual la descarta.
-                            removedFromQueue = storage.diskScheduler().cancel(pcb.getId());
-                            aborted = storage.disk().cancel(pcb.getId());
-                        } else {
+                        if (!pcb.getType().isFileIo()) {
                             io.cancel(pcb.getId());
                         }
                     }
@@ -705,10 +1012,27 @@ public class Kernel implements InterruptHandler {
                     }
                 }
             }
+            case READY_SUSPENDED, BLOCKED_SUSPENDED -> {
+                removeSuspended(pcb);
+                if (pcb.getState() == ProcessState.BLOCKED_SUSPENDED && pcb.getBlockReason() == BlockReason.IO
+                        && !pcb.getType().isFileIo()) {
+                    io.cancel(pcb.getId());
+                }
+            }
             case TERMINATED -> {
                 return;
             }
         }
+        int freedSwap = 0;
+        if (rt.swapBlock >= 0) {
+            freedSwap = storage.disk().getBlockMap().free(rt.swapBlock);
+            rt.swapBlock = -1;
+        }
+        if (rt.swappingOut) {
+            victimDone(rt.suspendedFor);                    // su RAM se libera aquí mismo
+        }
+        rt.swappingOut = false;
+        rt.swappingIn = false;
         if (pcb.getType().usesBuffer()) {
             releaseBufferHoldings(rt);
         }
@@ -717,8 +1041,8 @@ public class Kernel implements InterruptHandler {
         } else {
             pcb.markTerminated(cycle, deadlineExpired);
         }
-        if (admitted) {
-            memory.release(pcb);
+        if (memory.isResident(pcb)) {
+            memory.release(pcb);                            // un suspendido ya en el swap no tiene RAM
         }
         processes.remove(rt);
         mutex.acquireUninterruptibly();
@@ -736,6 +1060,9 @@ public class Kernel implements InterruptHandler {
             log.log(cycle, DISK_SOURCE, "aborta la solicitud de " + pcb + " que estaba atendiendo (" + cause + ")");
         } else if (removedFromQueue > 0) {
             log.log(cycle, DISK_SOURCE, "saca de su cola la solicitud de " + pcb + " (" + cause + ")");
+        }
+        if (freedSwap > 0) {
+            log.log(cycle, MEDIUM_TERM_SOURCE, "se liberan los " + freedSwap + " bloques del swap de " + pcb);
         }
     }
 
@@ -783,6 +1110,7 @@ public class Kernel implements InterruptHandler {
 
     /** Saca al proceso de la CPU y lo deja Bloqueado con su motivo. */
     private void block(ProcessRuntime rt, BlockReason reason, String detail) {
+        rt.blockedCycle = cycle;
         rt.pcb.setProgramCounter(cpu.saveContext());
         cpu.unload();
         rt.pcb.markBlocked(reason, detail);
@@ -903,6 +1231,40 @@ public class Kernel implements InterruptHandler {
         } finally {
             mutex.release();
         }
+    }
+
+    /** Cola Listo/Suspendido: en el swap, ya listos, esperan RAM para volver. */
+    public LinkedList<Pcb> getReadySuspendedSnapshot() {
+        mutex.acquireUninterruptibly();
+        try {
+            return readySuspended.copy();
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /** Cola Bloqueado/Suspendido: en el swap y todavía esperando su evento. */
+    public LinkedList<Pcb> getBlockedSuspendedSnapshot() {
+        mutex.acquireUninterruptibly();
+        try {
+            return blockedSuspended.copy();
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /**
+     * Suspensiones completadas: procesos que el disco terminó de escribir en el swap
+     * (métrica del enunciado). Se cuentan al completarse, igual que las reactivaciones:
+     * una suspensión cancelada porque la víctima murió antes no cuenta.
+     */
+    public long getSuspensions() {
+        return suspensions;
+    }
+
+    /** Reactivaciones terminadas (el proceso volvió a la RAM). */
+    public long getReactivations() {
+        return reactivations;
     }
 
     public LinkedList<Pcb> getTerminatedSnapshot() {
