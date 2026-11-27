@@ -24,4 +24,4 @@ public enum InterruptType {
     public String getLabel() {
         return label;
     }
-}
+}
