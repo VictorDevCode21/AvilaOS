@@ -7,8 +7,9 @@ import com.unimet.avilaos.hardware.SeekPlan;
 
 /**
  * C-SCAN (SCAN circular): atiende solo en una dirección. Cuando no queda nada
- * por delante, el cabezal llega al ÚLTIMO bloque, salta al extremo contrario
- * (el bloque 0 si va hacia arriba) y sigue atendiendo en la misma dirección.
+ * por delante, el cabezal llega al extremo (el último bloque de la zona de
+ * archivos, el 199 con el JSON del enunciado), salta al extremo contrario (el
+ * bloque 0 si va hacia arriba) y sigue atendiendo en la misma dirección.
  * El salto no cuenta como desplazamiento (anexo: 192 bloques "sin contar el
  * salto de regreso").
  *
@@ -26,14 +27,17 @@ public final class CScanDiskPolicy implements DiskSchedulingPolicy {
 
     @Override
     public SeekPlan select(LinkedList<DiskRequest> pending, int headBlock, HeadDirection direction,
-            int diskSize) {
+            int fileBlocks) {
         DiskRequest ahead = DiskPolicySupport.nearestAhead(pending, headBlock, direction);
         if (ahead != null) {
             return new SeekPlan(ahead, headBlock, SeekPlan.NONE, SeekPlan.NONE, direction);
         }
         DiskRequest first = DiskPolicySupport.firstFromStart(pending, direction);
-        int edge = DiskPolicySupport.edge(direction, diskSize);
-        int start = DiskPolicySupport.edge(direction.opposite(), diskSize);
+        int edge = DiskPolicySupport.edge(direction, fileBlocks, headBlock);
+        // Al saltar se empieza desde el extremo contrario: el 0 si sube; si baja,
+        // el último bloque de la zona de archivos o la solicitud más alta del swap.
+        int start = direction == HeadDirection.UP ? 0
+                : Math.max(fileBlocks - 1, first.getTargetBlock());
         int sweep = headBlock == edge ? SeekPlan.NONE : edge;    // ya está en el extremo
         return new SeekPlan(first, headBlock, sweep, start, direction);
     }
