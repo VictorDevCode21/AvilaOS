@@ -110,6 +110,10 @@ public final class FileSystemJson {
      * Sirve para reiniciar la simulación con procesos nuevos conservando el disco
      * modificado (el enunciado lo pide): se toma antes de armar la simulación nueva.
      *
+     * El cabezal puede estar en el swap (200–299 en el ejemplo) justo después de una
+     * suspensión o reactivación; como en write, se toma el último bloque de archivos, así
+     * que reiniciar en ese momento también funciona.
+     *
      * @param head posición actual del cabezal (será la inicial de la nueva)
      */
     public static Image snapshot(FileSystem fs, int head) {

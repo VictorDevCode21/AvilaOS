@@ -32,7 +32,8 @@ import java.nio.file.Path;
  * {@code start(FileSystemJson.snapshot(fsViejo, cabezal), nuevosProcesos)}.
  *
  * crossCheck avisa (sin impedir la carga) de lo que hará fallar a un proceso: una
- * ruta que no existe, un archivo que se crea donde ya hay otro, etc. El proceso
+ * ruta que no existe, un archivo que se crea donde ya hay otro, un proceso más grande
+ * que el swap (nunca se podrá suspender), etc. El proceso
  * igual se crea y, al pedir su operación, termina con el motivo en el log. También
  * avisa de nombres repetidos (el enunciado no exige nombres únicos: en la tabla de
  * archivos se distinguen por el PID, "P5 (Proc_95)") y de una lista sin procesos
@@ -73,16 +74,27 @@ public final class SimulationLoader {
     }
 
     /**
-     * Arma la simulación con los dos JSON ya leídos (ver los pasos en la clase).
+     * Arma la simulación con los dos JSON ya leídos (ver los pasos en la clase). Si algo
+     * falla después de crear el clúster (el sistema de archivos no carga o un proceso no se
+     * puede crear), se apaga ese clúster antes de lanzar el error.
      *
      * @throws IllegalArgumentException si la configuración no es válida o el sistema de archivos no carga
      */
     public static Loaded start(FileSystemJson.Image fileSystem, ProcessesJson.Image processes) {
         SimulationConfig config = buildConfig(fileSystem, processes);
         Cluster cluster = Cluster.create(config);
-        Computer computer = cluster.getComputer(1);
-        FileSystemJson.load(fileSystem, computer.getFileSystem());
-        String warnings = crossCheck(fileSystem, processes);
+        try {
+            FileSystemJson.load(fileSystem, cluster.getComputer(1).getFileSystem());
+            String warnings = crossCheck(fileSystem, processes);
+            createProcesses(cluster, processes);
+            return new Loaded(cluster, config, warnings);
+        } catch (RuntimeException e) {
+            cluster.shutdown();          // falle lo que falle, no queda un clúster a medias
+            throw e;
+        }
+    }
+
+    private static void createProcesses(Cluster cluster, ProcessesJson.Image processes) {
         UserSession admin = cluster.adminSession();
         LinkedList<ProcessesJson.ProcessSpec> all = processes.processes().copy();
         while (!all.isEmpty()) {
@@ -91,11 +103,9 @@ public final class SimulationLoader {
                 cluster.createIoProcess(p.name(), p.priority(), p.memory(), p.instructions(), p.deadline(),
                         p.toOperation(), admin);
             } catch (IllegalArgumentException e) {
-                cluster.shutdown();
                 throw new IllegalArgumentException("Proceso " + p.number() + " (" + p.name() + "): " + e.getMessage(), e);
             }
         }
-        return new Loaded(cluster, config, warnings);
     }
 
     /** Lee los dos archivos y arma la simulación. */
@@ -106,7 +116,8 @@ public final class SimulationLoader {
     /**
      * Revisa los dos JSON juntos, sin cargarlos: lo que hará fallar a un proceso cuando
      * pida su operación (se revisa contra el disco del JSON, sin las operaciones de los
-     * procesos anteriores). No impide la carga.
+     * procesos anteriores) y un proceso que pide más memoria que bloques tiene el swap
+     * (nunca se podrá suspender). No impide la carga.
      *
      * @return un aviso por línea, o null si todo cuadra
      */
@@ -119,6 +130,7 @@ public final class SimulationLoader {
         if (processes.processes().isEmpty()) {
             sb.append("No hay procesos: el disco y la RAM quedan vacíos hasta que se cree uno.");
         }
+        int swap = processes.settings().swapBlocks();
         LinkedList<ProcessesJson.ProcessSpec> all = processes.processes().copy();
         LinkedList<String> seen = new LinkedList<>();
         while (!all.isEmpty()) {
@@ -126,6 +138,10 @@ public final class SimulationLoader {
             String problem = problemOf(p, trial);
             if (problem != null) {
                 warn(sb, p, problem);
+            }
+            if (p.memory() > swap) {                  // un bloque del swap por unidad de RAM
+                warn(sb, p, "pide " + p.memory() + " de memoria y el swap tiene " + swap
+                        + " bloques: nunca se podrá suspender");
             }
             if (containsText(seen, p.name())) {
                 warn(sb, p, "el nombre se repite; en la tabla de archivos se distinguen por su PID, como \"P<PID> ("
