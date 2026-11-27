@@ -529,6 +529,21 @@ public final class MainWindow extends JFrame {
         setBadge(VIEW_COMPUTERS, live == 0 ? "" : String.valueOf(live));
     }
 
+    /**
+     * Antes de cargar los dos JSON: los indicadores y la tarjeta de cada computador dicen que falta
+     * cargar la simulación, en vez de mostrar la configuración por defecto como si fuera la real.
+     */
+    public void showNotLoaded() {
+        cpuKpi.show("—", "Falta cargar la simulación");
+        memoryKpi.show("—", "La RAM sale del JSON de procesos");
+        processKpi.show("—", "Los procesos salen del JSON de procesos");
+        performanceKpi.show("—", "Aún no hay simulación");
+        setBadge(VIEW_COMPUTERS, "");
+        for (ComputerPanel panel : computerPanels) {
+            panel.showNotLoaded();
+        }
+    }
+
     /** "1 bloqueado", "3 bloqueados". */
     private static String count(int n, String singular) {
         return n + " " + singular + (n == 1 ? "" : "s");
