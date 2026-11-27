@@ -13,6 +13,7 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.RenderingHints;
+import java.awt.event.ActionListener;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.Icon;
@@ -83,6 +84,8 @@ public final class FileSystemPanel extends WidthTrackingPanel {
     private final UiKit.Button renameButton = new UiKit.Button("Renombrar", UiKit.Kind.SECONDARY);
     private final UiKit.Button deleteButton = new UiKit.Button("Eliminar", UiKit.Kind.SECONDARY);
     private final UiKit.Button createButton = new UiKit.Button("+ Archivo aquí", UiKit.Kind.SECONDARY);
+    /** Guarda el sistema de archivos en un JSON con el formato del enunciado (lo conecta el controlador). */
+    private final UiKit.Button saveButton = new UiKit.Button("Guardar JSON…", UiKit.Kind.SECONDARY);
     private final UiKit.Card messageCard = new UiKit.Card(new BorderLayout());
     private final JTextArea messageText = new JTextArea();
 
@@ -213,7 +216,11 @@ public final class FileSystemPanel extends WidthTrackingPanel {
         card.setBorder(Theme.padding(16, 18, 16, 18));
         JPanel head = Theme.transparent(new JPanel(new BorderLayout()));
         head.add(Theme.label("Tabla de asignación de archivos", Theme.SECTION, Theme.TEXT), BorderLayout.WEST);
-        head.add(Theme.label("se actualiza con cada operación", Theme.SMALL, Theme.MUTED), BorderLayout.EAST);
+        JPanel right = Theme.transparent(new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0)));
+        right.add(Theme.label("se actualiza con cada operación", Theme.SMALL, Theme.MUTED));
+        saveButton.setToolTipText("Guarda el estado actual del sistema de archivos (formato del JSON del enunciado)");
+        right.add(saveButton);
+        head.add(right, BorderLayout.EAST);
         card.add(head, BorderLayout.NORTH);
 
         JTable table = new JTable(allocationModel);
@@ -283,6 +290,17 @@ public final class FileSystemPanel extends WidthTrackingPanel {
             throw new IllegalArgumentException("El listener no puede ser null");
         }
         this.listener = listener;
+    }
+
+    /** Qué hacer al pulsar "Guardar JSON…" (reemplaza la acción anterior). */
+    public void setSaveAction(ActionListener action) {
+        if (action == null) {
+            throw new IllegalArgumentException("La acción de guardar no puede ser null");
+        }
+        for (ActionListener old : saveButton.getActionListeners()) {
+            saveButton.removeActionListener(old);
+        }
+        saveButton.addActionListener(action);
     }
 
     /** Shows the active mode next to the tree title (e.g. "Usuario: user2"). */
