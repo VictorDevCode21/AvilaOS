@@ -24,6 +24,11 @@ import java.util.concurrent.Semaphore;
  *       en que se atendería con {@link #previewServiceOrder} (copias).</li>
  * </ul>
  *
+ * Retener la primera decisión: el kernel puede pedir con {@link #holdFirstDecision} que el
+ * disco no elija nada todavía (next() devuelve null aunque haya solicitudes) y soltarlo con
+ * {@link #releaseFirstDecision}. Las solicitudes se siguen encolando. Lo usa la regla "cola
+ * inicial completa": la primera decisión ve juntas las solicitudes de la carga inicial.
+ *
  * Cambio de política en caliente: la nueva política se usa desde la siguiente
  * llamada a next(). La solicitud que el disco ya está atendiendo no se
  * interrumpe, y como las políticas no guardan estado no queda nada a medias.
@@ -46,6 +51,7 @@ public class DiskScheduler implements SeekPlanSource {
     private final Semaphore mutex = new Semaphore(1, true);
 
     private DiskSchedulingPolicy policy;
+    private boolean holding;            // true: next() no elige nada hasta releaseFirstDecision()
 
     /**
      * Disco sin área de intercambio (todos los bloques son de archivos).
@@ -145,7 +151,7 @@ public class DiskScheduler implements SeekPlanSource {
      *
      * @param headBlock bloque donde está el cabezal
      * @param direction dirección actual del cabezal
-     * @return el recorrido, o null si la cola está vacía
+     * @return el recorrido, o null si la cola está vacía o la decisión está retenida
      * @throws IllegalArgumentException si el cabezal está fuera del disco o la dirección es null
      * @throws IllegalStateException    si la política devuelve un recorrido inválido
      */
@@ -162,7 +168,7 @@ public class DiskScheduler implements SeekPlanSource {
             DiskSchedulingPolicy current;
             mutex.acquireUninterruptibly();
             try {
-                if (queue.isEmpty()) {
+                if (holding || queue.isEmpty()) {
                     return null;
                 }
                 snapshot = queue.copy();
@@ -183,6 +189,31 @@ public class DiskScheduler implements SeekPlanSource {
             } finally {
                 mutex.release();
             }
+        }
+    }
+
+    // ---------- Lo usa el kernel: retener la primera decisión ----------
+
+    /**
+     * Retiene las decisiones: mientras tanto next() devuelve null y las solicitudes esperan en
+     * la cola. Lo pide el kernel antes de iniciar el reloj para la carga inicial.
+     */
+    public void holdFirstDecision() {
+        mutex.acquireUninterruptibly();
+        try {
+            holding = true;
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /** Suelta la retención: el disco decide desde su próximo ciclo. No hace nada si no estaba retenido. */
+    public void releaseFirstDecision() {
+        mutex.acquireUninterruptibly();
+        try {
+            holding = false;
+        } finally {
+            mutex.release();
         }
     }
 
