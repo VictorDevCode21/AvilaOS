@@ -109,8 +109,8 @@ public class FileSystem {
     /**
      * Agrega un directorio cargado del JSON. Su directorio padre ya debe existir.
      *
-     * @throws IllegalArgumentException si la ruta no es válida, el padre no existe o es un archivo,
-     *                                  o ya existe
+     * @throws IllegalArgumentException si la ruta no es válida o es la raíz, el padre no existe o es
+     *                                  un archivo, ya existe, o falta el dueño o el permiso
      */
     public void loadDirectory(String path, String owner, Permission permission) {
         loadDirectory(path, owner, permission, LOADED_BY);
@@ -141,8 +141,9 @@ public class FileSystem {
     /**
      * Agrega un archivo cargado del JSON en los bloques consecutivos desde startBlock.
      *
-     * @throws IllegalArgumentException si la ruta no es válida, el padre no existe o es un archivo,
-     *                                  ya existe, o los bloques están ocupados o fuera del disco
+     * @throws IllegalArgumentException si la ruta no es válida o es la raíz, el padre no existe o es
+     *                                  un archivo, ya existe, falta el dueño o el permiso, blockCount es
+     *                                  menor que 1, o los bloques están ocupados o fuera del disco
      */
     public void loadFile(String path, int startBlock, int blockCount, String owner, Permission permission) {
         String p = FsPaths.check(path);
@@ -167,9 +168,10 @@ public class FileSystem {
      *
      * @param chain   bloques del archivo en orden
      * @param creator proceso que lo creó, o LOADED_BY
-     * @throws IllegalArgumentException si la ruta no es válida, el padre no existe o es un archivo,
-     *                                  ya existe, la cadena está vacía, falta el dueño, el permiso o
-     *                                  el creador, o algún bloque está ocupado, repetido o fuera del disco
+     * @throws IllegalArgumentException si la ruta no es válida o es la raíz, el padre no existe o es
+     *                                  un archivo, ya existe, la cadena está vacía, falta el dueño, el
+     *                                  permiso o el creador, o algún bloque está ocupado, repetido o
+     *                                  fuera del disco
      */
     public void loadFile(String path, int[] chain, String owner, Permission permission, String creator) {
         String p = FsPaths.check(path);
