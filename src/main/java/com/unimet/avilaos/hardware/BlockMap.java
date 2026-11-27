@@ -165,6 +165,51 @@ public class BlockMap {
     }
 
     /**
+     * Asigna exactamente los bloques indicados, encadenados en ese orden. Es para
+     * volver a cargar un sistema de archivos guardado: un archivo creado durante la
+     * simulación puede tener su cadena salteada (por ejemplo 62, 63, 119, 120).
+     *
+     * @param chain bloques del archivo en orden (el primero es el inicio de la cadena)
+     * @return el primer bloque
+     * @throws IllegalArgumentException si algún bloque se sale de la zona de archivos,
+     *                                  está repetido o ya está ocupado (no se asigna nada)
+     */
+    public int allocateFileChain(int[] chain, String owner) {
+        if (chain == null) {
+            throw new IllegalArgumentException("Falta la cadena de bloques");
+        }
+        checkRequest(chain.length, owner);
+        for (int i = 0; i < chain.length; i++) {
+            if (chain[i] < 0 || chain[i] >= fileBlocks) {
+                throw new IllegalArgumentException("El bloque " + chain[i] + " se sale de la zona de archivos (bloques 0 a "
+                        + (fileBlocks - 1) + ")");
+            }
+            for (int j = 0; j < i; j++) {
+                if (chain[j] == chain[i]) {
+                    throw new IllegalArgumentException("El bloque " + chain[i] + " está repetido en la cadena");
+                }
+            }
+        }
+        mutex.acquireUninterruptibly();
+        try {
+            for (int b : chain) {
+                if (owners[b] != null) {
+                    throw new IllegalArgumentException("El bloque " + b + " ya está ocupado por " + owners[b]);
+                }
+            }
+            for (int i = 0; i < chain.length; i++) {
+                owners[chain[i]] = owner;
+                next[chain[i]] = i + 1 < chain.length ? chain[i + 1] : END;
+            }
+            chainStart[chain[0]] = true;
+            freeFileBlocks -= chain.length;
+            return chain[0];
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /**
      * Libera toda la cadena que empieza en first.
      *
      * @return cuántos bloques se liberaron

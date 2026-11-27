@@ -94,7 +94,7 @@ public class FileSystem {
             String done = switch (op.getOperation()) {
                 case CREATE -> doCreate(session, op);
                 case READ -> doRead(op);
-                case UPDATE -> doRename(op);
+                case UPDATE -> op.isRename() ? doRename(op) : doUpdate(op);
                 case DELETE -> doDelete(op);
                 default -> throw new IllegalStateException("Operación no soportada: " + op.getOperation());
             };
@@ -112,7 +112,16 @@ public class FileSystem {
      * @throws IllegalArgumentException si la ruta no es válida, el padre no existe o ya existe
      */
     public void loadDirectory(String path, String owner, Permission permission) {
+        loadDirectory(path, owner, permission, LOADED_BY);
+    }
+
+    /**
+     * Como loadDirectory, con el proceso que lo creó (al volver a cargar un sistema
+     * de archivos guardado, para que la tabla no lo pierda).
+     */
+    public void loadDirectory(String path, String owner, Permission permission, String creator) {
         String p = FsPaths.check(path);
+        String by = requireCreator(creator);
         requireOwnerAndPermission(owner, permission);
         if (p.equals(FsPaths.ROOT)) {
             throw new IllegalArgumentException("La raíz \"/\" ya existe: no se carga como directorio");
@@ -120,7 +129,7 @@ public class FileSystem {
         mutex.acquireUninterruptibly();
         try {
             FsNode parent = parentForLoad(p);
-            parent.addChild(FsNode.directory(FsPaths.nameOf(p), owner.trim(), permission, LOADED_BY));
+            parent.addChild(FsNode.directory(FsPaths.nameOf(p), owner.trim(), permission, by));
         } finally {
             mutex.release();
         }
@@ -144,6 +153,35 @@ public class FileSystem {
             blocks.allocateFileAt(startBlock, blockCount, p);
             parent.addChild(FsNode.file(FsPaths.nameOf(p), owner.trim(), permission, LOADED_BY, startBlock,
                     blockCount));
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /**
+     * Agrega un archivo de un sistema de archivos guardado, en exactamente esos
+     * bloques y en ese orden (su cadena puede estar salteada).
+     *
+     * @param chain   bloques del archivo en orden
+     * @param creator proceso que lo creó, o LOADED_BY
+     * @throws IllegalArgumentException si la ruta no es válida, el padre no existe,
+     *                                  ya existe, o algún bloque está ocupado, repetido o fuera del disco
+     */
+    public void loadFile(String path, int[] chain, String owner, Permission permission, String creator) {
+        String p = FsPaths.check(path);
+        requireOwnerAndPermission(owner, permission);
+        String by = requireCreator(creator);
+        if (p.equals(FsPaths.ROOT)) {
+            throw new IllegalArgumentException("La raíz \"/\" es un directorio, no un archivo");
+        }
+        if (chain == null || chain.length == 0) {
+            throw new IllegalArgumentException("El archivo " + p + " necesita al menos 1 bloque");
+        }
+        mutex.acquireUninterruptibly();
+        try {
+            FsNode parent = parentForLoad(p);
+            blocks.allocateFileChain(chain, p);
+            parent.addChild(FsNode.file(FsPaths.nameOf(p), owner.trim(), permission, by, chain[0], chain.length));
         } finally {
             mutex.release();
         }
@@ -214,7 +252,7 @@ public class FileSystem {
         return switch (op.getOperation()) {
             case CREATE -> evaluateCreate(session, op);
             case READ -> evaluateRead(session, op);
-            case UPDATE -> evaluateRename(session, op);
+            case UPDATE -> op.isRename() ? evaluateRename(session, op) : evaluateUpdate(session, op);
             case DELETE -> evaluateDelete(session, op);
             default -> throw new IllegalArgumentException(op.getOperation().getLabel()
                     + " no es una operación del sistema de archivos");
@@ -283,6 +321,20 @@ public class FileSystem {
         return FsResult.allowed("Se puede " + op + ".", node.directory ? DIRECTORY_BLOCK : node.firstBlock, 1);
     }
 
+    /** Actualizar en su lugar: el disco reescribe todos los bloques del archivo. */
+    private FsResult evaluateUpdate(UserSession session, FsOperation op) {
+        FsNode node = resolve(op.getPath());
+        if (node == null) {
+            return FsResult.denied("No existe " + op.getPath() + ".");
+        }
+        if (node.directory) {
+            return FsResult.denied(op.getPath() + " es un directorio: para actualizarlo hay que darle un nombre nuevo.");
+        }
+        String reason = AccessRules.canWrite(session, node);
+        return reason != null ? FsResult.denied(reason)
+                : FsResult.allowed("Se puede " + op + ".", node.firstBlock, node.blockCount);
+    }
+
     private FsResult evaluateDelete(UserSession session, FsOperation op) {
         FsNode node = resolve(op.getPath());
         if (node == null) {
@@ -328,6 +380,11 @@ public class FileSystem {
         node.name = op.getNewName();
         relabelBlocks(node);
         return "Se renombró " + before + " como " + node.path() + ".";
+    }
+
+    private String doUpdate(FsOperation op) {
+        FsNode node = resolve(op.getPath());
+        return "Se actualizó " + op.getPath() + " (" + node.blockCount + (node.blockCount == 1 ? " bloque)." : " bloques).");
     }
 
     private String doDelete(FsOperation op) {
@@ -389,8 +446,7 @@ public class FileSystem {
         String parentPath = FsPaths.parentOf(path);
         FsNode parent = resolve(parentPath);
         if (parent == null || !parent.directory) {
-            throw new IllegalArgumentException("El directorio " + parentPath + " no existe (debe ir antes que "
-                    + path + " en el JSON)");
+            throw new IllegalArgumentException("El directorio " + parentPath + " de " + path + " no existe");
         }
         if (parent.child(FsPaths.nameOf(path)) != null) {
             throw new IllegalArgumentException(path + " está repetido");
@@ -441,6 +497,13 @@ public class FileSystem {
         if (op == null) {
             throw new IllegalArgumentException("La operación no puede ser null");
         }
+    }
+
+    private static String requireCreator(String creator) {
+        if (creator == null || creator.isBlank()) {
+            throw new IllegalArgumentException("Falta el proceso que lo creó");
+        }
+        return creator.trim();
     }
 
     private static void requireOwnerAndPermission(String owner, Permission permission) {
