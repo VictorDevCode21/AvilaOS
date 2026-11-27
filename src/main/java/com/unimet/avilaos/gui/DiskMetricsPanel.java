@@ -55,7 +55,7 @@ public final class DiskMetricsPanel extends JPanel {
         JPanel chartHead = Theme.transparent(new JPanel(new BorderLayout()));
         chartHead.add(Theme.label("Desplazamiento acumulado del cabezal", Theme.SECTION, Theme.TEXT),
                 BorderLayout.WEST);
-        chartHead.add(Theme.label("color = política activa · más plano = menos movimiento", Theme.SMALL,
+        chartHead.add(Theme.label("color = política que eligió cada solicitud · más plano = menos movimiento", Theme.SMALL,
                 Theme.MUTED), BorderLayout.EAST);
         chartCard.add(chartHead, BorderLayout.NORTH);
         chartCard.add(chart, BorderLayout.CENTER);
