@@ -3,9 +3,12 @@ package com.unimet.avilaos.gui;
 import com.unimet.avilaos.config.BufferConfig;
 import com.unimet.avilaos.config.ComputerConfig;
 import com.unimet.avilaos.config.ConfigRepository;
+import com.unimet.avilaos.config.DiskConfig;
 import com.unimet.avilaos.config.ProcessConfig;
 import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.datastructures.LinkedList;
+import com.unimet.avilaos.hardware.HeadDirection;
+import com.unimet.avilaos.os.disk.DiskPolicyType;
 import com.unimet.avilaos.os.scheduling.PolicyType;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
@@ -37,7 +40,8 @@ import javax.swing.filechooser.FileNameExtensionFilter;
  * Vista de configuración: arma una SimulationConfig NUEVA a partir de la actual.
  *
  * Permite cambiar la duración del ciclo, el quantum, la latencia de red, los computadores
- * (cuántos, su RAM y su política inicial) y la carga inicial (agregar y quitar buffers y
+ * (cuántos, su RAM y su política inicial), el disco (bloques, swap, política inicial, cabezal,
+ * dirección y velocidad) y la carga inicial (agregar y quitar buffers y
  * procesos con los mismos formularios de la ventana principal). También guarda la
  * configuración en avilaos-config.csv y carga otra desde un archivo CSV.
  *
@@ -55,6 +59,14 @@ public final class ConfigDialog extends JDialog {
     private final JTextField cycleField = new JTextField(8);
     private final JTextField quantumField = new JTextField(8);
     private final JTextField latencyField = new JTextField(8);
+
+    // Disco (Proyecto 2): DiskConfig
+    private final JTextField fileBlocksField = new JTextField(8);
+    private final JTextField swapField = new JTextField(8);
+    private final JComboBox<String> diskPolicyCombo = new JComboBox<>(DiskPolicyType.labels());
+    private final JTextField headField = new JTextField(8);
+    private final JComboBox<String> directionCombo = new JComboBox<>(directionLabels());
+    private final JTextField positionsField = new JTextField(8);
 
     /** Una fila por computador: su RAM y su política inicial. */
     private transient ComputerRow[] computerRows = new ComputerRow[0];
@@ -87,7 +99,8 @@ public final class ConfigDialog extends JDialog {
     private ConfigDialog(Frame owner, SimulationConfig current) {
         super(owner, "Configuración", true);
         this.owner = owner;
-        FormValidator.clearErrorOnEdit(cycleField, quantumField, latencyField);
+        FormValidator.clearErrorOnEdit(cycleField, quantumField, latencyField, fileBlocksField, swapField, headField,
+                positionsField);
         bufferList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         processList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
@@ -95,6 +108,7 @@ public final class ConfigDialog extends JDialog {
         center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
         center.add(buildGeneralFields());
         center.add(buildComputersArea());
+        center.add(buildDiskFields());
         center.add(buildLoadArea());
 
         JPanel content = new JPanel(new BorderLayout(8, 8));
@@ -129,6 +143,58 @@ public final class ConfigDialog extends JDialog {
         panel.setBorder(BorderFactory.createTitledBorder("Computador"));
         panel.add(computersPanel, BorderLayout.NORTH);
         return panel;
+    }
+
+    /**
+     * El disco de la configuración del enunciado: bloques, swap, política inicial, cabezal y su
+     * dirección, y velocidad. Debajo, una nota con la precedencia frente a los JSON.
+     */
+    private JPanel buildDiskFields() {
+        JPanel panel = new JPanel(new GridLayout(0, 2, 6, 6));
+        addRow(panel, "Bloques para archivos (" + DiskConfig.MIN_FILE_BLOCKS + "-" + DiskConfig.MAX_FILE_BLOCKS + "):",
+                fileBlocksField);
+        addRow(panel, "Área de intercambio (0-" + DiskConfig.MAX_SWAP_BLOCKS + " bloques, después de los archivos):",
+                swapField);
+        addRow(panel, "Política de disco inicial:", comboCell(diskPolicyCombo));
+        addRow(panel, "Posición inicial del cabezal (0 a archivos + swap − 1):", headField);
+        addRow(panel, "Dirección inicial del cabezal:", comboCell(directionCombo));
+        addRow(panel, "Posiciones del cabezal por ciclo (1-" + DiskConfig.MAX_POSITIONS_PER_CYCLE + "):",
+                positionsField);
+        JLabel help = new JLabel("<html>Si se cargan los JSON, mandan en lo que traen: bloques y cabezal (sistema de"
+                + " archivos), swap y política de disco (procesos). De aquí solo se usan la dirección y las"
+                + " posiciones por ciclo cuando el JSON de procesos no las trae.</html>");
+        help.setFont(help.getFont().deriveFont(help.getFont().getSize2D() - 1f));
+        help.setPreferredSize(new Dimension(1, help.getPreferredSize().height * 3));
+        JPanel section = new JPanel(new BorderLayout(4, 6));
+        section.setBorder(BorderFactory.createTitledBorder("Disco"));
+        section.add(panel, BorderLayout.CENTER);
+        section.add(help, BorderLayout.SOUTH);
+        return section;
+    }
+
+    /** En un FlowLayout el combo conserva su altura normal en vez de llenar la celda de la grilla. */
+    private static JPanel comboCell(JComboBox<String> combo) {
+        JPanel cell = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        cell.add(combo);
+        return cell;
+    }
+
+    private static String[] directionLabels() {
+        HeadDirection[] all = HeadDirection.values();
+        String[] labels = new String[all.length];
+        for (int i = 0; i < all.length; i++) {
+            labels[i] = all[i].getLabel();
+        }
+        return labels;
+    }
+
+    private static HeadDirection directionOf(Object label) {
+        for (HeadDirection d : HeadDirection.values()) {
+            if (d.getLabel().equals(label)) {
+                return d;
+            }
+        }
+        return HeadDirection.UP;
     }
 
     private JPanel buildLoadArea() {
@@ -204,6 +270,13 @@ public final class ConfigDialog extends JDialog {
         cycleField.setText(String.valueOf(config.getCycleDurationMs()));
         quantumField.setText(String.valueOf(config.getQuantum()));
         latencyField.setText(String.valueOf(config.getNetworkLatency()));
+        DiskConfig disk = config.getDisk();
+        fileBlocksField.setText(String.valueOf(disk.fileBlocks()));
+        swapField.setText(String.valueOf(disk.swapBlocks()));
+        diskPolicyCombo.setSelectedItem(disk.initialPolicy().getLabel());
+        headField.setText(String.valueOf(disk.initialHead()));
+        directionCombo.setSelectedItem(disk.initialDirection().getLabel());
+        positionsField.setText(String.valueOf(disk.positionsPerCycle()));
         computerRows = new ComputerRow[0];
         LinkedList<ComputerConfig> computers = config.getComputers();
         while (!computers.isEmpty()) {
@@ -355,6 +428,15 @@ public final class ConfigDialog extends JDialog {
                 (int) SimulationConfig.MIN_CYCLE_MS, (int) SimulationConfig.MAX_CYCLE_MS);
         int quantum = v.integer(quantumField, "Quantum", 1, SimulationConfig.MAX_QUANTUM);
         int latency = v.integer(latencyField, "Latencia de red", 0, SimulationConfig.MAX_NETWORK_LATENCY);
+        int fileBlocks = v.integer(fileBlocksField, "Bloques para archivos", DiskConfig.MIN_FILE_BLOCKS,
+                DiskConfig.MAX_FILE_BLOCKS);
+        int swap = v.integer(swapField, "Área de intercambio", 0, DiskConfig.MAX_SWAP_BLOCKS);
+        // El rango del cabezal depende de los dos tamaños; si uno está mal, solo se muestra ese error.
+        int lastBlock = fileBlocks > 0 && swap >= 0 ? fileBlocks + swap - 1
+                : DiskConfig.MAX_FILE_BLOCKS + DiskConfig.MAX_SWAP_BLOCKS - 1;
+        int head = v.integer(headField, "Posición inicial del cabezal", 0, lastBlock);
+        int positions = v.integer(positionsField, "Posiciones del cabezal por ciclo", 1,
+                DiskConfig.MAX_POSITIONS_PER_CYCLE);
         int[] rams = new int[computerRows.length];
         for (int i = 0; i < rams.length; i++) {
             rams[i] = v.integer(computerRows[i].ram(), "RAM del Computador " + (i + 1) + " (MB)", 1, Integer.MAX_VALUE);
@@ -371,6 +453,9 @@ public final class ConfigDialog extends JDialog {
         }
         try {
             SimulationConfig config = new SimulationConfig(cycle, quantum, latency);
+            config.setDisk(new DiskConfig(fileBlocks, swap,
+                    DiskPolicyType.fromLabel((String) diskPolicyCombo.getSelectedItem()), head,
+                    directionOf(directionCombo.getSelectedItem()), positions));
             for (int i = 0; i < computerRows.length; i++) {
                 config.addComputer(rams[i], PolicyType.fromLabel((String) computerRows[i].policy().getSelectedItem()));
             }

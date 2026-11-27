@@ -4,6 +4,7 @@ import com.unimet.avilaos.cluster.Cluster;
 import com.unimet.avilaos.cluster.Computer;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.hardware.BlockMap;
+import com.unimet.avilaos.hardware.HeadDirection;
 import com.unimet.avilaos.hardware.IoOperation;
 import com.unimet.avilaos.os.fs.FileInfo;
 import com.unimet.avilaos.os.fs.FileSystem;
@@ -27,6 +28,12 @@ import java.nio.file.Path;
  *       sistema al iniciar, no un usuario).</li>
  * </ol>
  * El reloj no arranca: lo arranca quien llama, cuando la interfaz ya está lista.
+ *
+ * Precedencia de la configuración: los JSON mandan en todo lo que traen (bloques y cabezal
+ * del sistema de archivos; ciclo, swap, política de disco, RAM, política de CPU y quantum de
+ * procesos). La configuración del diálogo o del CSV (su DiskConfig) solo da el valor de las
+ * claves opcionales que el JSON de procesos no trae: la dirección inicial del cabezal y las
+ * posiciones por ciclo. Sin configuración, se usan las de DiskConfig.defaults().
  *
  * Reiniciar con procesos nuevos conservando el disco modificado:
  * {@code start(FileSystemJson.snapshot(fsViejo, cabezal), nuevosProcesos)}.
@@ -61,14 +68,30 @@ public final class SimulationLoader {
     private SimulationLoader() {
     }
 
-    /** La configuración completa que resulta de los dos JSON. */
+    /** La configuración completa que resulta de los dos JSON, con DiskConfig.defaults() para lo que no traen. */
     public static SimulationConfig buildConfig(FileSystemJson.Image fileSystem, ProcessesJson.Image processes) {
+        return buildConfig(fileSystem, processes, DiskConfig.defaults());
+    }
+
+    /**
+     * La configuración completa que resulta de los dos JSON (ver la precedencia en la clase).
+     *
+     * @param fallback disco de la configuración del diálogo o del CSV: da la dirección inicial y
+     *                 las posiciones por ciclo si el JSON de procesos no las trae
+     */
+    public static SimulationConfig buildConfig(FileSystemJson.Image fileSystem, ProcessesJson.Image processes,
+            DiskConfig fallback) {
         requireBoth(fileSystem, processes);
+        if (fallback == null) {
+            throw new IllegalArgumentException("Falta la configuración del disco por defecto");
+        }
         ProcessesJson.Settings s = processes.settings();
+        HeadDirection direction = s.headDirection() != null ? s.headDirection() : fallback.initialDirection();
+        int positions = s.positionsPerCycle() > 0 ? s.positionsPerCycle() : fallback.positionsPerCycle();
         SimulationConfig config = new SimulationConfig(s.cycleDurationMs(), s.quantum(), 0);   // sin red: 1 computador
         config.addComputer(s.ramCapacity(), s.cpuPolicy());
         config.setDisk(new DiskConfig(fileSystem.disk().totalBlocks(), s.swapBlocks(), s.diskPolicy(),
-                fileSystem.disk().initialHead(), s.headDirection(), s.positionsPerCycle()));
+                fileSystem.disk().initialHead(), direction, positions));
         config.validate();
         return config;
     }
@@ -81,7 +104,17 @@ public final class SimulationLoader {
      * @throws IllegalArgumentException si la configuración no es válida o el sistema de archivos no carga
      */
     public static Loaded start(FileSystemJson.Image fileSystem, ProcessesJson.Image processes) {
-        SimulationConfig config = buildConfig(fileSystem, processes);
+        return start(fileSystem, processes, DiskConfig.defaults());
+    }
+
+    /**
+     * Como start, con el disco de la configuración del diálogo o del CSV como valor por defecto
+     * de la dirección inicial y las posiciones por ciclo (ver la precedencia en la clase).
+     *
+     * @throws IllegalArgumentException si la configuración no es válida o el sistema de archivos no carga
+     */
+    public static Loaded start(FileSystemJson.Image fileSystem, ProcessesJson.Image processes, DiskConfig fallback) {
+        SimulationConfig config = buildConfig(fileSystem, processes, fallback);
         Cluster cluster = Cluster.create(config);
         try {
             FileSystemJson.load(fileSystem, cluster.getComputer(1).getFileSystem());

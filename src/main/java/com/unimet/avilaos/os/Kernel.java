@@ -84,6 +84,13 @@ import java.util.concurrent.Semaphore;
  *     disco; su RAM se libera cuando el disco termina de escribirlo
  *     (escribe y después libera, como dice el enunciado) y queda para ese Nuevo (así no la
  *     toma otro y no hay thrashing). Un bloque del swap equivale a una unidad de RAM.
+ *     La víctima no se compara con la prioridad del Nuevo: si el único Bloqueado que se
+ *     puede suspender tiene más prioridad que el que entra, igual se suspende. El enunciado
+ *     pide suspender a un Bloqueado cuando un Nuevo no cabe, sin condicionarlo a la
+ *     prioridad; el Bloqueado no usa la CPU mientras espera su evento, así que sacarlo de la
+ *     RAM no le quita turno, y al ocurrir su evento es el primero en reactivarse (mayor
+ *     prioridad primero). Negarse dejaría al Nuevo esperando con la RAM ocupada por un
+ *     proceso que no avanza.
  *  - Un Bloqueado/Suspendido cuyo evento ocurre pasa a Listo/Suspendido.
  *  - Si un suspendido muere, se cancelan sus solicitudes y se liberan su swap y su RAM.
  *
@@ -109,11 +116,9 @@ public class Kernel implements InterruptHandler {
     /** Un Nuevo por el que se suspendieron procesos: la RAM que liberen es para él. */
     private static final class Reservation {
         final Pcb newcomer;
-        int pendingVictims;             // suspensiones que todavía se están escribiendo
 
-        Reservation(Pcb newcomer, int pendingVictims) {
+        Reservation(Pcb newcomer) {
             this.newcomer = newcomer;
-            this.pendingVictims = pendingVictims;
         }
     }
 
@@ -524,7 +529,7 @@ public class Kernel implements InterruptHandler {
     }
 
     private void suspend(LinkedList<ProcessRuntime> victims, Pcb newcomer) {
-        reservations.addLast(new Reservation(newcomer, victims.size()));
+        reservations.addLast(new Reservation(newcomer));
         while (!victims.isEmpty()) {
             ProcessRuntime rt = victims.removeFirst();
             int size = rt.pcb.getMemorySize();
@@ -556,17 +561,6 @@ public class Kernel implements InterruptHandler {
         return false;
     }
 
-    /** Una suspensión hecha para newcomer terminó de escribirse (o se canceló). */
-    private void victimDone(Pcb newcomer) {
-        for (int i = 0; i < reservations.size(); i++) {
-            Reservation r = reservations.get(i);
-            if (r.newcomer == newcomer && r.pendingVictims > 0) {
-                r.pendingVictims--;
-                return;
-            }
-        }
-    }
-
     /** El disco terminó de escribir (SUSPEND) o de traer (RESUME) a un proceso. */
     private void swapCompleted(ProcessRuntime rt, DiskRequest done, String policy) {
         log.log(cycle, DISK_SOURCE, "atiende la solicitud de " + (rt == null ? "P" + done.getProcessId() : rt.pcb)
@@ -578,7 +572,6 @@ public class Kernel implements InterruptHandler {
         if (done.getOperation() == IoOperation.SUSPEND) {
             rt.swappingOut = false;
             memory.release(rt.pcb);
-            victimDone(rt.suspendedFor);
             diskMetrics.suspensionCompleted();              // se cuenta al completarse, igual que las reactivaciones
             log.log(cycle, MEDIUM_TERM_SOURCE, "El proceso " + rt.pcb + " ya está en el swap: se liberan " + size
                     + " MB de RAM para " + rt.suspendedFor);
@@ -1035,10 +1028,7 @@ public class Kernel implements InterruptHandler {
             freedSwap = storage.disk().getBlockMap().free(rt.swapBlock);
             rt.swapBlock = -1;
         }
-        if (rt.swappingOut) {
-            victimDone(rt.suspendedFor);                    // su RAM se libera aquí mismo
-        }
-        rt.swappingOut = false;
+        rt.swappingOut = false;                             // si se estaba escribiendo, su RAM se libera aquí mismo
         rt.swappingIn = false;
         if (pcb.getType().usesBuffer()) {
             releaseBufferHoldings(rt);

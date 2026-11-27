@@ -12,6 +12,12 @@ import com.unimet.avilaos.os.disk.DiskPolicyType;
  * (0 a fileBlocks − 1) y después el swap, como en el JSON del enunciado
  * (totalBlocks 200 + swapSizeBlocks 100 = 300).
  *
+ * De dónde sale: del diálogo de Configuración o de la fila "disk" del CSV. Cuando se cargan
+ * los dos JSON, ellos mandan en lo que traen (bloques y cabezal del JSON del sistema de
+ * archivos; swap y política de disco del JSON de procesos) y este DiskConfig solo aporta lo
+ * que el JSON de procesos no trae: la dirección inicial y las posiciones por ciclo (ver
+ * SimulationLoader).
+ *
  * @param fileBlocks        bloques para archivos (MIN_FILE_BLOCKS a MAX_FILE_BLOCKS)
  * @param swapBlocks        bloques del área de intercambio (0 a MAX_SWAP_BLOCKS)
  * @param initialPolicy     política de disco con la que arranca

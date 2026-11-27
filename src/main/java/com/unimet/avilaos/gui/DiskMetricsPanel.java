@@ -46,7 +46,8 @@ public final class DiskMetricsPanel extends JPanel {
         kpis.add(suspendKpi);
         kpis.add(resumeKpi);
         seekKpi.setToolTipText("Bloques que recorrió el cabezal (el salto de C-SCAN y C-LOOK no cuenta)");
-        waitKpi.setToolTipText("Ciclos que una solicitud espera en la cola de E/S antes de ser atendida");
+        waitKpi.setToolTipText("Ciclos que una solicitud espera en la cola de E/S antes de ser atendida"
+                + " (incluye las solicitudes SUSPEND y RESUME del swap)");
         add(kpis, BorderLayout.NORTH);
 
         UiKit.Card chartCard = new UiKit.Card(new BorderLayout(0, 8));
