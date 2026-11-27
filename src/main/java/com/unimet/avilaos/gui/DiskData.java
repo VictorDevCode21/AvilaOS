@@ -165,7 +165,8 @@ public final class DiskData {
      * @param processName name of the new I/O process
      * @param operation   CREATE, READ, UPDATE or DELETE (a file operation)
      * @param path        target: the file or directory (for CREATE, the directory where it goes)
-     * @param newName     CREATE: name of the new file or directory; UPDATE: the new name; else null
+     * @param newName     CREATE: name of the new file or directory; UPDATE: the new name, o null para
+     *                    reescribir el archivo en su lugar; else null
      * @param directory   CREATE only: true to create a directory instead of a file
      * @param sizeBlocks  CREATE of a file: size in blocks; else 0
      * @param isPublic    CREATE only: permission of the new file or directory
