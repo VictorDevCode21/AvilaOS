@@ -26,8 +26,9 @@ import java.nio.file.Path;
  *
  * Campos opcionales (el enunciado no los trae; tienen un valor por defecto):
  * <ul>
- *   <li>globalConfig: "initialDirection" (UP o DOWN, por defecto UP) y
- *       "positionsPerCycle" (por defecto 10);</li>
+ *   <li>globalConfig: "initialDirection" (UP o DOWN) y "positionsPerCycle". Si faltan, quedan
+ *       sin valor (null y 0 en Settings) y SimulationLoader usa los de la configuración del
+ *       diálogo o del CSV (DiskConfig);</li>
  *   <li>proceso: "priority" (por defecto 1); "newName" (UPDATE que renombra; sin él,
  *       UPDATE reescribe el archivo en su lugar); para CREATE, "targetPath" es la ruta
  *       nueva y se agregan "blocks" (archivo), "permissions" (por defecto public),
@@ -53,7 +54,6 @@ public final class ProcessesJson {
     /** Quantum que se guarda cuando el JSON trae 0 (política sin quantum). */
     public static final int DEFAULT_QUANTUM = 3;
     public static final int DEFAULT_PRIORITY = 1;
-    public static final int DEFAULT_POSITIONS_PER_CYCLE = 10;
     /** RAM máxima que se acepta (MB), para que un número enorme no se acepte por error. */
     public static final int MAX_RAM = 1_000_000;
 
@@ -63,8 +63,8 @@ public final class ProcessesJson {
      * @param cycleDurationMs   duración del ciclo
      * @param swapBlocks        bloques del área de intercambio
      * @param diskPolicy        política de disco inicial
-     * @param headDirection     dirección inicial del cabezal
-     * @param positionsPerCycle posiciones del cabezal por ciclo
+     * @param headDirection     dirección inicial del cabezal, o null si el JSON no la trae
+     * @param positionsPerCycle posiciones del cabezal por ciclo, o 0 si el JSON no las trae
      * @param ramCapacity       RAM del computador
      * @param cpuPolicy         política de CPU inicial
      * @param quantum           quantum de Round Robin (DEFAULT_QUANTUM si el JSON trae 0)
@@ -151,7 +151,7 @@ public final class ProcessesJson {
             throw diskPolicyValue.error(e.getMessage() + " (se aceptan: " + String.join(", ", DiskPolicyType.labels())
                     + ")");
         }
-        HeadDirection direction = HeadDirection.UP;
+        HeadDirection direction = null;                   // sin valor: la de la configuración
         if (global.has("initialDirection")) {
             JsonValue d = global.get("initialDirection", "\"globalConfig\"");
             String text2 = d.asString("\"initialDirection\"").trim().toUpperCase();
@@ -163,7 +163,7 @@ public final class ProcessesJson {
                 throw d.error("\"initialDirection\" debe ser UP o DOWN, no " + text2);
             }
         }
-        int positions = DEFAULT_POSITIONS_PER_CYCLE;
+        int positions = 0;                                // sin valor: las de la configuración
         if (global.has("positionsPerCycle")) {
             positions = (int) range(global.get("positionsPerCycle", "\"globalConfig\""), "\"positionsPerCycle\"", 1,
                     DiskConfig.MAX_POSITIONS_PER_CYCLE);
