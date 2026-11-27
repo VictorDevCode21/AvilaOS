@@ -12,7 +12,6 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
-import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -23,8 +22,6 @@ import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTree;
-import javax.swing.JViewport;
-import javax.swing.Scrollable;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
@@ -43,7 +40,7 @@ import javax.swing.table.AbstractTableModel;
  *
  * @author donatovodola
  */
-public final class FileSystemPanel extends JPanel implements Scrollable {
+public final class FileSystemPanel extends WidthTrackingPanel {
 
     private static final long serialVersionUID = 1L;
 
@@ -94,8 +91,7 @@ public final class FileSystemPanel extends JPanel implements Scrollable {
 
     /** @param palette shared palette (same colors as the Disk view) */
     public FileSystemPanel(OwnerPalette palette) {
-        super(new GridBagLayout());
-        setOpaque(false);
+        super(new GridBagLayout(), true);      // follows the window's height down to the minimum, then scrolls
         this.palette = palette;
         JPanel top = Theme.transparent(new JPanel(new GridLayout(1, 2, 14, 0)));
         top.add(buildTreeCard());
@@ -104,7 +100,10 @@ public final class FileSystemPanel extends JPanel implements Scrollable {
         showDetails(null);
         // The tree and the details never shrink below what the details need; the table gives up
         // height first, and below that the whole view scrolls (see getScrollableTracksViewportHeight)
-        top.setMinimumSize(new Dimension(0, details.getPreferredSize().height));
+        int detailsHeight = details.getPreferredSize().height;
+        top.setMinimumSize(new Dimension(0, detailsHeight));
+        // The tree scrolls inside its card, so the row doesn't ask for the whole tree's height
+        top.setPreferredSize(new Dimension(top.getPreferredSize().width, detailsHeight));
         JComponent allocation = buildAllocationCard();
         allocation.setMinimumSize(new Dimension(0, MIN_TABLE_CARD_HEIGHT));
         GridBagConstraints c = new GridBagConstraints();
@@ -321,33 +320,6 @@ public final class FileSystemPanel extends JPanel implements Scrollable {
     }
 
     // ---------- Internals ----------
-
-    // ---------- Scrollable: only scrolls when the window is shorter than the view needs ----------
-
-    @Override
-    public Dimension getPreferredScrollableViewportSize() {
-        return getPreferredSize();
-    }
-
-    @Override
-    public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
-        return 16;
-    }
-
-    @Override
-    public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
-        return Math.max(16, visible.height - 32);
-    }
-
-    @Override
-    public boolean getScrollableTracksViewportWidth() {
-        return true;
-    }
-
-    @Override
-    public boolean getScrollableTracksViewportHeight() {
-        return getParent() instanceof JViewport viewport && viewport.getHeight() >= getMinimumSize().height;
-    }
 
     /** The swatch takes no room when there is no color (nothing selected, or a directory). */
     private void showSwatch(Color color) {

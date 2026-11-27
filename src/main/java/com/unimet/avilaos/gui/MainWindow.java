@@ -19,7 +19,6 @@ import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.LayoutManager;
-import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
@@ -37,8 +36,6 @@ import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
-import javax.swing.JViewport;
-import javax.swing.Scrollable;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableModel;
@@ -758,10 +755,6 @@ public final class MainWindow extends JFrame {
     }
 
     /**
-     * Panel que siempre usa el ancho visible: los computadores se reparten la ventana
-     * en vez de salirse por la derecha (solo hay scroll vertical si no caben de alto).
-     */
-    /**
      * Top bar: the page title on the left, then the simulation controls and the actions on the
      * right, in one row. If they don't fit (narrow window, down to the 1000 px minimum), the actions
      * move to a second row, right-aligned, so nothing covers the title. Children, in order: title,
@@ -833,42 +826,6 @@ public final class MainWindow extends JFrame {
                     + parent.getComponent(1).getPreferredSize().width
                     + parent.getComponent(2).getPreferredSize().width;
             return needed <= width;
-        }
-    }
-
-    private static final class WidthTrackingPanel extends JPanel implements Scrollable {
-
-        private static final long serialVersionUID = 1L;
-
-        WidthTrackingPanel(GridLayout layout) {
-            super(layout);
-        }
-
-        @Override
-        public Dimension getPreferredScrollableViewportSize() {
-            return getPreferredSize();
-        }
-
-        @Override
-        public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
-            return 16;
-        }
-
-        @Override
-        public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
-            return 160;
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportWidth() {
-            return true;
-        }
-
-        /** Si sobra alto, las tablas lo usan; si falta, aparece el scroll vertical. */
-        @Override
-        public boolean getScrollableTracksViewportHeight() {
-            return getParent() instanceof JViewport viewport
-                    && viewport.getHeight() > getPreferredSize().height;
         }
     }
 }
