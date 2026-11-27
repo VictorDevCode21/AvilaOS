@@ -145,10 +145,12 @@ public final class ConfigDialog extends JDialog {
         return panel;
     }
 
-    /** El disco de la configuración del enunciado: bloques, swap, política inicial, cabezal y su dirección, y velocidad. */
+    /**
+     * El disco de la configuración del enunciado: bloques, swap, política inicial, cabezal y su
+     * dirección, y velocidad. Debajo, una nota con la precedencia frente a los JSON.
+     */
     private JPanel buildDiskFields() {
         JPanel panel = new JPanel(new GridLayout(0, 2, 6, 6));
-        panel.setBorder(BorderFactory.createTitledBorder("Disco"));
         addRow(panel, "Bloques para archivos (" + DiskConfig.MIN_FILE_BLOCKS + "-" + DiskConfig.MAX_FILE_BLOCKS + "):",
                 fileBlocksField);
         addRow(panel, "Área de intercambio (0-" + DiskConfig.MAX_SWAP_BLOCKS + " bloques, después de los archivos):",
@@ -158,7 +160,16 @@ public final class ConfigDialog extends JDialog {
         addRow(panel, "Dirección inicial del cabezal:", comboCell(directionCombo));
         addRow(panel, "Posiciones del cabezal por ciclo (1-" + DiskConfig.MAX_POSITIONS_PER_CYCLE + "):",
                 positionsField);
-        return panel;
+        JLabel help = new JLabel("<html>Si se cargan los JSON, mandan en lo que traen: bloques y cabezal (sistema de"
+                + " archivos), swap y política de disco (procesos). De aquí solo se usan la dirección y las"
+                + " posiciones por ciclo cuando el JSON de procesos no las trae.</html>");
+        help.setFont(help.getFont().deriveFont(help.getFont().getSize2D() - 1f));
+        help.setPreferredSize(new Dimension(1, help.getPreferredSize().height * 3));
+        JPanel section = new JPanel(new BorderLayout(4, 6));
+        section.setBorder(BorderFactory.createTitledBorder("Disco"));
+        section.add(panel, BorderLayout.CENTER);
+        section.add(help, BorderLayout.SOUTH);
+        return section;
     }
 
     /** En un FlowLayout el combo conserva su altura normal en vez de llenar la celda de la grilla. */
