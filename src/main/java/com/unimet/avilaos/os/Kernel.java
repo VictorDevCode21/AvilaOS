@@ -13,6 +13,7 @@ import com.unimet.avilaos.hardware.IoDevice;
 import com.unimet.avilaos.hardware.IoOperation;
 import com.unimet.avilaos.hardware.SeekPlan;
 import com.unimet.avilaos.metrics.ComputerMetrics;
+import com.unimet.avilaos.metrics.DiskMetrics;
 import com.unimet.avilaos.metrics.SystemMetrics;
 import com.unimet.avilaos.os.disk.DiskPolicyType;
 import com.unimet.avilaos.os.fs.FsOperation;
@@ -152,8 +153,7 @@ public class Kernel implements InterruptHandler {
     private final LinkedList<Pcb> readySuspended = new LinkedList<>();
     private final LinkedList<Pcb> blockedSuspended = new LinkedList<>();
     private final LinkedList<Reservation> reservations = new LinkedList<>();   // solo el hilo del kernel
-    private volatile long suspensions;
-    private volatile long reactivations;
+    private final DiskMetrics diskMetrics;
     private final LinkedList<Pcb> arrivals = new LinkedList<>();
     private final LinkedList<Wakeup> wakeups = new LinkedList<>();
     private PolicyType pendingPolicy;
@@ -192,6 +192,7 @@ public class Kernel implements InterruptHandler {
         this.systemMetrics = systemMetrics;
         this.network = network;
         this.storage = storage;
+        this.diskMetrics = new DiskMetrics(storage.disk());
     }
 
     // =====================================================================
@@ -575,7 +576,7 @@ public class Kernel implements InterruptHandler {
             rt.swappingOut = false;
             memory.release(rt.pcb);
             victimDone(rt.suspendedFor);
-            suspensions++;                                  // se cuenta al completarse, igual que las reactivaciones
+            diskMetrics.suspensionCompleted();              // se cuenta al completarse, igual que las reactivaciones
             log.log(cycle, MEDIUM_TERM_SOURCE, "El proceso " + rt.pcb + " ya está en el swap: se liberan " + size
                     + " MB de RAM para " + rt.suspendedFor);
             return;
@@ -586,7 +587,7 @@ public class Kernel implements InterruptHandler {
         removeSuspended(rt.pcb);
         rt.pcb.markReady();
         scheduler.addReady(rt.pcb);
-        reactivations++;
+        diskMetrics.reactivationCompleted();
         log.log(cycle, MEDIUM_TERM_SOURCE, "El proceso " + rt.pcb + " vuelve a la RAM (libera " + size
                 + " bloques del swap) y pasa a Listo");
     }
@@ -726,6 +727,7 @@ public class Kernel implements InterruptHandler {
             return;
         }
         DiskRequest done = plan.getRequest();
+        diskMetrics.requestServed(cycle, plan.getChosenBy());   // atendida por la política que la eligió
         // La política que ELIGIÓ la solicitud, no la vigente ahora (pueden haberla cambiado)
         String policy = plan.getChosenBy() != null ? plan.getChosenBy()
                 : storage.diskScheduler().getPolicyType().getLabel();
@@ -1259,12 +1261,17 @@ public class Kernel implements InterruptHandler {
      * una suspensión cancelada porque la víctima murió antes no cuenta.
      */
     public long getSuspensions() {
-        return suspensions;
+        return diskMetrics.getSuspensions();
     }
 
     /** Reactivaciones terminadas (el proceso volvió a la RAM). */
     public long getReactivations() {
-        return reactivations;
+        return diskMetrics.getReactivations();
+    }
+
+    /** Métricas del disco y de la suspensión, y los puntos de la gráfica de desplazamiento. */
+    public DiskMetrics getDiskMetrics() {
+        return diskMetrics;
     }
 
     public LinkedList<Pcb> getTerminatedSnapshot() {

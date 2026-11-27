@@ -10,6 +10,7 @@ import com.unimet.avilaos.hardware.Disk;
 import com.unimet.avilaos.hardware.IoDevice;
 import com.unimet.avilaos.hardware.MainMemory;
 import com.unimet.avilaos.metrics.ComputerMetrics;
+import com.unimet.avilaos.metrics.DiskMetrics;
 import com.unimet.avilaos.metrics.SystemMetrics;
 import com.unimet.avilaos.os.Interconnect;
 import com.unimet.avilaos.os.Kernel;
@@ -137,6 +138,11 @@ public class Computer implements ClockListener {
 
     public Disk getDisk() {
         return disk;
+    }
+
+    /** Métricas del disco y de la suspensión (desplazamiento, espera, atendidas por política, gráfica). */
+    public DiskMetrics getDiskMetrics() {
+        return kernel.getDiskMetrics();
     }
 
     public DiskScheduler getDiskScheduler() {
