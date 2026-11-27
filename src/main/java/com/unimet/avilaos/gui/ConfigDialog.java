@@ -40,7 +40,8 @@ import javax.swing.filechooser.FileNameExtensionFilter;
  * Vista de configuración: arma una SimulationConfig NUEVA a partir de la actual.
  *
  * Permite cambiar la duración del ciclo, el quantum, la latencia de red, los computadores
- * (cuántos, su RAM y su política inicial) y la carga inicial (agregar y quitar buffers y
+ * (cuántos, su RAM y su política inicial), el disco (bloques, swap, política inicial, cabezal,
+ * dirección y velocidad) y la carga inicial (agregar y quitar buffers y
  * procesos con los mismos formularios de la ventana principal). También guarda la
  * configuración en avilaos-config.csv y carga otra desde un archivo CSV.
  *
@@ -59,7 +60,7 @@ public final class ConfigDialog extends JDialog {
     private final JTextField quantumField = new JTextField(8);
     private final JTextField latencyField = new JTextField(8);
 
-    // Disk (Project 2): DiskConfig
+    // Disco (Proyecto 2): DiskConfig
     private final JTextField fileBlocksField = new JTextField(8);
     private final JTextField swapField = new JTextField(8);
     private final JComboBox<String> diskPolicyCombo = new JComboBox<>(DiskPolicyType.labels());
@@ -144,7 +145,7 @@ public final class ConfigDialog extends JDialog {
         return panel;
     }
 
-    /** The disk of the statement's configuration: blocks, swap, initial policy, head and direction, speed. */
+    /** El disco de la configuración del enunciado: bloques, swap, política inicial, cabezal y su dirección, y velocidad. */
     private JPanel buildDiskFields() {
         JPanel panel = new JPanel(new GridLayout(0, 2, 6, 6));
         panel.setBorder(BorderFactory.createTitledBorder("Disco"));
@@ -160,7 +161,7 @@ public final class ConfigDialog extends JDialog {
         return panel;
     }
 
-    /** In a FlowLayout the combo keeps its normal height instead of filling the grid cell. */
+    /** En un FlowLayout el combo conserva su altura normal en vez de llenar la celda de la grilla. */
     private static JPanel comboCell(JComboBox<String> combo) {
         JPanel cell = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         cell.add(combo);
@@ -419,7 +420,7 @@ public final class ConfigDialog extends JDialog {
         int fileBlocks = v.integer(fileBlocksField, "Bloques para archivos", DiskConfig.MIN_FILE_BLOCKS,
                 DiskConfig.MAX_FILE_BLOCKS);
         int swap = v.integer(swapField, "Área de intercambio", 0, DiskConfig.MAX_SWAP_BLOCKS);
-        // The head range depends on the two sizes; if one of them is wrong, only that error is shown.
+        // El rango del cabezal depende de los dos tamaños; si uno está mal, solo se muestra ese error.
         int lastBlock = fileBlocks > 0 && swap >= 0 ? fileBlocks + swap - 1
                 : DiskConfig.MAX_FILE_BLOCKS + DiskConfig.MAX_SWAP_BLOCKS - 1;
         int head = v.integer(headField, "Posición inicial del cabezal", 0, lastBlock);
