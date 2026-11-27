@@ -1,18 +1,23 @@
 package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.datastructures.LinkedList;
+import com.unimet.avilaos.hardware.BlockMap;
 import com.unimet.avilaos.hardware.DiskRequest;
 import com.unimet.avilaos.hardware.HeadDirection;
 import com.unimet.avilaos.hardware.IoOperation;
 import com.unimet.avilaos.hardware.SeekPlan;
+import com.unimet.avilaos.os.fs.FileInfo;
+import com.unimet.avilaos.os.fs.Permission;
+import com.unimet.avilaos.os.fs.UserSession;
 
 /**
- * Read-only data that the Disk and Files views show.
+ * Read-only data that the Disk and Files views show: the views' own small records, so they don't
+ * depend on how the simulation stores things (and the demo can fill them with fake data).
  *
- * The disk types come from the disk contracts (IoOperation, HeadDirection, DiskRequest, SeekPlan);
- * {@link Request#from} and {@link Request#fromPlans} turn the scheduler's copies into rows for the
- * I/O queue. Block, file and session records are still GUI-side until Disk and FileSystem exist.
- * The views never change the simulation: they only paint what they receive.
+ * The {@code from} factories turn the simulation's copies into these records: BlockMap.Block
+ * ({@link Snapshot#from}), DiskRequest and SeekPlan ({@link Request#from}, {@link Request#fromPlans}),
+ * FileInfo ({@link FileEntry#from}) and UserSession ({@link Session#from}). The views never change
+ * the simulation: they only paint what they receive.
  *
  * Arrays are used on purpose (java.util collections are not allowed in the project).
  *
@@ -42,6 +47,23 @@ public final class DiskData {
      * @param blocks      one entry per block; null = free
      */
     public record Snapshot(int totalBlocks, int swapStart, int head, HeadDirection direction, Block[] blocks) {
+
+        /**
+         * Copy of the real disk.
+         *
+         * @param blocks    BlockMap.snapshot(): the owner of a swap block is the suspended process
+         * @param swapStart BlockMap.getSwapStart()
+         * @param head      Disk.getHeadBlock()
+         * @param direction Disk.getHeadDirection()
+         */
+        public static Snapshot from(BlockMap.Block[] blocks, int swapStart, int head, HeadDirection direction) {
+            Block[] rows = new Block[blocks.length];
+            for (int i = 0; i < blocks.length; i++) {
+                BlockMap.Block b = blocks[i];
+                rows[i] = b.isFree() ? null : new Block(b.owner(), b.swap());
+            }
+            return new Snapshot(blocks.length, swapStart, head, direction, rows);
+        }
     }
 
     /**
@@ -86,34 +108,44 @@ public final class DiskData {
      * Disk and suspension metrics at one moment (copies; the GUI only shows them).
      *
      * @param totalSeek        total head displacement in blocks (the C-SCAN jump does not count)
-     * @param averageWait      average cycles a request waited in the I/O queue
+     * @param averageWait      average cycles a request waited in the I/O queue, or NaN if unknown
+     * @param served           requests served in total (all policies)
      * @param servedPerPolicy  requests served with each disk policy, in the same order as the
-     *                         policy labels the Disk view uses
+     *                         policy labels the Disk view uses; null while the simulation doesn't
+     *                         count them per policy
      * @param suspensions      processes suspended by the medium-term scheduler
      * @param reactivations    processes brought back to RAM
      */
-    public record DiskMetrics(long totalSeek, double averageWait, long[] servedPerPolicy, int suspensions,
-            int reactivations) {
+    public record DiskMetrics(long totalSeek, double averageWait, long served, long[] servedPerPolicy,
+            int suspensions, int reactivations) {
 
-        /** Requests served in total (all policies). */
-        public long served() {
+        /** Metrics where the per-policy counts add up to the total (e.g. the demo). */
+        public static DiskMetrics withCounts(long totalSeek, double averageWait, long[] servedPerPolicy,
+                int suspensions, int reactivations) {
             long total = 0;
             for (long n : servedPerPolicy) {
                 total += n;
             }
-            return total;
+            return new DiskMetrics(totalSeek, averageWait, total, servedPerPolicy, suspensions, reactivations);
         }
     }
 
     /**
      * Who is using the simulator and in which mode.
      *
-     * PROVISIONAL: the mode will come from the UserMode enum (file system).
-     *
      * @param admin true = administrator (every operation), false = user (restricted access)
      * @param user  user name of the session (e.g. "admin", "user1")
      */
     public record Session(boolean admin, String user) {
+
+        /** The session as the file system sees it (it checks the permissions with it). */
+        public UserSession toUserSession() {
+            return admin ? UserSession.admin(user) : UserSession.user(user);
+        }
+
+        public static Session from(UserSession session) {
+            return new Session(session.isAdmin(), session.getUserName());
+        }
 
         /** Short text for the rail and the Files view, e.g. "Admin" or "user2". */
         public String shortText() {
@@ -137,12 +169,13 @@ public final class DiskData {
      * @param directory   CREATE only: true to create a directory instead of a file
      * @param sizeBlocks  CREATE of a file: size in blocks; else 0
      * @param isPublic    CREATE only: permission of the new file or directory
+     * @param owner       CREATE of a directory: its owner (e.g. "user1" for their folder); else null
      * @param memory      memory the process needs (RAM units)
      * @param priority    priority (0 = highest)
      * @param deadline    deadline in cycles
      */
     public record IoProcess(String processName, IoOperation operation, String path, String newName, boolean directory,
-            int sizeBlocks, boolean isPublic, int memory, int priority, int deadline) {
+            int sizeBlocks, boolean isPublic, String owner, int memory, int priority, int deadline) {
     }
 
     /**
@@ -159,6 +192,22 @@ public final class DiskData {
      */
     public record FileEntry(String path, boolean directory, int blocks, int firstBlock, String owner,
             boolean isPublic, String creator, int[] chain) {
+
+        /** Row for a node of the real file system (FileSystem.list()). */
+        public static FileEntry from(FileInfo info) {
+            return new FileEntry(info.getPath(), info.isDirectory(), info.getBlockCount(), info.getFirstBlock(),
+                    info.getOwner(), info.getPermission() == Permission.PUBLIC, info.getCreator(), info.getChain());
+        }
+
+        /** Every node, in tree order (FileSystem.list() is not modified). */
+        public static FileEntry[] fromList(LinkedList<FileInfo> infos) {
+            LinkedList<FileInfo> walk = infos.copy();
+            FileEntry[] rows = new FileEntry[walk.size()];
+            for (int i = 0; i < rows.length; i++) {
+                rows[i] = from(walk.removeFirst());
+            }
+            return rows;
+        }
 
         /** Last part of the path ("/" for the root). */
         public String name() {
