@@ -174,9 +174,12 @@ public class Disk implements ClockListener {
      *
      * Si llega justo mientras el disco le pide la siguiente solicitud al
      * planificador, se anota: si la solicitud que llega es de ese proceso, se
-     * descarta sin atenderla.
+     * descarta sin atenderla. En ese caso devuelve false (todavía no había
+     * solicitud en servicio), pero la solicitud se descarta igual y se cuenta
+     * en {@link #getCancelledRequests()} cuando llega.
      *
-     * @return true si se abortó la solicitud en servicio
+     * @return true si se abortó la solicitud en servicio; false si no había
+     *         una de ese proceso en servicio (incluido el caso anterior)
      */
     public boolean cancel(int processId) {
         mutex.acquireUninterruptibly();
