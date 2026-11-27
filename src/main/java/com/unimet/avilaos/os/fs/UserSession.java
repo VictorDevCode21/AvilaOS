@@ -7,6 +7,11 @@ package com.unimet.avilaos.os.fs;
  *
  * Inmutable: cambiar de modo es crear otra sesión.
  *
+ * Fuera del sistema de archivos, el enunciado reserva al administrador gestionar los procesos,
+ * cambiar las políticas de planificación y la configuración; el modo usuario solo lee archivos
+ * propios o públicos y crea procesos de E/S sobre los suyos. adminOnly da el motivo para rechazar
+ * esas acciones (la interfaz lo muestra sin detener la simulación).
+ *
  * @author NicollPinzon
  */
 public final class UserSession {
@@ -48,6 +53,20 @@ public final class UserSession {
 
     public boolean isAdmin() {
         return mode == UserMode.ADMIN;
+    }
+
+    /**
+     * Motivo para rechazar una acción que solo puede hacer el administrador.
+     *
+     * @param action lo que se intentó, en infinitivo (por ejemplo "cambiar la política de disco")
+     * @return null si la sesión es de administrador; si no, el motivo para mostrar
+     */
+    public String adminOnly(String action) {
+        if (action == null || action.isBlank()) {
+            throw new IllegalArgumentException("Falta la acción que se quiere hacer");
+        }
+        return isAdmin() ? null : "En modo usuario no se puede " + action.trim()
+                + ": solo el administrador puede hacerlo.";
     }
 
     /** Ejemplo: "user1 (Usuario)". */

@@ -97,8 +97,8 @@ public final class MainWindow extends JFrame {
     private final UiKit.Button createIoProcessButton = new UiKit.Button("+ Proceso de E/S", UiKit.Kind.SECONDARY);
     /** Its text says if both JSON files (file system, processes and config) are loaded. */
     private final UiKit.Button loadJsonButton = new UiKit.Button("Cargar JSON", UiKit.Kind.SECONDARY);
-    private final UiKit.Button planningButton = new UiKit.Button("Planificación", UiKit.Kind.GHOST);
-    private final UiKit.Button configButton = new UiKit.Button("Configuración", UiKit.Kind.GHOST);
+    private final UiKit.Button planningButton = new UiKit.Button("Planificación", UiKit.Kind.OUTLINE);
+    private final UiKit.Button configButton = new UiKit.Button("Configuración", UiKit.Kind.OUTLINE);
 
     /**
      * Acción por defecto de los botones que todavía nadie conectó: avisa en vez de no hacer nada.
