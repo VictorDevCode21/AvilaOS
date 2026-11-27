@@ -547,6 +547,7 @@ public final class SimulationController {
         int totalMb = 0;
         int live = 0;
         int blocked = 0;
+        int suspended = 0;
         int terminated = 0;
         StringBuilder running = new StringBuilder();
         for (int id = 1; id <= cluster.getComputerCount(); id++) {
@@ -576,6 +577,7 @@ public final class SimulationController {
             live += newQueue.size() + readyQueue.size() + blockedQueue.size() + readySuspended.size()
                     + blockedSuspended.size() + (inCpu == null ? 0 : 1);
             blocked += blockedQueue.size();
+            suspended += readySuspended.size() + blockedSuspended.size();
             terminated += terminatedQueue.size();
             Scheduler scheduler = kernel.getScheduler();
             PolicyType policy = scheduler.getPolicyType();
@@ -584,7 +586,7 @@ public final class SimulationController {
                 planningDialog.showComputer(id, policy, scheduler.getQuantum(), scheduler.getReadyCount());
             }
         }
-        window.showOverview(busy, running.toString(), usedMb, totalMb, live, blocked, terminated);
+        window.showOverview(busy, running.toString(), usedMb, totalMb, live, blocked, suspended, terminated);
         MetricsSnapshot[] perComputer = new MetricsSnapshot[cluster.getComputerCount()];
         for (int id = 1; id <= perComputer.length; id++) {
             perComputer[id - 1] = cluster.getComputer(id).getMetrics().getSnapshot();

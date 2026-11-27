@@ -150,7 +150,7 @@ public final class DiskFsDemo {
         bs.markBlocked(BlockReason.IO, "disco · READ /sistema/config.sys (en swap 224–239)");
         blockedSuspended.addLast(bs);
         panel.showSuspendedQueues(readySuspended, blockedSuspended);
-        window.showOverview(1, running.toString(), 208, 256, 10, 3, 1);
+        window.showOverview(1, running.toString(), 208, 256, 10, 3, 2, 1);
     }
 
     // ---------- Fake file system (the statement's example) ----------
