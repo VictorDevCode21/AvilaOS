@@ -449,8 +449,9 @@ public final class SimulationController {
         DiskPanel diskPanel = window.getDiskPanel();
         diskPanel.showSnapshot(DiskData.Snapshot.from(blocks.snapshot(), blocks.getSwapStart(), head, direction));
         DiskRequest serving = disk.getCurrentRequest();
-        diskPanel.showQueue(serving == null ? null : DiskData.Request.from(serving, cycle),
-                serving == null ? null : disk.getPhase().getLabel(),
+        String status = serving != null ? disk.getPhase().getLabel()
+                : scheduler.isHolding() ? "El disco espera a que la carga inicial pida el disco" : null;
+        diskPanel.showQueue(serving == null ? null : DiskData.Request.from(serving, cycle), status,
                 DiskData.Request.fromPlans(scheduler.previewServiceOrder(head, direction), cycle));
         DiskPolicyType current = scheduler.getPolicyType();
         if (pendingDiskPolicy == current) {
