@@ -58,7 +58,11 @@ public final class ConfigDialog extends JDialog {
     private final Frame owner;
     private final JTextField cycleField = new JTextField(8);
     private final JTextField quantumField = new JTextField(8);
-    private final JTextField latencyField = new JTextField(8);
+    /**
+     * Latencia de red del archivo (P1: solo cuenta con buffers en OTRO computador). Con un solo
+     * computador no se usa ni se muestra; se conserva para que "Guardar" no la pierda.
+     */
+    private int networkLatency;
 
     // Disco (Proyecto 2): DiskConfig
     private final JTextField fileBlocksField = new JTextField(8);
@@ -99,7 +103,7 @@ public final class ConfigDialog extends JDialog {
     private ConfigDialog(Frame owner, SimulationConfig current) {
         super(owner, "Configuración", true);
         this.owner = owner;
-        FormValidator.clearErrorOnEdit(cycleField, quantumField, latencyField, fileBlocksField, swapField, headField,
+        FormValidator.clearErrorOnEdit(cycleField, quantumField, fileBlocksField, swapField, headField,
                 positionsField);
         bufferList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         processList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -130,9 +134,6 @@ public final class ConfigDialog extends JDialog {
         addRow(panel, "Duración del ciclo (" + SimulationConfig.MIN_CYCLE_MS + "-"
                 + SimulationConfig.MAX_CYCLE_MS + " ms):", cycleField);
         addRow(panel, "Quantum de Round Robin (1-" + SimulationConfig.MAX_QUANTUM + " ciclos):", quantumField);
-        // La latencia de red solo cuenta en el acceso a un buffer de OTRO computador (P1). Con un
-        // solo computador no se usa: no se muestra, pero el campo guarda el valor del archivo para
-        // que Guardar no lo pierda.
         return panel;
     }
 
@@ -269,7 +270,7 @@ public final class ConfigDialog extends JDialog {
     private void showConfig(SimulationConfig config) {
         cycleField.setText(String.valueOf(config.getCycleDurationMs()));
         quantumField.setText(String.valueOf(config.getQuantum()));
-        latencyField.setText(String.valueOf(config.getNetworkLatency()));
+        networkLatency = config.getNetworkLatency();
         DiskConfig disk = config.getDisk();
         fileBlocksField.setText(String.valueOf(disk.fileBlocks()));
         swapField.setText(String.valueOf(disk.swapBlocks()));
@@ -427,7 +428,6 @@ public final class ConfigDialog extends JDialog {
         int cycle = v.integer(cycleField, "Duración del ciclo (ms)",
                 (int) SimulationConfig.MIN_CYCLE_MS, (int) SimulationConfig.MAX_CYCLE_MS);
         int quantum = v.integer(quantumField, "Quantum", 1, SimulationConfig.MAX_QUANTUM);
-        int latency = v.integer(latencyField, "Latencia de red", 0, SimulationConfig.MAX_NETWORK_LATENCY);
         int fileBlocks = v.integer(fileBlocksField, "Bloques para archivos", DiskConfig.MIN_FILE_BLOCKS,
                 DiskConfig.MAX_FILE_BLOCKS);
         int swap = v.integer(swapField, "Área de intercambio", 0, DiskConfig.MAX_SWAP_BLOCKS);
@@ -452,7 +452,7 @@ public final class ConfigDialog extends JDialog {
             return null;
         }
         try {
-            SimulationConfig config = new SimulationConfig(cycle, quantum, latency);
+            SimulationConfig config = new SimulationConfig(cycle, quantum, networkLatency);
             config.setDisk(new DiskConfig(fileBlocks, swap,
                     DiskPolicyType.fromLabel((String) diskPolicyCombo.getSelectedItem()), head,
                     directionOf(directionCombo.getSelectedItem()), positions));
