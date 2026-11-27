@@ -192,9 +192,13 @@ public final class Theme {
         return label;
     }
 
-    /** Scroll sin borde propio (la tarjeta que lo contiene ya dibuja uno) y fondo blanco. */
+    /**
+     * Scroll sin borde propio (la tarjeta que lo contiene ya dibuja uno) y fondo blanco. Si va
+     * dentro de una vista que también se desplaza, le pasa la rueda del mouse cuando él ya no
+     * puede moverse (NestedScrollPane), así la vista no se traba con el puntero encima.
+     */
     public static JScrollPane scroll(Component view) {
-        JScrollPane scroll = new JScrollPane(view);
+        JScrollPane scroll = new NestedScrollPane(view);
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.getViewport().setBackground(SURFACE);
         scroll.setBackground(SURFACE);
