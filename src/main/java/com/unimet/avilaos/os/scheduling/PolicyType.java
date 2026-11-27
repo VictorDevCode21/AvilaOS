@@ -4,34 +4,82 @@ package com.unimet.avilaos.os.scheduling;
  * Políticas de planificación disponibles (enum exigido por el enunciado).
  * La etiqueta coincide con los textos del selector de la GUI.
  *
+ * Cada constante crea su propia política (fábrica por constante) y describe
+ * cómo decide, sin ningún switch sobre el enum. Así se corrige lo que señalaron
+ * los evaluadores del Proyecto 1: agregar una política es crear su clase y una
+ * constante aquí; el Scheduler, el Kernel y la GUI no se tocan. Es el mismo
+ * diseño que DiskPolicyType en el disco.
+ *
+ * Los textos (criterio y expropiación) son los de la tabla de ayuda de la
+ * ventana Planificación; usesQuantum() le dice a la GUI y a la configuración si
+ * la política usa el quantum, y debe coincidir con lo que hace isQuantumExpired()
+ * en la clase de la política.
+ *
  * @author donatovodola
+ * @author NicollPinzon
  */
 public enum PolicyType {
 
-    FCFS("FCFS"),
-    ROUND_ROBIN("Round Robin"),
-    EDF("EDF"),
-    PREEMPTIVE_PRIORITY("Prioridades apropiativas");
+    FCFS("FCFS", "el que llegó antes a listos", "No", false) {
+        @Override
+        public SchedulingPolicy newPolicy() {
+            return new FcfsPolicy();
+        }
+    },
+    ROUND_ROBIN("Round Robin", "el que llegó antes, por turnos de 'quantum' ciclos",
+            "Sí, al agotar el quantum", true) {
+        @Override
+        public SchedulingPolicy newPolicy() {
+            return new RoundRobinPolicy();
+        }
+    },
+    EDF("EDF", "el de deadline más cercano", "Sí, si llega un deadline menor", false) {
+        @Override
+        public SchedulingPolicy newPolicy() {
+            return new EdfPolicy();
+        }
+    },
+    PREEMPTIVE_PRIORITY("Prioridades apropiativas", "el de mayor prioridad (número menor)",
+            "Sí, si llega más prioridad", false) {
+        @Override
+        public SchedulingPolicy newPolicy() {
+            return new PreemptivePriorityPolicy();
+        }
+    };
 
     private final String label;
+    private final String criterion;
+    private final String preemption;
+    private final boolean quantum;
 
-    PolicyType(String label) {
+    PolicyType(String label, String criterion, String preemption, boolean quantum) {
         this.label = label;
+        this.criterion = criterion;
+        this.preemption = preemption;
+        this.quantum = quantum;
     }
 
     public String getLabel() {
         return label;
     }
 
-    /** Crea una instancia nueva de la política (cada computador tiene la suya). */
-    public SchedulingPolicy newPolicy() {
-        return switch (this) {
-            case FCFS -> new FcfsPolicy();
-            case ROUND_ROBIN -> new RoundRobinPolicy();
-            case EDF -> new EdfPolicy();
-            case PREEMPTIVE_PRIORITY -> new PreemptivePriorityPolicy();
-        };
+    /** A quién elige primero (columna "Elige primero a…" de la ventana Planificación). */
+    public String getCriterion() {
+        return criterion;
     }
+
+    /** Si es apropiativa y cuándo expropia (columna "Apropiativa"). */
+    public String getPreemption() {
+        return preemption;
+    }
+
+    /** true si la política usa el quantum (hoy solo Round Robin). */
+    public boolean usesQuantum() {
+        return quantum;
+    }
+
+    /** Crea una instancia nueva de la política (cada computador tiene la suya). */
+    public abstract SchedulingPolicy newPolicy();
 
     /**
      * Busca por etiqueta ("Round Robin") o por nombre del enum ("ROUND_ROBIN"),

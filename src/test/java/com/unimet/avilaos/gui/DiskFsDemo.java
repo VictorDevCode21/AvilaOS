@@ -230,7 +230,6 @@ public final class DiskFsDemo {
         }
         String reason = session.admin() ? null : userRule(operation, entry);
         if (reason != null) {
-            view.showRejected(reason);
             window.showRejected(reason);
             return;
         }
@@ -252,7 +251,10 @@ public final class DiskFsDemo {
             return "En modo usuario solo puedes crear archivos dentro de tus directorios; " + entry.path()
                     + " es de " + entry.owner() + ".";
         }
-        if (("UPDATE".equals(operation) || "DELETE".equals(operation)) && !mine) {
+        if ("UPDATE".equals(operation)) {             // the statement gives renaming to the administrator
+            return "En modo usuario no se puede cambiar el nombre de archivos ni directorios; solo el administrador.";
+        }
+        if ("DELETE".equals(operation) && !mine) {
             return "En modo usuario no puedes modificar archivos del sistema ni de otros usuarios; "
                     + entry.name() + " es de " + entry.owner() + ".";
         }
@@ -333,12 +335,12 @@ public final class DiskFsDemo {
         DiskData.Request[] out = new DiskData.Request[left.length];
         int count = left.length;
         int h = head;
-        boolean up = movingUp || "C-SCAN".equals(policy);
+        boolean up = movingUp || "C-SCAN".equals(policy) || "C-LOOK".equals(policy);
         for (int k = 0; k < out.length; k++) {
             int pick = 0;
             switch (policy) {
                 case "SSTF" -> pick = nearest(left, count, h, 0);
-                case "C-SCAN" -> {
+                case "C-SCAN", "C-LOOK" -> {
                     pick = nearest(left, count, h, 1);
                     if (pick < 0) {
                         h = 0;
