@@ -139,9 +139,11 @@ public class BlockMap {
      */
     public int allocateFileAt(int start, int count, String owner) {
         checkRequest(count, owner);
-        if (start < 0 || start + count > fileBlocks) {
-            throw new IllegalArgumentException("Los bloques " + start + " a " + (start + count - 1)
-                    + " se salen de la zona de archivos (bloques 0 a " + (fileBlocks - 1) + ")");
+        // Se compara count con lo que queda desde start (y no start + count) para
+        // que un "blocks" enorme en el JSON no desborde el int.
+        if (start < 0 || start >= fileBlocks || count > fileBlocks - start) {
+            throw new IllegalArgumentException(count + (count == 1 ? " bloque" : " bloques") + " desde el " + start
+                    + " se sale" + (count == 1 ? "" : "n") + " de la zona de archivos (bloques 0 a " + (fileBlocks - 1) + ")");
         }
         mutex.acquireUninterruptibly();
         try {
