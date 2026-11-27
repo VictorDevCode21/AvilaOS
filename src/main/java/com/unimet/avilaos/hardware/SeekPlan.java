@@ -31,6 +31,7 @@ public final class SeekPlan {
     private final int sweepEdge;
     private final int jumpTo;
     private final HeadDirection directionAfter;
+    private final String chosenBy;       // política que eligió la solicitud (para el log), o null
 
     /**
      * @param request        solicitud elegida
@@ -62,12 +63,41 @@ public final class SeekPlan {
         this.sweepEdge = sweepEdge;
         this.jumpTo = jumpTo;
         this.directionAfter = directionAfter;
+        this.chosenBy = null;
+    }
+
+    private SeekPlan(SeekPlan plan, String chosenBy) {
+        this.request = plan.request;
+        this.startBlock = plan.startBlock;
+        this.sweepEdge = plan.sweepEdge;
+        this.jumpTo = plan.jumpTo;
+        this.directionAfter = plan.directionAfter;
+        this.chosenBy = chosenBy;
+    }
+
+    /**
+     * El mismo recorrido, anotando qué política eligió la solicitud. Lo hace el
+     * planificador de disco al entregarla: así el log dice la política que la
+     * eligió aunque la cambien mientras el disco la atiende.
+     *
+     * @param policy nombre de la política (por ejemplo "SSTF")
+     */
+    public SeekPlan chosenBy(String policy) {
+        if (policy == null || policy.isBlank()) {
+            throw new IllegalArgumentException("Falta el nombre de la política");
+        }
+        return new SeekPlan(this, policy.trim());
     }
 
     /** Recorrido directo: el cabezal va del bloque actual al objetivo. */
     public static SeekPlan direct(DiskRequest request, int startBlock, HeadDirection current) {
         HeadDirection after = HeadDirection.between(startBlock, request.getTargetBlock(), current);
         return new SeekPlan(request, startBlock, NONE, NONE, after);
+    }
+
+    /** Política que eligió la solicitud, o null si no se anotó. */
+    public String getChosenBy() {
+        return chosenBy;
     }
 
     public DiskRequest getRequest() {

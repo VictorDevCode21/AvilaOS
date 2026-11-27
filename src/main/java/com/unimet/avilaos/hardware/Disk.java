@@ -45,7 +45,7 @@ public class Disk implements ClockListener {
     private final Cpu cpu;
     private final BlockMap blocks;
     private final SeekPlanSource source;
-    private final LinkedQueue<DiskRequest> completed = new LinkedQueue<>();
+    private final LinkedQueue<SeekPlan> completed = new LinkedQueue<>();
     private final LinkedList<Integer> cancelledWhileFetching = new LinkedList<>();
     private final Semaphore mutex = new Semaphore(1, true);
 
@@ -135,7 +135,7 @@ public class Disk implements ClockListener {
                 busyCycles++;
                 if (step()) {
                     DiskRequest request = plan.getRequest();
-                    completed.enqueue(request);
+                    completed.enqueue(plan);
                     finished = new Interrupt(InterruptType.DISK_COMPLETION, request.getProcessId());
                     direction = plan.getDirectionAfter();
                     servedRequests++;
@@ -153,12 +153,13 @@ public class Disk implements ClockListener {
     // ---------- Lo usa el kernel ----------
 
     /**
-     * Saca la siguiente solicitud terminada (en el orden en que terminaron). El
-     * kernel la pide al atender cada interrupción DISK_COMPLETION.
+     * Saca el recorrido de la siguiente solicitud terminada (en el orden en que
+     * terminaron). El kernel lo pide al atender cada interrupción DISK_COMPLETION;
+     * trae la solicitud (getRequest) y la política que la eligió (getChosenBy).
      *
-     * @return la solicitud terminada, o null si no hay
+     * @return el recorrido de la solicitud terminada, o null si no hay
      */
-    public DiskRequest pollCompleted() {
+    public SeekPlan pollCompleted() {
         mutex.acquireUninterruptibly();
         try {
             return completed.dequeue();

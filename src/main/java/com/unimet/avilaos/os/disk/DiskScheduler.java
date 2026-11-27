@@ -177,7 +177,7 @@ public class DiskScheduler implements SeekPlanSource {
             mutex.acquireUninterruptibly();
             try {
                 if (queue.remove(plan.getRequest())) {
-                    return plan;
+                    return plan.chosenBy(current.getType().getLabel());   // para el log del disco
                 }
                 // La eligió pero se canceló mientras tanto: se vuelve a preguntar.
             } finally {

@@ -10,6 +10,7 @@ import com.unimet.avilaos.hardware.InterruptHandler;
 import com.unimet.avilaos.hardware.InterruptType;
 import com.unimet.avilaos.hardware.IoDevice;
 import com.unimet.avilaos.hardware.IoOperation;
+import com.unimet.avilaos.hardware.SeekPlan;
 import com.unimet.avilaos.metrics.ComputerMetrics;
 import com.unimet.avilaos.metrics.SystemMetrics;
 import com.unimet.avilaos.os.disk.DiskPolicyType;
@@ -423,11 +424,14 @@ public class Kernel implements InterruptHandler {
      * Hay una interrupción por solicitud terminada, así que se toma una sola.
      */
     private void diskCompleted() {
-        DiskRequest done = storage.disk().pollCompleted();
-        if (done == null) {
+        SeekPlan plan = storage.disk().pollCompleted();
+        if (plan == null) {
             return;
         }
-        String policy = storage.diskScheduler().getPolicyType().getLabel();
+        DiskRequest done = plan.getRequest();
+        // La política que ELIGIÓ la solicitud, no la vigente ahora (pueden haberla cambiado)
+        String policy = plan.getChosenBy() != null ? plan.getChosenBy()
+                : storage.diskScheduler().getPolicyType().getLabel();
         ProcessRuntime rt = findById(done.getProcessId());
         if (rt == null || !rt.pcb.getType().isFileIo() || rt.pcb.getState() != ProcessState.BLOCKED
                 || rt.pcb.getBlockReason() != BlockReason.IO) {
@@ -439,7 +443,7 @@ public class Kernel implements InterruptHandler {
                 + " (" + policy + ")");
         FsResult result = storage.fileSystem().apply(rt.pcb.getSession(), rt.pcb.getFileOperation());
         if (!result.isOk()) {
-            terminate(rt, false, "se termina: " + lowerFirst(result.getMessage()));
+            terminate(rt, false, lowerFirst(result.getMessage()));
             return;
         }
         log.log(cycle, source, "el proceso " + rt.pcb + ": " + result.getMessage());
@@ -526,7 +530,7 @@ public class Kernel implements InterruptHandler {
         FsOperation op = rt.pcb.getFileOperation();
         FsResult check = storage.fileSystem().check(rt.pcb.getSession(), op);
         if (!check.isOk()) {
-            terminate(rt, false, "se termina: no se pudo " + op + ": " + check.getMessage());
+            terminate(rt, false, "no se pudo " + op + ": " + check.getMessage());
             return;
         }
         String target = op.getOperation() == IoOperation.CREATE
@@ -660,12 +664,15 @@ public class Kernel implements InterruptHandler {
     // =====================================================================
 
     /**
-     * @param why motivo para el log ("se termina: …"), o null para el texto normal
-     *            ("terminó su ejecución" o "venció su deadline")
+     * @param failure motivo si su operación de E/S no se pudo hacer (el proceso queda como
+     *                fallido y las métricas no lo cuentan a tiempo), o null si terminó su
+     *                trabajo o le venció el deadline
      */
-    private void terminate(ProcessRuntime rt, boolean deadlineExpired, String why) {
+    private void terminate(ProcessRuntime rt, boolean deadlineExpired, String failure) {
         Pcb pcb = rt.pcb;
         boolean admitted = pcb.getState() != ProcessState.NEW;
+        int removedFromQueue = 0;
+        boolean aborted = false;
         switch (pcb.getState()) {
             case NEW -> memory.removeFromNew(pcb);
             case READY -> scheduler.remove(pcb);
@@ -681,8 +688,8 @@ public class Kernel implements InterruptHandler {
                         if (pcb.getType().isFileIo()) {
                             // Se cancela en los dos sin mirar lo que devuelven: si el disco estaba
                             // pidiendo la siguiente, Disk.cancel da false pero igual la descarta.
-                            storage.diskScheduler().cancel(pcb.getId());
-                            storage.disk().cancel(pcb.getId());
+                            removedFromQueue = storage.diskScheduler().cancel(pcb.getId());
+                            aborted = storage.disk().cancel(pcb.getId());
                         } else {
                             io.cancel(pcb.getId());
                         }
@@ -702,7 +709,11 @@ public class Kernel implements InterruptHandler {
         if (pcb.getType().usesBuffer()) {
             releaseBufferHoldings(rt);
         }
-        pcb.markTerminated(cycle, deadlineExpired);
+        if (failure != null) {
+            pcb.markFailed(cycle, failure);
+        } else {
+            pcb.markTerminated(cycle, deadlineExpired);
+        }
         if (admitted) {
             memory.release(pcb);
         }
@@ -714,8 +725,15 @@ public class Kernel implements InterruptHandler {
             mutex.release();
         }
         metrics.processTerminated(pcb);
-        String text = why != null ? why : deadlineExpired ? "se termina: venció su deadline" : "terminó su ejecución";
+        String text = failure != null ? "se termina: " + failure
+                : deadlineExpired ? "se termina: venció su deadline" : "terminó su ejecución";
         log.log(cycle, source, "el proceso " + pcb + " " + text);
+        String cause = deadlineExpired ? "venció su deadline" : "el proceso terminó";
+        if (aborted) {
+            log.log(cycle, DISK_SOURCE, "aborta la solicitud de " + pcb + " que estaba atendiendo (" + cause + ")");
+        } else if (removedFromQueue > 0) {
+            log.log(cycle, DISK_SOURCE, "saca de su cola la solicitud de " + pcb + " (" + cause + ")");
+        }
     }
 
     /** "No se pudo leer /x" → "no se pudo leer /x" (para continuar una frase del log). */
