@@ -51,6 +51,29 @@ public final class DiskData {
     }
 
     /**
+     * Disk and suspension metrics at one moment (copies; the GUI only shows them).
+     *
+     * @param totalSeek        total head displacement in blocks (the C-SCAN jump does not count)
+     * @param averageWait      average cycles a request waited in the I/O queue
+     * @param servedPerPolicy  requests served with each disk policy, in the same order as the
+     *                         policy labels the Disk view uses
+     * @param suspensions      processes suspended by the medium-term scheduler
+     * @param reactivations    processes brought back to RAM
+     */
+    public record DiskMetrics(long totalSeek, double averageWait, long[] servedPerPolicy, int suspensions,
+            int reactivations) {
+
+        /** Requests served in total (all policies). */
+        public long served() {
+            long total = 0;
+            for (long n : servedPerPolicy) {
+                total += n;
+            }
+            return total;
+        }
+    }
+
+    /**
      * Who is using the simulator and in which mode.
      *
      * PROVISIONAL: the mode will come from the UserMode enum (file system).

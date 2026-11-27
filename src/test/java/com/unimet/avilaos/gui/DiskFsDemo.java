@@ -42,6 +42,10 @@ public final class DiskFsDemo {
     private String policy = "SSTF";
     private int nextPid = 20;
     private long cycle;
+    // Fake metrics
+    private long totalSeek;
+    private long waitSum;
+    private final long[] servedPerPolicy = new long[MainWindow.DISK_POLICIES.length];
 
     private DiskFsDemo() {
         loadFileSystem();
@@ -289,7 +293,10 @@ public final class DiskFsDemo {
                 if (target.block() != head) {
                     movingUp = target.block() > head;
                 }
+                totalSeek += Math.abs(target.block() - head);
                 head = target.block();
+                waitSum += target.waitCycles();
+                servedPerPolicy[policyIndex()]++;
                 serving = target;
                 DiskData.FileEntry entry = find(target.target());
                 servingLeft = entry == null ? 1 : Math.min(6, Math.max(1, entry.blocks()));
@@ -298,6 +305,7 @@ public final class DiskFsDemo {
             } else {
                 movingUp = target.block() > head;
                 head += movingUp ? STEP : -STEP;
+                totalSeek += STEP;
             }
         } else if (cycle % 6 == 0) {                   // keep the demo busy
             String[] paths = {"/sistema/core.dll", "/usuarios/video.mp4", "/mbr.bin", "/usuarios/data.csv",
@@ -327,12 +335,12 @@ public final class DiskFsDemo {
         DiskData.Request[] out = new DiskData.Request[left.length];
         int count = left.length;
         int h = head;
-        boolean up = movingUp || "C-SCAN".equals(policy);
+        boolean up = movingUp || "C-SCAN".equals(policy) || "C-LOOK".equals(policy);
         for (int k = 0; k < out.length; k++) {
             int pick = 0;
             switch (policy) {
                 case "SSTF" -> pick = nearest(left, count, h, 0);
-                case "C-SCAN" -> {
+                case "C-SCAN", "C-LOOK" -> {
                     pick = nearest(left, count, h, 1);
                     if (pick < 0) {
                         h = 0;
@@ -370,8 +378,24 @@ public final class DiskFsDemo {
         return best;
     }
 
+    private int policyIndex() {
+        for (int i = 0; i < MainWindow.DISK_POLICIES.length; i++) {
+            if (MainWindow.DISK_POLICIES[i].equals(policy)) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
     private void refresh() {
         window.setCycle(cycle);
+        long served = 0;
+        for (long n : servedPerPolicy) {
+            served += n;
+        }
+        window.showDiskMetrics(new DiskData.DiskMetrics(totalSeek, served == 0 ? 0 : waitSum / (double) served,
+                servedPerPolicy.clone(), 2, 1));
+        window.addSeekSample(cycle, totalSeek, policy);
         window.getDiskPanel().showSnapshot(new DiskData.Snapshot(TOTAL, SWAP_START, head, movingUp, blocks.clone()));
         window.getDiskPanel().showQueue(serving, servingDone, order());
         window.getFileSystemPanel().showFiles(files);
