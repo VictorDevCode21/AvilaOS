@@ -57,6 +57,12 @@ import javax.swing.Timer;
  * cambios de la simulación) pasan a ser el sistema de archivos de la nueva, con el JSON de procesos
  * que se elija (FileSystemJson.snapshot, con el cabezal donde está).
  *
+ * Modo usuario (enunciado): el usuario ve el disco, la cola de E/S, el log y las métricas (solo
+ * lectura) y crea procesos de E/S, que el sistema de archivos revisa con su sesión (archivos
+ * propios o públicos). Lo que cambia el sistema es del administrador: las políticas de CPU y de
+ * disco, el quantum, los procesos de CPU, la configuración, cargar los JSON y reiniciar. En modo
+ * usuario esas acciones se rechazan con el motivo (deniedInUserMode) y la simulación sigue.
+ *
  * @author victor1102
  * @author donatovodola
  */
@@ -192,6 +198,9 @@ public final class SimulationController {
      * y sin reemplazo, e Iniciar ya no hacía nada).
      */
     private void reset() {
+        if (deniedInUserMode("reiniciar la simulación")) {
+            return;
+        }
         if (loadedFromJson()) {
             SimulationLoader.Loaded loaded;
             try {
@@ -234,6 +243,9 @@ public final class SimulationController {
      * y al clúster. El formulario ya validó con la misma configuración.
      */
     private void createProcess() {
+        if (deniedInUserMode("crear procesos de CPU")) {
+            return;
+        }
         ProcessConfig process = ProcessFormDialog.showDialog(window, config);
         if (process == null) {
             return;
@@ -253,6 +265,9 @@ public final class SimulationController {
      * el clúster, se cierra esta ventana y se abre un controlador nuevo con la configuración.
      */
     private void configure() {
+        if (deniedInUserMode("cambiar la configuración")) {
+            return;
+        }
         SimulationConfig newConfig = ConfigDialog.showDialog(window, config);
         if (newConfig == null) {
             return;
@@ -278,6 +293,9 @@ public final class SimulationController {
      * problema termina con su motivo cuando se ejecuta.
      */
     private void loadJson() {
+        if (deniedInUserMode("cargar los JSON de la simulación")) {
+            return;
+        }
         // El disco actual solo se ofrece si la simulación salió de los JSON (si no, está vacío)
         FileSystemJson.Image current = loadedFromJson() ? currentDisk() : null;
         LoadDialog.Selection chosen = new LoadDialog(window, JsonChecks::checkFileSystem,
@@ -419,6 +437,11 @@ public final class SimulationController {
      * paused) the Disk view marks the chosen one and says it is pending.
      */
     private void chooseDiskPolicy(DiskPolicyType policy) {
+        if (deniedInUserMode("cambiar la política de disco")) {
+            // El selector vuelve a marcar la política que de verdad usa el disco
+            window.getDiskPanel().showPolicy(computer().getDiskScheduler().getPolicyType(), pendingDiskPolicy);
+            return;
+        }
         cluster.setDiskPolicy(policy);
         pendingDiskPolicy = policy;
         window.getDiskPanel().showPolicy(computer().getDiskScheduler().getPolicyType(), pendingDiskPolicy);
@@ -436,6 +459,9 @@ public final class SimulationController {
         }
         session = chosen;
         window.showSession(session);
+        if (!session.admin()) {
+            planningDialog.setVisible(false);         // abierta como administrador: el usuario no la puede usar
+        }
         cluster.getLog().log(cluster.getCurrentCycle(), "Interfaz", "cambia al modo " + session.longText());
     }
 
@@ -505,6 +531,9 @@ public final class SimulationController {
 
     /** Abre la ventana de Planificación con lo que tiene cada computador ahora. */
     private void openPlanning() {
+        if (deniedInUserMode("cambiar las políticas de planificación ni el quantum")) {
+            return;
+        }
         if (!planningDialog.isVisible()) {          // si ya está abierta no se pisa lo que se está eligiendo
             loadPlanning();
         }
@@ -527,10 +556,31 @@ public final class SimulationController {
      * reiniciar se vuelve a la política inicial de cada computador.
      */
     private void applyPlanning(PolicyType[] policies, int quantum) {
+        if (deniedInUserMode("cambiar las políticas de planificación ni el quantum")) {
+            return;
+        }
         for (int id = 1; id <= policies.length; id++) {
             cluster.setPolicy(id, policies[id - 1]);
         }
         cluster.setQuantum(quantum);
+    }
+
+    /**
+     * Modo usuario (enunciado): solo el administrador gestiona los procesos y cambia las políticas
+     * y la configuración. Si la sesión es de usuario, muestra el motivo (sin detener la simulación),
+     * lo deja en el log y devuelve true para que la acción no se haga.
+     *
+     * @param action lo que se intentó, en infinitivo (por ejemplo "cambiar la política de disco")
+     */
+    private boolean deniedInUserMode(String action) {
+        String reason = session.toUserSession().adminOnly(action);
+        if (reason == null) {
+            return false;
+        }
+        window.showRejected(reason);
+        cluster.getLog().log(cluster.getCurrentCycle(), "Interfaz", "rechaza " + action + " (" + session.longText()
+                + "): solo el administrador");
+        return true;
     }
 
     private void showError(String title, IllegalArgumentException ex) {
