@@ -17,7 +17,8 @@ import javax.swing.JTextField;
 
 /**
  * "Nuevo proceso de E/S" form: the user picks the operation (CREATE, READ, UPDATE, DELETE), the
- * file or directory, and the data of the process that will do it.
+ * file or directory, and the data of the process that will do it. UPDATE puede renombrar (archivo o
+ * directorio) o reescribir un archivo en su lugar, sin nombre nuevo (FsOperation.update).
  *
  * The form never touches the file system: it only returns a {@link DiskData.IoProcess}. Whoever
  * opened it creates the I/O process, which goes through the queues like any other process and asks
@@ -55,6 +56,8 @@ public final class IoProcessDialog extends JDialog {
     }
 
     private static final String ADMIN = "admin";
+    private static final String RENAME = "Renombrar";
+    private static final String IN_PLACE = "Reescribir en su lugar";
     private static final int USER_NAME_MAX = 20;
 
     private final transient Limits limits;
@@ -80,6 +83,8 @@ public final class IoProcessDialog extends JDialog {
     private final JTextField sizeField = new JTextField("5");
     private final JComboBox<String> permissionCombo = new JComboBox<>(new String[] {"Público", "Privado"});
     private final JTextField renameField = new JTextField();
+    /** UPDATE: renombrar, o reescribir el archivo en su lugar (sin nombre nuevo, solo archivos). */
+    private final JComboBox<String> updateKind = new JComboBox<>(new String[] {RENAME, IN_PLACE});
 
     private final JTextField processName = new JTextField();
     private final JTextField memoryField = new JTextField("16");
@@ -148,6 +153,11 @@ public final class IoProcessDialog extends JDialog {
             }
         }
         ownerCombo.setEnabled(false);
+        updateKind.addActionListener(e -> {
+            if (operation == IoOperation.UPDATE) {
+                selectOperation(IoOperation.UPDATE);      // cambia la lista (solo archivos en su lugar) y la ayuda
+            }
+        });
         createKind.addActionListener(e -> {
             boolean file = "Archivo".equals(createKind.getSelectedItem());
             sizeField.setEnabled(file);
@@ -189,8 +199,9 @@ public final class IoProcessDialog extends JDialog {
         create.add(field("Tamaño (bloques) · libres: " + limits.freeBlocks(), sizeField));
         create.add(field("Permiso", permissionCombo));
         create.add(field("Dueño (solo directorios)", ownerCombo));
-        JPanel rename = Theme.transparent(new JPanel(new BorderLayout()));
-        rename.add(field("Nombre nuevo (sin /)", renameField), BorderLayout.NORTH);
+        JPanel rename = Theme.transparent(new JPanel(new GridLayout(1, 2, 12, 10)));
+        rename.add(field("Actualizar", updateKind));
+        rename.add(field("Nombre nuevo (sin /)", renameField));
         createFields = create;
         renameFields = rename;
         middle.add(extra, BorderLayout.CENTER);
@@ -256,7 +267,9 @@ public final class IoProcessDialog extends JDialog {
             boolean fits = switch (chosen) {
                 case CREATE -> entry.directory();
                 case READ -> !entry.directory();
-                default -> !"/".equals(entry.path());          // UPDATE and DELETE: files and folders
+                case UPDATE -> inPlace() ? !entry.directory()  // un directorio no se reescribe en su lugar
+                        : !"/".equals(entry.path());
+                default -> !"/".equals(entry.path());          // DELETE: files and folders
             };
             if (fits) {
                 targetCombo.addItem(entry.path());
@@ -272,8 +285,12 @@ public final class IoProcessDialog extends JDialog {
                 showExtra(createFields);
             }
             case UPDATE -> {
-                targetLabel.setText("Archivo o directorio a renombrar");
-                operationHint.setText("Cambia el nombre; los bloques no se mueven.");
+                boolean inPlace = inPlace();
+                targetLabel.setText(inPlace ? "Archivo a reescribir" : "Archivo o directorio a renombrar");
+                operationHint.setText(inPlace
+                        ? "Reescribe el archivo bloque por bloque; el nombre y los bloques no cambian."
+                        : "Cambia el nombre; los bloques no se mueven.");
+                renameField.setEnabled(!inPlace);
                 showExtra(renameFields);
             }
             case DELETE -> {
@@ -295,6 +312,11 @@ public final class IoProcessDialog extends JDialog {
         }
         suggestedName = suggestion;
         pack();
+    }
+
+    /** UPDATE: true si se eligió reescribir el archivo en su lugar en vez de renombrarlo. */
+    private boolean inPlace() {
+        return IN_PLACE.equals(updateKind.getSelectedItem());
     }
 
     /** Shows only the given fields under the target (null = none), so the card shrinks for READ/DELETE. */
@@ -342,7 +364,7 @@ public final class IoProcessDialog extends JDialog {
             if (directory) {
                 owner = userName(v, ownerEditor(), "Dueño");
             }
-        } else if (operation == IoOperation.UPDATE) {
+        } else if (operation == IoOperation.UPDATE && !inPlace()) {   // en su lugar: newName queda null
             newName = fileName(v, renameField, "Nombre nuevo");
             if (newName != null && path != null) {
                 String renamed = join(parentOf(path), newName);
