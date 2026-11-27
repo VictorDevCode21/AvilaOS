@@ -108,13 +108,13 @@ public final class DiskData {
      * Disk and suspension metrics at one moment (copies; the GUI only shows them).
      *
      * @param totalSeek        total head displacement in blocks (the C-SCAN jump does not count)
-     * @param averageWait      average cycles a request waited in the I/O queue, or NaN if unknown
+     * @param averageWait      ciclos promedio que una solicitud esperó en la cola de E/S (incluye las
+     *                         SUSPEND y RESUME del swap)
      * @param served           requests served in total (all policies)
      * @param servedPerPolicy  requests served with each disk policy, in the same order as the
-     *                         policy labels the Disk view uses; null while the simulation doesn't
-     *                         count them per policy
-     * @param suspensions      processes suspended by the medium-term scheduler, or -1 if not counted
-     * @param reactivations    processes brought back to RAM, or -1 if not counted
+     *                         policy labels the Disk view uses (DiskPolicyType.labels())
+     * @param suspensions      suspensiones completadas por el planificador a mediano plazo
+     * @param reactivations    reactivaciones completadas (el proceso volvió a la RAM)
      */
     public record DiskMetrics(long totalSeek, double averageWait, long served, long[] servedPerPolicy,
             int suspensions, int reactivations) {

@@ -80,21 +80,14 @@ public final class DiskMetricsPanel extends JPanel {
             throw new IllegalArgumentException("Las métricas del disco no pueden ser null");
         }
         seekKpi.show(metrics.totalSeek() + " bloques", "desde el ciclo 0");
-        double wait = metrics.averageWait();
-        boolean knownWait = Double.isFinite(wait) && wait >= 0;
-        waitKpi.show(knownWait ? String.format("%.1f ciclos", wait) : "—",
-                metrics.served() == 0 ? "aún no se atiende ninguna"
-                        : knownWait ? "por solicitud atendida" : "pendiente: el disco aún no la mide");
+        boolean none = metrics.served() == 0;
+        waitKpi.show(none ? "—" : String.format("%.1f ciclos", metrics.averageWait()),
+                none ? "aún no se atiende ninguna" : "por solicitud atendida");
         servedKpi.show(String.valueOf(metrics.served()), "entre todas las políticas");
-        if (metrics.suspensions() < 0 || metrics.reactivations() < 0) {        // not counted yet
-            suspendKpi.show("—", "pendiente: mediano plazo");
-            resumeKpi.show("—", "pendiente: mediano plazo");
-        } else {
-            suspendKpi.show(String.valueOf(metrics.suspensions()), "planificador a mediano plazo");
-            resumeKpi.show(String.valueOf(metrics.reactivations()),
-                    Math.max(0, metrics.suspensions() - metrics.reactivations()) + " siguen en swap");
-        }
-        bars.setCounts(metrics.servedPerPolicy());       // null: not counted per policy yet
+        suspendKpi.show(String.valueOf(metrics.suspensions()), "planificador a mediano plazo");
+        resumeKpi.show(String.valueOf(metrics.reactivations()),
+                Math.max(0, metrics.suspensions() - metrics.reactivations()) + " siguen en swap");
+        bars.setCounts(metrics.servedPerPolicy());
     }
 
     /** Adds a point to the cumulative displacement chart. */
@@ -125,7 +118,6 @@ public final class DiskMetricsPanel extends JPanel {
         private final String[] policies;
         private final transient SeekChart colors;
         private long[] counts = new long[0];
-        private boolean available = true;
 
         PolicyBars(String[] policies, SeekChart colors) {
             this.policies = policies.clone();
@@ -133,10 +125,12 @@ public final class DiskMetricsPanel extends JPanel {
             setPreferredSize(new Dimension(280, policies.length * ROW));
         }
 
-        /** @param counts served per policy, or null if the simulation doesn't count them yet */
+        /** @param counts atendidas por cada política, en el orden de DiskPolicyType.labels() */
         void setCounts(long[] counts) {
-            this.available = counts != null;
-            this.counts = counts == null ? new long[0] : counts.clone();
+            if (counts == null) {
+                throw new IllegalArgumentException("Faltan las solicitudes atendidas por política");
+            }
+            this.counts = counts.clone();
             setPreferredSize(new Dimension(280, rows() * ROW));
             revalidate();
             repaint();
@@ -169,13 +163,6 @@ public final class DiskMetricsPanel extends JPanel {
             }
             g2.setFont(Theme.SMALL);
             FontMetrics fm = g2.getFontMetrics();
-            if (!available) {
-                g2.setColor(Theme.MUTED);
-                g2.drawString("Pendiente: el disco aún no cuenta", 0, 18);
-                g2.drawString("las solicitudes por política.", 0, 36);
-                g2.dispose();
-                return;
-            }
             int labelW = 58;
             int numberW = 36;
             int barW = getWidth() - labelW - numberW - 8;
