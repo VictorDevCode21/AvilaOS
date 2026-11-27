@@ -183,9 +183,34 @@ public class FileSystem {
         return blocks;
     }
 
+    /** Dueño de la raíz: el administrador (no puede usar el modo usuario). */
+    public String getRootOwner() {
+        return root.owner;
+    }
+
+    /**
+     * Usuarios que pueden entrar en modo usuario: los dueños de archivos y
+     * directorios, sin repetir y sin el dueño de la raíz, en orden de aparición.
+     * Es la lista para el selector de sesión de la GUI.
+     */
+    public LinkedList<String> userNames() {
+        mutex.acquireUninterruptibly();
+        try {
+            LinkedList<String> names = new LinkedList<>();
+            collectOwners(root, names);
+            return names;
+        } finally {
+            mutex.release();
+        }
+    }
+
     // ---------- Validación ----------
 
     private FsResult evaluate(UserSession session, FsOperation op) {
+        String sessionProblem = AccessRules.canUseSession(session, root.owner);
+        if (sessionProblem != null) {
+            return FsResult.denied(sessionProblem);
+        }
         return switch (op.getOperation()) {
             case CREATE -> evaluateCreate(session, op);
             case READ -> evaluateRead(session, op);
@@ -371,6 +396,27 @@ public class FileSystem {
             throw new IllegalArgumentException(path + " está repetido");
         }
         return parent;
+    }
+
+    private void collectOwners(FsNode node, LinkedList<String> names) {
+        if (!node.owner.equals(root.owner) && !containsText(names, node.owner)) {
+            names.addLast(node.owner);
+        }
+        if (node.directory) {
+            for (int i = 0; i < node.children.size(); i++) {
+                collectOwners(node.children.get(i), names);
+            }
+        }
+    }
+
+    /** LinkedList.contains compara referencias; aquí hace falta comparar el texto. */
+    private static boolean containsText(LinkedList<String> list, String text) {
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i).equals(text)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void collect(FsNode node, LinkedList<FileInfo> result) {

@@ -18,7 +18,10 @@ package com.unimet.avilaos.os.fs;
  *   <li>"su propio directorio" es un directorio cuyo dueño es ese usuario; el
  *       administrador elige el dueño al crear un directorio (por ejemplo
  *       /usuarios/user1 con dueño user1);</li>
- *   <li>un usuario puede eliminar sus propios archivos, pero no directorios.</li>
+ *   <li>un usuario puede eliminar sus propios archivos, pero no directorios;</li>
+ *   <li>el dueño de la raíz ("admin") no puede usar el modo usuario;</li>
+ *   <li>leer un archivo público ajeno está permitido: el enunciado dice "leer sus
+ *       archivos propios o los públicos", y leer no modifica nada.</li>
  * </ul>
  *
  * @author NicollPinzon
@@ -26,6 +29,18 @@ package com.unimet.avilaos.os.fs;
 final class AccessRules {
 
     private AccessRules() {
+    }
+
+    /**
+     * El dueño de la raíz (normalmente "admin") es el administrador: no puede
+     * entrar en modo usuario, porque así podría modificar los archivos del
+     * sistema como si fueran "suyos".
+     */
+    static String canUseSession(UserSession session, String rootOwner) {
+        if (!session.isAdmin() && session.getUserName().equals(rootOwner)) {
+            return "El usuario " + rootOwner + " es el administrador: solo puede usar el modo administrador.";
+        }
+        return null;
     }
 
     static String canCreateDirectory(UserSession session) {
