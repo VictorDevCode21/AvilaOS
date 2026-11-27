@@ -2,8 +2,11 @@ package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.cluster.Cluster;
 import com.unimet.avilaos.cluster.Computer;
+import com.unimet.avilaos.config.FileSystemJson;
 import com.unimet.avilaos.config.ProcessConfig;
+import com.unimet.avilaos.config.ProcessesJson;
 import com.unimet.avilaos.config.SimulationConfig;
+import com.unimet.avilaos.config.SimulationLoader;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.LogEntry;
 import com.unimet.avilaos.hardware.BlockMap;
@@ -23,6 +26,8 @@ import com.unimet.avilaos.os.fs.Permission;
 import com.unimet.avilaos.os.process.Pcb;
 import com.unimet.avilaos.os.scheduling.PolicyType;
 import com.unimet.avilaos.os.scheduling.Scheduler;
+import java.io.File;
+import java.io.IOException;
 import javax.swing.JOptionPane;
 import javax.swing.Timer;
 
@@ -41,6 +46,11 @@ import javax.swing.Timer;
  * disk policy selector), the Files view (tree and allocation table from the file system), the
  * user mode selector and the "Nuevo proceso de E/S" form, and shows the disk metrics.
  *
+ * The statement asks the interface to require BOTH JSON files before the global clock starts:
+ * "Iniciar" opens the load dialog while the current simulation wasn't built from them, and the
+ * dialog's "Iniciar simulación" builds it with SimulationLoader and starts the clock. "Reiniciar"
+ * then rebuilds it from the same two files.
+ *
  * @author victor1102
  * @author donatovodola
  */
@@ -55,7 +65,7 @@ public final class SimulationController {
      */
     static final int IO_PROCESS_INSTRUCTIONS = 1;
 
-    private final SimulationConfig config;
+    private SimulationConfig config;      // the JSON loader replaces it with the one of the two files
     private final MainWindow window;
     private final PlanningDialog planningDialog;
     private final Timer refreshTimer;
@@ -68,12 +78,28 @@ public final class SimulationController {
     private int nextIoNumber = 1;         // for the default name of an I/O process ("IO_Read_3")
     /** Disk policy chosen in the Disk view that the kernel hasn't applied yet (next cycle), or null. */
     private DiskPolicyType pendingDiskPolicy;
+    /** The two JSON files last chosen (they pre-fill the load dialog), or null. */
+    private File fileSystemFile;
+    private File processesFile;
+    /** The two files already parsed, if the current simulation was built from them; else null. */
+    private FileSystemJson.Image fileSystemImage;
+    private ProcessesJson.Image processesImage;
 
     public SimulationController(SimulationConfig config) {
+        this(config, null, null);
+    }
+
+    /**
+     * @param fileSystemFile file system JSON chosen before (only pre-fills the load dialog), or null
+     * @param processesFile  processes JSON chosen before, or null
+     */
+    private SimulationController(SimulationConfig config, File fileSystemFile, File processesFile) {
         if (config == null) {
             throw new IllegalArgumentException("La configuración no puede ser null");
         }
         this.config = config;
+        this.fileSystemFile = fileSystemFile;
+        this.processesFile = processesFile;
         this.window = new MainWindow(config.getComputerCount());
         this.planningDialog = new PlanningDialog(window, config.getComputerCount());
         this.refreshTimer = new Timer(REFRESH_MS, e -> refresh());
@@ -84,6 +110,7 @@ public final class SimulationController {
         cluster = Cluster.create(config);
         connect();
         window.showSession(session);
+        window.showLoadedJson(null, null);
         showInitialSettings();
         refresh();
         window.setVisible(true);
@@ -97,6 +124,7 @@ public final class SimulationController {
         window.setResetAction(e -> reset());
         window.setCreateProcessAction(e -> createProcess());
         window.setConfigAction(e -> configure());
+        window.setLoadJsonAction(e -> loadJson());
         window.setPlanningAction(e -> openPlanning());
         window.setCreateIoProcessAction(e -> createIoProcess(null, window.getFileSystemPanel().getSelectedPath()));
         window.getFileSystemPanel().setFileActionListener(this::createIoProcess);
@@ -122,6 +150,10 @@ public final class SimulationController {
     // ---------- Acciones ----------
 
     private void startOrPause() {
+        if (!cluster.isRunning() && !loadedFromJson()) {
+            loadJson();                           // the clock only starts with the two JSON files
+            return;
+        }
         if (!cluster.isRunning()) {
             hadWork = cluster.getTotalLoad() > 0;   // un proceso corto puede terminar antes del primer refresco
             cluster.start();
@@ -137,13 +169,27 @@ public final class SimulationController {
     }
 
     /**
-     * Detiene la simulación y arma una nueva desde la configuración (ciclo 0, PID desde 1).
+     * Detiene la simulación y arma una nueva (ciclo 0, PID desde 1): desde los dos JSON si la
+     * actual salió de ellos, o desde la configuración.
      *
      * El clúster nuevo se arma ANTES de apagar el actual: si la configuración no se puede
      * cargar, se muestra el error y la simulación actual sigue viva (antes quedaba apagada
      * y sin reemplazo, e Iniciar ya no hacía nada).
      */
     private void reset() {
+        if (loadedFromJson()) {
+            SimulationLoader.Loaded loaded;
+            try {
+                loaded = SimulationLoader.start(fileSystemImage, processesImage);
+            } catch (IllegalArgumentException ex) {
+                showError("No se pudo reiniciar", ex);
+                return;
+            }
+            replaceCluster(loaded.cluster(), loaded.config());
+            logLoad(loaded.warnings());
+            refresh();
+            return;
+        }
         Cluster next;
         try {
             next = Cluster.create(config);
@@ -151,8 +197,14 @@ public final class SimulationController {
             showError("No se pudo reiniciar", ex);
             return;
         }
+        replaceCluster(next, config);
+    }
+
+    /** Puts a new simulation in place of the current one and leaves the view as at the start. */
+    private void replaceCluster(Cluster next, SimulationConfig nextConfig) {
         cluster.shutdown();
         cluster = next;
+        config = nextConfig;
         window.resetView();
         usersKey = "";
         pendingDiskPolicy = null;                 // the new cluster starts with the configured policy
@@ -194,7 +246,73 @@ public final class SimulationController {
         cluster.shutdown();
         planningDialog.dispose();
         window.dispose();
-        new SimulationController(newConfig).show();
+        new SimulationController(newConfig, fileSystemFile, processesFile).show();
+    }
+
+    // ---------- The two JSON files (Project 2) ----------
+
+    private boolean loadedFromJson() {
+        return fileSystemImage != null && processesImage != null;
+    }
+
+    /**
+     * Opens "Cargar la simulación". If the user presses "Iniciar simulación", the two files become
+     * the simulation (disk, file system, settings and processes) in place of the current one, and the
+     * clock starts. Cancelling leaves everything as it was. The cross check's warnings don't block:
+     * they go to the log, and each process with a problem ends with its reason when it runs.
+     */
+    private void loadJson() {
+        LoadDialog.Selection chosen = new LoadDialog(window, JsonChecks::checkFileSystem,
+                JsonChecks::checkProcesses, JsonChecks::crossCheck, fileSystemFile, processesFile).showDialog();
+        if (chosen == null) {
+            return;
+        }
+        fileSystemFile = chosen.fileSystem();
+        processesFile = chosen.processes();
+        FileSystemJson.Image fileSystem;
+        ProcessesJson.Image processes;
+        SimulationLoader.Loaded loaded;
+        try {
+            fileSystem = JsonChecks.readFileSystem(fileSystemFile);
+            processes = JsonChecks.readProcesses(processesFile);
+            loaded = SimulationLoader.start(fileSystem, processes);
+        } catch (IOException ex) {
+            showError("No se pudo cargar la simulación", new IllegalArgumentException(JsonChecks.cannotRead(ex), ex));
+            return;
+        } catch (IllegalArgumentException ex) {
+            showError("No se pudo cargar la simulación", ex);
+            return;
+        }
+        fileSystemImage = fileSystem;
+        processesImage = processes;
+        replaceCluster(loaded.cluster(), loaded.config());
+        window.showLoadedJson(fileSystemFile.getName(), processesFile.getName());
+        int warnings = logLoad(loaded.warnings());
+        if (warnings > 0) {
+            window.showNotice("Simulación cargada con " + warnings + (warnings == 1 ? " aviso" : " avisos")
+                    + " (están en el log).");
+        }
+        startOrPause();
+    }
+
+    /**
+     * Writes in the log (cycle 0) which two files the simulation came from and the cross check's
+     * warnings, one per line.
+     *
+     * @return how many warnings there were
+     */
+    private int logLoad(String warnings) {
+        cluster.getLog().log(0, "Carga", "sistema de archivos " + fileSystemFile.getName() + " ("
+                + JsonChecks.summary(fileSystemImage) + ") y procesos " + processesFile.getName() + " ("
+                + JsonChecks.summary(processesImage) + ")");
+        int count = 0;
+        if (warnings != null) {
+            for (String line : warnings.split("\n")) {
+                cluster.getLog().log(0, "Carga", "aviso: " + line);
+                count++;
+            }
+        }
+        return count;
     }
 
     // ---------- Disk, file system and user mode (Project 2) ----------

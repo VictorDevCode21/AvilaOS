@@ -93,8 +93,8 @@ public final class DiskFsDemo {
     // ---------- Load dialog ----------
 
     private void openLoadDialog() {
-        LoadDialog.Selection files = new LoadDialog(window, JsonPreCheck::checkFileSystem,
-                JsonPreCheck::checkProcesses, JsonPreCheck::crossCheck, loadedFs, loadedProcs).showDialog();
+        LoadDialog.Selection files = new LoadDialog(window, JsonChecks::checkFileSystem,
+                JsonChecks::checkProcesses, JsonChecks::crossCheck, loadedFs, loadedProcs).showDialog();
         if (files != null) {
             loadedFs = files.fileSystem();
             loadedProcs = files.processes();

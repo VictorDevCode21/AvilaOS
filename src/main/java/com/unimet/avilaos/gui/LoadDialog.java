@@ -23,7 +23,8 @@ import javax.swing.filechooser.FileNameExtensionFilter;
  * disabled while one is missing or has an error, and each row explains what is wrong.
  *
  * The dialog only picks and checks files: it does not load anything into the simulation. Whoever
- * opens it gets the two files back and loads them.
+ * opens it gets the two files back and loads them (the controller uses the same parsers, see
+ * {@link JsonChecks}).
  *
  * @author donatovodola
  */
@@ -31,10 +32,27 @@ public final class LoadDialog extends JDialog {
 
     private static final long serialVersionUID = 1L;
 
+    /**
+     * Result of checking one file.
+     *
+     * @param ok      true if the file can be used
+     * @param message summary when ok (e.g. "200 bloques · cabezal en 50 · …"), or what is wrong
+     */
+    public record Check(boolean ok, String message) {
+
+        public static Check ok(String summary) {
+            return new Check(true, summary);
+        }
+
+        public static Check fail(String message) {
+            return new Check(false, message);
+        }
+    }
+
     /** Checks one file and says if it can be used (and a summary or the error). */
     @FunctionalInterface
     public interface Validator {
-        JsonPreCheck.Result check(File file);
+        Check check(File file);
     }
 
     /** Checks that the two files fit together; returns null if fine, or a warning (it does not block). */
@@ -206,12 +224,12 @@ public final class LoadDialog extends JDialog {
         void choose(File chosen) {
             file = chosen;
             lastFolder = chosen.getParentFile();
-            JsonPreCheck.Result check;
+            Check check;
             try {
                 check = validator.check(chosen);
             } catch (RuntimeException e) {
                 // A validator must never leave the row in its previous state: any error = not usable
-                check = JsonPreCheck.Result.fail("No se pudo validar el archivo: " + e.getMessage());
+                check = Check.fail("No se pudo validar el archivo: " + e.getMessage());
             }
             ok = check.ok();
             if (ok) {
