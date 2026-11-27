@@ -167,6 +167,7 @@ public class Pcb {
      * disco la atiende; después ejecuta el resto de sus instrucciones como usuario.
      *
      * @param operation operación del sistema de archivos; su creador debe ser el nombre del proceso
+     *                  (al aplicarla, el kernel guarda "P5 (nombre)", ver creatorLabel)
      * @param session   usuario en cuyo nombre actúa: el de la sesión activa, o el
      *                  administrador para los procesos que carga el JSON
      */
@@ -178,8 +179,8 @@ public class Pcb {
         if (session == null) {
             throw new IllegalArgumentException("El proceso de E/S necesita el usuario en cuyo nombre actúa");
         }
-        // El creador que queda en la tabla de archivos es el nombre del proceso: se exige aquí
-        // para que nadie arme la operación con otro nombre por error.
+        // La operación se arma con el nombre del proceso: se exige aquí para que nadie la arme
+        // con otro nombre por error (el kernel le agrega el PID al aplicarla).
         if (name != null && !operation.getCreator().equals(name.trim())) {
             throw new IllegalArgumentException("La operación de " + name.trim() + " tiene como creador a "
                     + operation.getCreator() + ": debe ser el nombre del proceso");
@@ -397,6 +398,14 @@ public class Pcb {
     public long getFinishCycle() { return finishCycle; }
     public long getBlockedOnSemaphoreCycles() { return blockedOnSemaphoreCycles; }
     public long getReadyCycles() { return readyCycles; }
+
+    /**
+     * Cómo queda el proceso como creador de un archivo: "P5 (Proc_95)". El PID lo
+     * distingue aunque haya dos procesos con el mismo nombre.
+     */
+    public String creatorLabel() {
+        return "P" + id + " (" + name + ")";
+    }
 
     /** Operación que pide un proceso de E/S de archivo, o null si es de otro tipo. */
     public IoOperation getIoOperation() {

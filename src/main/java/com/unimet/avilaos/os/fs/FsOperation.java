@@ -45,7 +45,8 @@ public final class FsOperation {
      * @param name       nombre del archivo
      * @param sizeBlocks tamaño en bloques (1 o más)
      * @param permission público o privado
-     * @param creator    proceso que lo crea (por ejemplo "P3")
+     * @param creator    proceso que lo crea: el proceso arma la operación con su nombre y el
+     *                   kernel la aplica con "P5 (NuevoArchivo)" (ver withCreator)
      */
     public static FsOperation createFile(String parentPath, String name, int sizeBlocks, Permission permission,
             String creator) {
@@ -69,6 +70,15 @@ public final class FsOperation {
         FsPaths.checkName(name);
         String cleanOwner = owner == null || owner.isBlank() ? null : owner.trim();
         return new FsOperation(IoOperation.CREATE, parentPath, name, true, 0, permission, cleanOwner, creator);
+    }
+
+    /**
+     * La misma operación con otro creador. El kernel la usa al aplicarla para que la
+     * tabla de archivos muestre el PID y el nombre, "P5 (Proc_95)": los nombres se
+     * pueden repetir, el PID no (Stallings, cap. 3: el proceso se identifica por su PID).
+     */
+    public FsOperation withCreator(String creator) {
+        return new FsOperation(operation, path, newName, directory, sizeBlocks, permission, owner, creator);
     }
 
     /** Leer un archivo (o listar un directorio). */
