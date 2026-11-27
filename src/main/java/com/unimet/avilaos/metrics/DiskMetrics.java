@@ -9,7 +9,8 @@ import java.util.concurrent.Semaphore;
  * Métricas del disco y de la suspensión que pide el enunciado:
  * <ul>
  *   <li>desplazamiento total del cabezal (sin los saltos de C-SCAN y C-LOOK);</li>
- *   <li>tiempo promedio de espera de las solicitudes en la cola de E/S;</li>
+ *   <li>tiempo promedio de espera de las solicitudes en la cola de E/S (las de archivos y
+ *       las SUSPEND/RESUME del swap);</li>
  *   <li>cantidad de solicitudes atendidas por cada política;</li>
  *   <li>cantidad de suspensiones y reactivaciones;</li>
  *   <li>solicitudes canceladas (procesos que murieron esperando), en un solo número: las
@@ -45,7 +46,8 @@ public class DiskMetrics {
      * Las métricas en un momento (copias).
      *
      * @param totalSeek       desplazamiento total del cabezal, sin los saltos
-     * @param averageWait     ciclos promedio que esperó una solicitud en la cola
+     * @param averageWait     ciclos promedio que esperó una solicitud en la cola (incluye las
+     *                        SUSPEND y RESUME del swap, que pasan por la misma cola)
      * @param served          solicitudes atendidas (todas las políticas; = la suma de servedPerPolicy)
      * @param servedPerPolicy atendidas por cada política, en el orden de DiskPolicyType.values()
      *                        (el mismo de DiskPolicyType.labels(), que usa la vista del disco)

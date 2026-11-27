@@ -296,7 +296,8 @@ public class Disk implements ClockListener {
     }
 
     /**
-     * Suma de los ciclos que esperaron en la cola de E/S las solicitudes atendidas:
+     * Suma de los ciclos que esperaron en la cola de E/S las solicitudes atendidas (de archivos
+     * y del swap):
      * desde que llegaron hasta que el disco empezó a atenderlas (una solicitud que llega
      * con el disco libre espera 1 ciclo: entra a la cola en un ciclo y el disco la toma
      * en el siguiente).
@@ -310,7 +311,12 @@ public class Disk implements ClockListener {
         }
     }
 
-    /** Tiempo promedio de espera en la cola de E/S (métrica del enunciado), o 0 si no atendió ninguna. */
+    /**
+     * Tiempo promedio de espera en la cola de E/S (métrica del enunciado), o 0 si no atendió
+     * ninguna. Promedia TODAS las solicitudes atendidas: las de los procesos de archivos y
+     * también las SUSPEND y RESUME del planificador a mediano plazo, porque pasan por la misma
+     * cola y la misma política. Las canceladas no cuentan.
+     */
     public double getAverageWait() {
         mutex.acquireUninterruptibly();
         try {
