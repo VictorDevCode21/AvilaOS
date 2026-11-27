@@ -18,6 +18,7 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
+import java.text.DecimalFormat;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -38,6 +39,8 @@ import javax.swing.table.JTableHeader;
 import javax.swing.table.TableModel;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultCaret;
+import javax.swing.text.DefaultFormatterFactory;
+import javax.swing.text.NumberFormatter;
 
 /**
  * Ventana principal del simulador ÁvilaOS.
@@ -257,9 +260,10 @@ public final class MainWindow extends JFrame {
         resetButton.setToolTipText("Detiene la simulación y la vuelve al ciclo 0 con la carga inicial");
         controls.add(resetButton);
         controls.add(Box.createHorizontalStrut(4));
-        cycleDurationSpinner.setPreferredSize(new Dimension(80, 32));
+        cycleDurationSpinner.setPreferredSize(new Dimension(92, 32));
         cycleDurationSpinner.setToolTipText("Ciclo (ms): duración de cada ciclo de reloj en milisegundos");
-        controls.add(new UiKit.RoundedBox(cycleDurationSpinner, 10, Theme.BORDER_STRONG));
+        showMillisecondsUnit(cycleDurationSpinner);
+        controls.add(cycleDurationSpinner);        // rounded by RoundedInputs, like every spinner
         controls.add(Box.createHorizontalStrut(4));
         planningButton.setToolTipText("Política de cada computador y quantum de Round Robin");
         configButton.setToolTipText("Computadores, RAM, carga inicial y archivo CSV");
@@ -620,6 +624,25 @@ public final class MainWindow extends JFrame {
     /** Habilita o deshabilita Iniciar/Pausar (ej. cuando ya no queda trabajo por simular). */
     public void setStartPauseEnabled(boolean enabled) {
         startPauseButton.setEnabled(enabled);
+    }
+
+    /**
+     * Shows the unit inside the spinner ("500 ms") without taking room in the top bar. While the
+     * user types, the field shows only the number, so "300" is accepted as before.
+     */
+    private static void showMillisecondsUnit(JSpinner spinner) {
+        if (!(spinner.getEditor() instanceof JSpinner.DefaultEditor editor)
+                || !(editor.getTextField().getFormatter() instanceof NumberFormatter current)) {
+            return;
+        }
+        NumberFormatter display = new NumberFormatter(new DecimalFormat("0 ms"));
+        NumberFormatter edit = new NumberFormatter(new DecimalFormat("0"));
+        for (NumberFormatter formatter : new NumberFormatter[] {display, edit}) {
+            formatter.setValueClass(current.getValueClass());
+            formatter.setMinimum(current.getMinimum());
+            formatter.setMaximum(current.getMaximum());
+        }
+        editor.getTextField().setFormatterFactory(new DefaultFormatterFactory(display, display, edit));
     }
 
     public JSpinner getCycleDurationSpinner() {

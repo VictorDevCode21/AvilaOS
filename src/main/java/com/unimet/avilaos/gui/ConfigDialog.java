@@ -260,7 +260,10 @@ public final class ConfigDialog extends JDialog {
             ram.add(new JLabel("RAM (MB):"));
             ram.add(computerRows[i].ram());
             computersPanel.add(ram);
-            computersPanel.add(computerRows[i].policy());
+            // In a FlowLayout the combo keeps its normal height instead of filling the grid cell
+            JPanel policy = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            policy.add(computerRows[i].policy());
+            computersPanel.add(policy);
         }
         removeComputerButton.setEnabled(computerRows.length > SimulationConfig.MIN_COMPUTERS);
         computersPanel.revalidate();
