@@ -161,7 +161,7 @@ public class Cluster implements Interconnect {
      * Crea un proceso de E/S de archivo (Proyecto 2) y lo entrega al computador. La
      * interfaz solo crea el proceso: la operación la hace él cuando obtiene la CPU.
      *
-     * @param operation operación del sistema de archivos, con el nombre del proceso como creador
+     * @param operation operación del sistema de archivos; su creador debe ser el nombre del proceso
      * @param session   usuario en cuyo nombre actúa: el de la sesión activa desde la GUI,
      *                  o adminSession() para los procesos que carga el JSON
      * @return el PCB creado

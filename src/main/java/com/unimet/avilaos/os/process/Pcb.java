@@ -166,7 +166,7 @@ public class Pcb {
      * su operación (1 instrucción en modo SO) y queda Bloqueado por E/S hasta que el
      * disco la atiende; después ejecuta el resto de sus instrucciones como usuario.
      *
-     * @param operation operación del sistema de archivos (su creador es el nombre del proceso)
+     * @param operation operación del sistema de archivos; su creador debe ser el nombre del proceso
      * @param session   usuario en cuyo nombre actúa: el de la sesión activa, o el
      *                  administrador para los procesos que carga el JSON
      */
@@ -177,6 +177,12 @@ public class Pcb {
         }
         if (session == null) {
             throw new IllegalArgumentException("El proceso de E/S necesita el usuario en cuyo nombre actúa");
+        }
+        // El creador que queda en la tabla de archivos es el nombre del proceso: se exige aquí
+        // para que nadie arme la operación con otro nombre por error.
+        if (name != null && !operation.getCreator().equals(name.trim())) {
+            throw new IllegalArgumentException("La operación de " + name.trim() + " tiene como creador a "
+                    + operation.getCreator() + ": debe ser el nombre del proceso");
         }
         return new Pcb(name, ProcessType.FILE_IO, priority, memorySize, instructions, deadline, computerId,
                 arrivalCycle, 0, 0, null, 0, 0, operation, session);
