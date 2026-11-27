@@ -1,0 +1,258 @@
+@startuml clases-proyecto2
+' Diagrama de clases del Proyecto 2: disco, sistema de archivos, planificador de disco y
+' planificador a mediano plazo. Solo los miembros importantes; ver el código para el resto.
+!pragma layout smetana
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName SansSerif
+skinparam classFontSize 12
+skinparam packageFontSize 13
+hide empty members
+title ÁvilaOS (Proyecto 2): disco, sistema de archivos, planificación de disco y mediano plazo
+
+package "cluster" {
+  class Computer {
+    +onTick(cycle)
+    +getDisk(): Disk
+    +getDiskScheduler(): DiskScheduler
+    +getFileSystem(): FileSystem
+    +getDiskMetrics(): DiskMetrics
+  }
+}
+
+package "config" {
+  class SimulationLoader <<utility>> {
+    +start(fs, procesos, fallback): Loaded
+    +buildConfig(fs, procesos, fallback): SimulationConfig
+    +crossCheck(fs, procesos): String
+  }
+  class FileSystemJson <<utility>> {
+    +read(path): Image
+    +load(image, fs)
+    +write(fs, cabezal): String
+    +save(fs, cabezal, path)
+    +snapshot(fs, cabezal): Image
+  }
+  class ProcessesJson <<utility>> {
+    +read(path): Image
+    +parse(texto): Image
+  }
+  class DiskConfig <<record>> {
+    fileBlocks, swapBlocks
+    initialPolicy, initialHead
+    initialDirection, positionsPerCycle
+    waitForInitialRequests
+  }
+}
+
+package "os" {
+  class Kernel {
+    +holdDiskForInitialLoad(carga, tope)
+    +handleInterrupt(interrupcion)
+    -mediumTerm()
+    -suspendForNewcomer()
+    -chooseVictims(faltante)
+    -suspend(victimas, nuevo)
+    -reactivateSuspended()
+    -swapCompleted(rt, solicitud, politica)
+    -requestDisk(rt)
+    -diskCompleted()
+    -checkInitialHold()
+  }
+  class InitialDiskHold {
+    +requested(pcb)
+    +generated(): int
+    +missingOnlyWaitForRam(): boolean
+  }
+  class Storage <<record>> {
+    disk, diskScheduler, fileSystem
+  }
+  class "memory.MemoryManager" as MemoryManager {
+    +admit(reservar): LinkedList<Pcb>
+    +admitOne(pcb, reservar): boolean
+    +reserveForResume(pcb, reservar): boolean
+    +release(pcb)
+  }
+  class "process.Pcb" as Pcb {
+    -state: ProcessState
+    -fileOperation: FsOperation
+    +markSuspended()
+    +markReadySuspended()
+    +markReady()
+  }
+  enum "process.ProcessState" as ProcessState {
+    NEW
+    READY
+    RUNNING
+    BLOCKED
+    READY_SUSPENDED
+    BLOCKED_SUSPENDED
+    TERMINATED
+  }
+
+  package "disk" {
+    class DiskScheduler {
+      -queue: LinkedList<DiskRequest>
+      +enqueue(solicitud)
+      +next(cabezal, direccion): SeekPlan
+      +cancel(pid): int
+      +setPolicy(tipo)
+      +holdFirstDecision()
+      +releaseFirstDecision()
+      +previewServiceOrder(cabezal, direccion)
+    }
+    interface DiskSchedulingPolicy {
+      +select(cola, cabezal, direccion, bloques): SeekPlan
+      +getType(): DiskPolicyType
+    }
+    enum DiskPolicyType {
+      FIFO
+      SSTF
+      SCAN
+      C_SCAN
+      LOOK
+      C_LOOK
+      +newPolicy(): DiskSchedulingPolicy
+    }
+    class FifoDiskPolicy
+    class SstfDiskPolicy
+    class ScanDiskPolicy
+    class CScanDiskPolicy
+    class LookDiskPolicy
+    class CLookDiskPolicy
+  }
+
+  package "fs" {
+    class FileSystem {
+      +check(sesion, operacion): FsResult
+      +apply(sesion, operacion): FsResult
+      +list(): LinkedList<FileInfo>
+    }
+    class FsNode {
+      name, directory, owner
+      permission, creator
+      firstBlock, blockCount
+      children
+    }
+    class FsOperation {
+      +createFile(...) / createDirectory(...)
+      +read(...) / update(...) / rename(...) / delete(...)
+    }
+    class AccessRules <<utility>>
+    class UserSession {
+      +isAdmin(): boolean
+      +adminOnly(accion): String
+    }
+    enum UserMode {
+      ADMIN
+      USER
+    }
+    enum Permission {
+      PUBLIC
+      PRIVATE
+    }
+  }
+}
+
+package "hardware" {
+  interface ClockListener {
+    +onTick(cycle)
+  }
+  interface SeekPlanSource {
+    +next(cabezal, direccion): SeekPlan
+  }
+  class Disk {
+    -head, direction, positionsPerCycle
+    -phase: DiskPhase
+    +onTick(cycle)
+    +pollCompleted(): SeekPlan
+    +cancel(pid): boolean
+    +getTotalSeek(): long
+  }
+  class BlockMap {
+    -owners[], next[]
+    +allocateFile(n, dueno): int
+    +allocateSwap(n, dueno): int
+    +free(primero): int
+    +chainOf(primero): int[]
+  }
+  class DiskRequest {
+    processId, operation
+    target, targetBlock, blockCount
+    arrivalCycle
+  }
+  class SeekPlan
+  enum IoOperation {
+    CREATE
+    READ
+    UPDATE
+    DELETE
+    SUSPEND
+    RESUME
+  }
+  enum HeadDirection {
+    UP
+    DOWN
+  }
+  class Cpu {
+    +raiseInterrupt(interrupcion)
+    +hasPendingInterruptFor(pid): boolean
+  }
+}
+
+package "metrics" {
+  class DiskMetrics {
+    +requestServed(ciclo, politica)
+    +suspensionCompleted()
+    +reactivationCompleted()
+    +getSnapshot(): Snapshot
+    +getSamplesSince(n)
+  }
+}
+
+' --- Relaciones ---
+Computer *-- Kernel
+Computer *-- Disk
+Computer *-- Cpu
+Computer ..|> ClockListener
+Disk ..|> ClockListener
+Kernel o-- Storage
+Kernel o-- MemoryManager
+Kernel *-- InitialDiskHold : cola inicial >
+Kernel *-- DiskMetrics
+Kernel --> Pcb : gestiona >
+Pcb --> ProcessState
+Pcb --> FsOperation
+Storage --> Disk
+Storage --> DiskScheduler
+Storage --> FileSystem
+DiskScheduler ..|> SeekPlanSource
+Disk --> SeekPlanSource : pide la siguiente >
+Disk --> BlockMap
+Disk --> Cpu : DISK_COMPLETION >
+DiskScheduler o-- "1..*" DiskRequest : cola de E/S
+DiskScheduler --> DiskSchedulingPolicy : política actual
+DiskPolicyType ..> DiskSchedulingPolicy : crea
+FifoDiskPolicy ..|> DiskSchedulingPolicy
+SstfDiskPolicy ..|> DiskSchedulingPolicy
+ScanDiskPolicy ..|> DiskSchedulingPolicy
+CScanDiskPolicy ..|> DiskSchedulingPolicy
+LookDiskPolicy ..|> DiskSchedulingPolicy
+CLookDiskPolicy ..|> DiskSchedulingPolicy
+DiskSchedulingPolicy ..> SeekPlan : devuelve
+SeekPlan --> DiskRequest
+DiskRequest --> IoOperation
+Disk --> HeadDirection
+FileSystem *-- FsNode : árbol
+FileSystem --> BlockMap : asignación encadenada
+FileSystem ..> AccessRules : permisos
+FileSystem ..> UserSession
+UserSession --> UserMode
+FsNode --> Permission
+SimulationLoader ..> FileSystemJson
+SimulationLoader ..> ProcessesJson
+SimulationLoader ..> DiskConfig
+SimulationLoader ..> Kernel : holdDiskForInitialLoad
+DiskMetrics --> Disk : desplazamiento y espera
+@enduml

@@ -1,15 +1,12 @@
 package com.unimet.avilaos.gui;
 
-import com.unimet.avilaos.config.BufferConfig;
-import com.unimet.avilaos.config.ComputerConfig;
 import com.unimet.avilaos.config.ConfigRepository;
-import com.unimet.avilaos.config.ProcessConfig;
+import com.unimet.avilaos.config.DiskConfig;
 import com.unimet.avilaos.config.SimulationConfig;
-import com.unimet.avilaos.datastructures.LinkedList;
-import com.unimet.avilaos.os.scheduling.PolicyType;
+import com.unimet.avilaos.hardware.HeadDirection;
 import java.awt.BorderLayout;
-import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.Frame;
 import java.awt.GridLayout;
 import java.awt.event.KeyEvent;
@@ -17,33 +14,40 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
-import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import javax.swing.KeyStroke;
-import javax.swing.ListSelectionModel;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 /**
  * Vista de configuración: arma una SimulationConfig NUEVA a partir de la actual.
  *
- * Permite cambiar la duración del ciclo, el quantum, la latencia de red, los computadores
- * (cuántos, su RAM y su política inicial) y la carga inicial (agregar y quitar buffers y
- * procesos con los mismos formularios de la ventana principal). También guarda la
- * configuración en avilaos-config.csv y carga otra desde un archivo CSV.
+ * Proyecto 2: los dos JSON (obligatorios antes de iniciar) mandan en casi todo: el ciclo, el
+ * quantum, la RAM, la política de CPU, los procesos y, del disco, los bloques, el swap, la política
+ * inicial y el cabezal inicial. Por eso el diálogo solo muestra lo que todavía tiene efecto: la
+ * dirección inicial del cabezal y las posiciones que recorre por ciclo, que son el valor por
+ * defecto de las claves opcionales "initialDirection" y "positionsPerCycle" del JSON de procesos
+ * (ver SimulationLoader). Nada de esto se aplica en caliente; la duración del ciclo se cambia en la
+ * barra superior.
+ *
+ * Los otros cuatro datos del disco que el enunciado pide en la configuración (bloques, área de
+ * intercambio, política de disco inicial y cabezal inicial) se muestran solo para lectura, con el
+ * valor de la configuración actual: después de cargar los JSON son los de los JSON.
+ *
+ * Lo que no se muestra (ciclo, quantum, latencia, computador, buffers, procesos y el resto del
+ * disco) se conserva tal como vino de la configuración o del archivo CSV, para que "Guardar" no lo
+ * pierda.
  *
  * El diálogo solo junta datos: la validación es la de SimulationConfig (la misma del CSV).
  * Nada se aplica hasta "Aceptar"; quien lo abre decide qué hacer con la configuración
- * (SimulationController reinicia la simulación con ella).
+ * (SimulationController arma la simulación de nuevo con ella).
  *
  * @author victor1102
  */
@@ -51,26 +55,19 @@ public final class ConfigDialog extends JDialog {
 
     private static final long serialVersionUID = 1L;
 
-    private final Frame owner;
-    private final JTextField cycleField = new JTextField(8);
-    private final JTextField quantumField = new JTextField(8);
-    private final JTextField latencyField = new JTextField(8);
+    /** La configuración de la que se parte (la actual o la del CSV cargado): da todo lo que no se edita. */
+    private transient SimulationConfig base;
 
-    /** Una fila por computador: su RAM y su política inicial. */
-    private transient ComputerRow[] computerRows = new ComputerRow[0];
-    private final JPanel computersPanel = new JPanel();
-    private final JButton removeComputerButton = new JButton("Quitar último");
+    private final JComboBox<String> directionCombo = new JComboBox<>(directionLabels());
+    private final JTextField positionsField = new JTextField(8);
 
-    // Carga inicial: se guarda aparte y se vuelve a validar al armar la configuración
-    private transient LinkedList<BufferConfig> buffers = new LinkedList<>();
-    private transient LinkedList<ProcessConfig> processes = new LinkedList<>();
-    private final JList<String> bufferList = new JList<>();
-    private final JList<String> processList = new JList<>();
+    // Solo lectura: los manda el JSON (se muestran porque el enunciado los pide en la configuración)
+    private final JTextField fileBlocksValue = readOnlyField();
+    private final JTextField swapValue = readOnlyField();
+    private final JTextField diskPolicyValue = readOnlyField();
+    private final JTextField headValue = readOnlyField();
 
     private transient SimulationConfig result;
-
-    private record ComputerRow(JTextField ram, JComboBox<String> policy) {
-    }
 
     /**
      * Muestra el diálogo (modal) con los valores de la configuración actual.
@@ -87,20 +84,11 @@ public final class ConfigDialog extends JDialog {
 
     private ConfigDialog(Frame owner, SimulationConfig current) {
         super(owner, "Configuración", true);
-        this.owner = owner;
-        FormValidator.clearErrorOnEdit(cycleField, quantumField, latencyField);
-        bufferList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        processList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-
-        JPanel center = new JPanel();
-        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
-        center.add(buildGeneralFields());
-        center.add(buildComputersArea());
-        center.add(buildLoadArea());
+        FormValidator.clearErrorOnEdit(positionsField);
 
         JPanel content = new JPanel(new BorderLayout(8, 8));
         content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        content.add(center, BorderLayout.CENTER);
+        content.add(buildDiskFields(), BorderLayout.CENTER);
         content.add(buildButtons(), BorderLayout.SOUTH);
         setContentPane(content);
 
@@ -111,65 +99,75 @@ public final class ConfigDialog extends JDialog {
 
     // ---------- Construcción ----------
 
-    private JPanel buildGeneralFields() {
+    /** Lo que sigue teniendo efecto: dirección inicial y velocidad del cabezal, con su nota. */
+    private JPanel buildDiskFields() {
+        JPanel fixed = new JPanel(new GridLayout(0, 2, 6, 6));
+        addRow(fixed, "Bloques para archivos:", fileBlocksValue);
+        addRow(fixed, "Área de intercambio (bloques):", swapValue);
+        addRow(fixed, "Política de disco inicial:", diskPolicyValue);
+        addRow(fixed, "Posición inicial del cabezal:", headValue);
+        JLabel fixedTitle = new JLabel("Vienen de los JSON cargados (antes de cargarlos, de la configuración):"
+                + " no se editan aquí.");
+        fixedTitle.setFont(fixedTitle.getFont().deriveFont(Font.ITALIC,
+                fixedTitle.getFont().getSize2D() - 1f));
+        JPanel fixedPart = new JPanel(new BorderLayout(4, 6));
+        fixedPart.add(fixedTitle, BorderLayout.NORTH);
+        fixedPart.add(fixed, BorderLayout.CENTER);
+
         JPanel panel = new JPanel(new GridLayout(0, 2, 6, 6));
-        panel.setBorder(BorderFactory.createTitledBorder("Parámetros generales"));
-        addRow(panel, "Duración del ciclo (" + SimulationConfig.MIN_CYCLE_MS + "-"
-                + SimulationConfig.MAX_CYCLE_MS + " ms):", cycleField);
-        addRow(panel, "Quantum de Round Robin (1-" + SimulationConfig.MAX_QUANTUM + " ciclos):", quantumField);
-        addRow(panel, "Latencia de red (0-" + SimulationConfig.MAX_NETWORK_LATENCY + " ciclos):", latencyField);
-        return panel;
+        addRow(panel, "Dirección inicial del cabezal:", comboCell(directionCombo));
+        addRow(panel, "Posiciones del cabezal por ciclo (1-" + DiskConfig.MAX_POSITIONS_PER_CYCLE + "):",
+                positionsField);
+        // Con un ancho fijo, el HTML calcula solo cuántas líneas ocupa (no se corta)
+        JLabel help = new JLabel("<html><div style='width:420px'>Se usan cuando el JSON de procesos no trae"
+                + " \"initialDirection\" ni"
+                + " \"positionsPerCycle\" (los JSON del enunciado no los traen). El ciclo, el quantum, la RAM,"
+                + " la política de CPU y los procesos también salen de los dos JSON que se cargan antes de"
+                + " iniciar. La duración del ciclo se cambia en la barra superior.</div></html>");
+        help.setFont(help.getFont().deriveFont(help.getFont().getSize2D() - 1f));
+        JPanel editable = new JPanel(new BorderLayout(4, 6));
+        editable.add(panel, BorderLayout.CENTER);
+        editable.add(help, BorderLayout.SOUTH);
+        JPanel section = new JPanel(new BorderLayout(4, 12));
+        section.setBorder(BorderFactory.createTitledBorder("Disco"));
+        section.add(fixedPart, BorderLayout.NORTH);
+        section.add(editable, BorderLayout.CENTER);
+        return section;
     }
 
-    private JPanel buildComputersArea() {
-        computersPanel.setLayout(new GridLayout(0, 3, 6, 4));
-        JScrollPane scroll = new JScrollPane(computersPanel);
-        scroll.setPreferredSize(new Dimension(700, 130));
-        scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.getVerticalScrollBar().setUnitIncrement(16);
-
-        JButton add = new JButton("Agregar computador");
-        add.addActionListener(e -> addComputerRow(1024, PolicyType.FCFS));
-        removeComputerButton.addActionListener(e -> removeLastComputer());
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        buttons.add(add);
-        buttons.add(removeComputerButton);
-
-        JPanel panel = new JPanel(new BorderLayout(4, 4));
-        panel.setBorder(BorderFactory.createTitledBorder("Computadores (mínimo " + SimulationConfig.MIN_COMPUTERS + ")"));
-        panel.add(scroll, BorderLayout.CENTER);
-        panel.add(buttons, BorderLayout.SOUTH);
-        return panel;
+    /** Campo que solo muestra un valor (no se edita ni recibe el foco), atenuado para que se note. */
+    private static JTextField readOnlyField() {
+        JTextField field = new JTextField(8);
+        field.setEditable(false);
+        field.setFocusable(false);
+        field.setBackground(Theme.SURFACE_ALT);
+        field.setForeground(Theme.MUTED);
+        return field;
     }
 
-    private JPanel buildLoadArea() {
-        JButton addBuffer = new JButton("Agregar buffer");
-        JButton removeBuffer = new JButton("Quitar buffer");
-        JButton addProcess = new JButton("Agregar proceso");
-        JButton removeProcess = new JButton("Quitar proceso");
-        addBuffer.addActionListener(e -> addBuffer());
-        removeBuffer.addActionListener(e -> removeBuffer());
-        addProcess.addActionListener(e -> addProcess());
-        removeProcess.addActionListener(e -> removeProcess());
-
-        JPanel panel = new JPanel(new GridLayout(1, 2, 8, 8));
-        panel.setBorder(BorderFactory.createTitledBorder("Carga inicial"));
-        panel.add(wrapList("Buffers", bufferList, addBuffer, removeBuffer));
-        panel.add(wrapList("Procesos", processList, addProcess, removeProcess));
-        return panel;
+    /** En un FlowLayout el combo conserva su altura normal en vez de llenar la celda de la grilla. */
+    private static JPanel comboCell(JComboBox<String> combo) {
+        JPanel cell = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        cell.add(combo);
+        return cell;
     }
 
-    private static JPanel wrapList(String title, JList<String> list, JButton add, JButton remove) {
-        JScrollPane scroll = new JScrollPane(list);
-        scroll.setPreferredSize(new Dimension(350, 150));
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        buttons.add(add);
-        buttons.add(remove);
-        JPanel panel = new JPanel(new BorderLayout(4, 4));
-        panel.add(new JLabel(title), BorderLayout.NORTH);
-        panel.add(scroll, BorderLayout.CENTER);
-        panel.add(buttons, BorderLayout.SOUTH);
-        return panel;
+    private static String[] directionLabels() {
+        HeadDirection[] all = HeadDirection.values();
+        String[] labels = new String[all.length];
+        for (int i = 0; i < all.length; i++) {
+            labels[i] = all[i].getLabel();
+        }
+        return labels;
+    }
+
+    private static HeadDirection directionOf(Object label) {
+        for (HeadDirection d : HeadDirection.values()) {
+            if (d.getLabel().equals(label)) {
+                return d;
+            }
+        }
+        return HeadDirection.UP;
     }
 
     private JPanel buildButtons() {
@@ -193,7 +191,8 @@ public final class ConfigDialog extends JDialog {
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         right.add(cancel);
         right.add(accept);
-        JLabel note = new JLabel("Al aceptar, la simulación actual se detiene y empieza una nueva con esta configuración.");
+        JLabel note = new JLabel("Al aceptar, la simulación se vuelve a armar: el diálogo de carga se abre con los"
+                + " mismos JSON.");
         note.setFont(note.getFont().deriveFont(note.getFont().getSize2D() - 1f));
 
         JPanel panel = new JPanel(new BorderLayout());
@@ -210,199 +209,49 @@ public final class ConfigDialog extends JDialog {
 
     // ---------- Mostrar una configuración ----------
 
-    /** Pone en el formulario todos los valores de la configuración (al abrir y al cargar un archivo). */
+    /** Toma la configuración de base y muestra lo que se edita (al abrir y al cargar un archivo). */
     private void showConfig(SimulationConfig config) {
-        cycleField.setText(String.valueOf(config.getCycleDurationMs()));
-        quantumField.setText(String.valueOf(config.getQuantum()));
-        latencyField.setText(String.valueOf(config.getNetworkLatency()));
-        computerRows = new ComputerRow[0];
-        LinkedList<ComputerConfig> computers = config.getComputers();
-        while (!computers.isEmpty()) {
-            ComputerConfig c = computers.removeFirst();
-            addComputerRow(c.ramSize(), c.initialPolicy());
-        }
-        buffers = config.getBuffers();          // ya son copias
-        processes = config.getProcesses();
-        refreshLists();
-    }
-
-    private void addComputerRow(int ram, PolicyType policy) {
-        ComputerRow row = new ComputerRow(new JTextField(String.valueOf(ram), 8), new JComboBox<>(PolicyType.labels()));
-        row.policy().setSelectedItem(policy.getLabel());
-        FormValidator.clearErrorOnEdit(row.ram());
-        ComputerRow[] rows = new ComputerRow[computerRows.length + 1];
-        System.arraycopy(computerRows, 0, rows, 0, computerRows.length);
-        rows[computerRows.length] = row;
-        computerRows = rows;
-        rebuildComputerRows();
-    }
-
-    /** Quitar un computador puede dejar buffers o procesos sin dueño: se avisa al aceptar (orphansMessage). */
-    private void removeLastComputer() {
-        if (computerRows.length <= SimulationConfig.MIN_COMPUTERS) {
-            return;
-        }
-        ComputerRow[] rows = new ComputerRow[computerRows.length - 1];
-        System.arraycopy(computerRows, 0, rows, 0, rows.length);
-        computerRows = rows;
-        rebuildComputerRows();
-        String orphans = orphansMessage(computerRows.length);
-        if (orphans != null) {
-            JOptionPane.showMessageDialog(this, orphans, "Computador en uso", JOptionPane.WARNING_MESSAGE);
-        }
-    }
-
-    private void rebuildComputerRows() {
-        computersPanel.removeAll();
-        for (int i = 0; i < computerRows.length; i++) {
-            computersPanel.add(new JLabel("Computador " + (i + 1)));
-            JPanel ram = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-            ram.add(new JLabel("RAM (MB):"));
-            ram.add(computerRows[i].ram());
-            computersPanel.add(ram);
-            computersPanel.add(computerRows[i].policy());
-        }
-        removeComputerButton.setEnabled(computerRows.length > SimulationConfig.MIN_COMPUTERS);
-        computersPanel.revalidate();
-        computersPanel.repaint();
-    }
-
-    private void refreshLists() {
-        String[] bufferRows = new String[buffers.size()];
-        for (int i = 0; i < bufferRows.length; i++) {
-            BufferConfig b = buffers.get(i);
-            bufferRows[i] = b.name() + " — Computador " + b.hostComputerId() + ", capacidad " + b.capacity()
-                    + ", " + b.memorySize() + " MB";
-        }
-        String[] processRows = new String[processes.size()];
-        for (int i = 0; i < processRows.length; i++) {
-            processRows[i] = describe(processes.get(i));
-        }
-        bufferList.setListData(bufferRows);
-        processList.setListData(processRows);
-    }
-
-    /** Ej. "Prod — Productor, 64 MB, 100 instr., Computador 2, buffer B1". */
-    private static String describe(ProcessConfig p) {
-        StringBuilder sb = new StringBuilder(p.name()).append(" — ").append(p.type().getLabel())
-                .append(", ").append(p.memorySize()).append(" MB, ").append(p.instructions()).append(" instr., ")
-                .append(p.isAutomatic() ? "automático" : "Computador " + p.computerId());
-        if (p.type().usesBuffer()) {
-            sb.append(", buffer ").append(p.bufferName());
-        }
-        return sb.toString();
-    }
-
-    // ---------- Carga inicial ----------
-
-    /** El formulario valida contra la configuración que se está armando (computadores y buffers NUEVOS). */
-    private void addBuffer() {
-        SimulationConfig draft = buildConfig();
-        if (draft == null) {
-            return;
-        }
-        BufferConfig buffer = BufferFormDialog.showDialog(owner, draft);
-        if (buffer == null) {
-            return;
-        }
-        try {
-            draft.addBuffer(buffer);
-            buffers.addLast(buffer);
-            refreshLists();
-        } catch (IllegalArgumentException ex) {
-            showError("No se pudo agregar el buffer", ex.getMessage());
-        }
-    }
-
-    private void addProcess() {
-        SimulationConfig draft = buildConfig();
-        if (draft == null) {
-            return;
-        }
-        ProcessConfig process = ProcessFormDialog.showDialog(owner, draft);
-        if (process == null) {
-            return;
-        }
-        try {
-            draft.addProcess(process);
-            processes.addLast(process);
-            refreshLists();
-        } catch (IllegalArgumentException ex) {
-            showError("No se pudo agregar el proceso", ex.getMessage());
-        }
-    }
-
-    /** Un buffer que usan procesos no se quita: esos procesos quedarían sin buffer. */
-    private void removeBuffer() {
-        int index = bufferList.getSelectedIndex();
-        if (index < 0) {
-            showError("Quitar buffer", "Selecciona el buffer que quieres quitar.");
-            return;
-        }
-        BufferConfig buffer = buffers.get(index);
-        StringBuilder users = new StringBuilder();
-        for (int i = 0; i < processes.size(); i++) {
-            ProcessConfig p = processes.get(i);
-            if (p.type().usesBuffer() && BufferConfig.sameName(p.bufferName(), buffer.name())) {
-                users.append(users.length() == 0 ? "" : ", ").append(p.name());
-            }
-        }
-        if (users.length() > 0) {
-            showError("Buffer en uso", "El buffer " + buffer.name() + " lo usan estos procesos: " + users
-                    + ".\nQuítalos primero.");
-            return;
-        }
-        buffers.remove(buffer);
-        refreshLists();
-    }
-
-    private void removeProcess() {
-        int index = processList.getSelectedIndex();
-        if (index < 0) {
-            showError("Quitar proceso", "Selecciona el proceso que quieres quitar.");
-            return;
-        }
-        processes.remove(processes.get(index));
-        refreshLists();
+        base = config;
+        DiskConfig disk = config.getDisk();
+        directionCombo.setSelectedItem(disk.initialDirection().getLabel());
+        positionsField.setText(String.valueOf(disk.positionsPerCycle()));
+        fileBlocksValue.setText(String.valueOf(disk.fileBlocks()));
+        swapValue.setText(String.valueOf(disk.swapBlocks()));
+        diskPolicyValue.setText(disk.initialPolicy().getLabel());
+        headValue.setText(String.valueOf(disk.initialHead()));
     }
 
     // ---------- Armar y validar ----------
 
     /**
-     * Arma la configuración con lo que hay en el formulario, en el orden que exige
-     * SimulationConfig (computadores → buffers → procesos), y la valida.
-     * Si algo está mal, lo muestra y devuelve null (el diálogo sigue abierto).
+     * Arma la configuración: todo lo de la base, con la dirección y las posiciones por ciclo del
+     * formulario, en el orden que exige SimulationConfig (computadores → buffers → procesos), y la
+     * valida. Si algo está mal, lo muestra y devuelve null (el diálogo sigue abierto).
      */
     private SimulationConfig buildConfig() {
         FormValidator v = new FormValidator();
-        int cycle = v.integer(cycleField, "Duración del ciclo (ms)",
-                (int) SimulationConfig.MIN_CYCLE_MS, (int) SimulationConfig.MAX_CYCLE_MS);
-        int quantum = v.integer(quantumField, "Quantum", 1, SimulationConfig.MAX_QUANTUM);
-        int latency = v.integer(latencyField, "Latencia de red", 0, SimulationConfig.MAX_NETWORK_LATENCY);
-        int[] rams = new int[computerRows.length];
-        for (int i = 0; i < rams.length; i++) {
-            rams[i] = v.integer(computerRows[i].ram(), "RAM del Computador " + (i + 1) + " (MB)", 1, Integer.MAX_VALUE);
-        }
+        int positions = v.integer(positionsField, "Posiciones del cabezal por ciclo", 1,
+                DiskConfig.MAX_POSITIONS_PER_CYCLE);
         if (v.hasErrors()) {
             JOptionPane.showMessageDialog(this, "Corrige estos datos:\n\n" + v.getMessage(),
                     "Datos inválidos", JOptionPane.WARNING_MESSAGE);
             return null;
         }
-        String orphans = orphansMessage(computerRows.length);
-        if (orphans != null) {
-            showError("Computador en uso", orphans);
-            return null;
-        }
         try {
-            SimulationConfig config = new SimulationConfig(cycle, quantum, latency);
-            for (int i = 0; i < computerRows.length; i++) {
-                config.addComputer(rams[i], PolicyType.fromLabel((String) computerRows[i].policy().getSelectedItem()));
+            SimulationConfig config = new SimulationConfig(base.getCycleDurationMs(), base.getQuantum(),
+                    base.getNetworkLatency());
+            DiskConfig disk = base.getDisk();
+            config.setDisk(new DiskConfig(disk.fileBlocks(), disk.swapBlocks(), disk.initialPolicy(),
+                    disk.initialHead(), directionOf(directionCombo.getSelectedItem()), positions,
+                    disk.waitForInitialRequests()));
+            for (int i = 0; i < base.getComputers().size(); i++) {
+                config.addComputer(base.getComputers().get(i).ramSize(), base.getComputers().get(i).initialPolicy());
             }
-            for (int i = 0; i < buffers.size(); i++) {
-                config.addBuffer(buffers.get(i));
+            for (int i = 0; i < base.getBuffers().size(); i++) {
+                config.addBuffer(base.getBuffers().get(i));
             }
-            for (int i = 0; i < processes.size(); i++) {
-                config.addProcess(processes.get(i));
+            for (int i = 0; i < base.getProcesses().size(); i++) {
+                config.addProcess(base.getProcesses().get(i));
             }
             config.validate();
             return config;
@@ -410,31 +259,6 @@ public final class ConfigDialog extends JDialog {
             showError("Configuración inválida", ex.getMessage());
             return null;
         }
-    }
-
-    /**
-     * Si hay buffers o procesos asignados a un computador que ya no existe, el mensaje
-     * que los nombra; si no, null.
-     */
-    private String orphansMessage(int computerCount) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < buffers.size(); i++) {
-            BufferConfig b = buffers.get(i);
-            if (b.hostComputerId() > computerCount) {
-                sb.append("\n• buffer ").append(b.name()).append(" (Computador ").append(b.hostComputerId()).append(')');
-            }
-        }
-        for (int i = 0; i < processes.size(); i++) {
-            ProcessConfig p = processes.get(i);
-            if (!p.isAutomatic() && p.computerId() > computerCount) {
-                sb.append("\n• proceso ").append(p.name()).append(" (Computador ").append(p.computerId()).append(')');
-            }
-        }
-        if (sb.length() == 0) {
-            return null;
-        }
-        return "Hay elementos de la carga inicial en computadores que ya no existen (quedan " + computerCount
-                + "):" + sb + "\n\nQuítalos de la carga inicial o vuelve a agregar los computadores.";
     }
 
     // ---------- Botones ----------

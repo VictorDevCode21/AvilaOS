@@ -12,6 +12,7 @@ import com.unimet.avilaos.os.sync.KernelSemaphore;
  * red le queda. Solo lo usa el hilo de su computador.
  *
  * @author victor1102
+ * @author NicollPinzon
  */
 final class ProcessRuntime {
 
@@ -24,10 +25,20 @@ final class ProcessRuntime {
     KernelSemaphore waitingOn;    // semáforo en cuya cola espera (Bloqueado por semáforo)
     BoundedBuffer buffer;         // buffer con el que trabaja (productor/consumidor)
 
+    // Suspensión (Proyecto 2, planificador a mediano plazo)
+    long blockedCycle;            // ciclo en que se bloqueó (desempate al elegir a quién suspender)
+    long suspendedCycle;          // ciclo en que se suspendió (desempate al reactivar)
+    int swapBlock = -1;           // primer bloque de su cadena en el swap, o -1 si no está en el swap
+    boolean swappingOut;          // el disco lo está escribiendo en el swap (todavía ocupa RAM)
+    boolean swappingIn;           // el disco lo está trayendo del swap (ya tiene su RAM reservada)
+    Pcb suspendedFor;             // Nuevo para el que se suspendió (su RAM queda reservada para él)
+
     ProcessRuntime(Pcb pcb) {
         this.pcb = pcb;
         if (pcb.getType() == ProcessType.CONSUMER) {
             this.step = ExecutionStep.WAIT_FULL;            // primero espera un elemento
+        } else if (pcb.getType().isFileIo()) {
+            this.step = ExecutionStep.DISK_REQUEST;         // primero pide su operación al disco
         } else {
             this.step = ExecutionStep.USER;
             this.userLeft = pcb.getOperationInterval();     // productor: primero produce

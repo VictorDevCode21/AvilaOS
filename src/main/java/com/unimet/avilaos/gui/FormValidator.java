@@ -1,7 +1,6 @@
 package com.unimet.avilaos.gui;
 
 import java.awt.Color;
-import javax.swing.BorderFactory;
 import javax.swing.JTextField;
 import javax.swing.border.Border;
 import javax.swing.event.DocumentEvent;
@@ -18,7 +17,9 @@ import javax.swing.event.DocumentListener;
  */
 public final class FormValidator {
 
-    private static final Border ERROR_BORDER = BorderFactory.createLineBorder(Color.RED, 2);
+    /** Red rounded line, same shape as the normal input border (see RoundedInputs). */
+    private static final Border ERROR_BORDER = new RoundedInputs.RoundedBorder(new Color(0xDC2626), 2,
+            new java.awt.Insets(4, 9, 4, 9));
     private static final String ORIGINAL_BORDER = "avilaos.originalBorder";
 
     private final StringBuilder errors = new StringBuilder();
@@ -147,6 +148,16 @@ public final class FormValidator {
     private void append(String message) {
         errorCount++;
         errors.append("• ").append(message).append('\n');
+    }
+
+    /**
+     * Removes the red border from the fields (e.g. when a form hides them because the user changed
+     * an option, so no error is left on a field that cannot be seen).
+     */
+    public static void clearErrors(JTextField... fields) {
+        for (JTextField field : fields) {
+            ok(field);
+        }
     }
 
     private static void ok(JTextField field) {

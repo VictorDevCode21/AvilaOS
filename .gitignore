@@ -2,3 +2,6 @@
 /nbproject/private/
 .DS_Store
 *.class
+
+# Labs de prueba locales (no se comprometen; ver la regla del equipo)
+src/main/java/com/unimet/avilaos/*Lab.java

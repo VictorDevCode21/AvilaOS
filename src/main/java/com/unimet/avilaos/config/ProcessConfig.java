@@ -46,6 +46,11 @@ public record ProcessConfig(String name, ProcessType type, int priority, int mem
         if (type == null) {
             throw new IllegalArgumentException("El proceso " + name + " necesita un tipo");
         }
+        if (type.isFileIo()) {
+            // No tiene dónde guardar la operación ni la ruta: se crea con Cluster.createIoProcess
+            throw new IllegalArgumentException("El proceso " + name + " es de E/S de archivo: se crea con su"
+                    + " operación y su ruta, no con la configuración de procesos");
+        }
         ConfigText.requireRange(priority, 0, MAX_PRIORITY, "La prioridad de " + name);
         if (memorySize <= 0) {
             throw new IllegalArgumentException("La memoria de " + name + " debe ser mayor que 0");
@@ -109,6 +114,7 @@ public record ProcessConfig(String name, ProcessType type, int priority, int mem
                     assignedComputer, arrivalCycle, ioInterval, ioDuration);
             case PRODUCER, CONSUMER -> Pcb.bufferUser(name, type, priority, memorySize, instructions,
                     deadline, assignedComputer, arrivalCycle, bufferName, operationInterval, itemsRequired);
+            case FILE_IO -> throw new IllegalStateException("Un proceso de E/S de archivo no sale de ProcessConfig");
         };
     }
 }

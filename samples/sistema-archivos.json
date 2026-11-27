@@ -1,0 +1,92 @@
+{
+  "diskConfig": {
+    "totalBlocks": 200,
+    "initialHead": 50
+  },
+  "fileSystem": [
+    {
+      "path": "/mbr.bin",
+      "type": "FILE",
+      "startBlock": 0,
+      "blocks": 11,
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/sistema",
+      "type": "DIRECTORY",
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/usuarios",
+      "type": "DIRECTORY",
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/sistema/boot.bin",
+      "type": "FILE",
+      "startBlock": 11,
+      "blocks": 23,
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/usuarios/notas.txt",
+      "type": "FILE",
+      "startBlock": 34,
+      "blocks": 28,
+      "owner": "user1",
+      "permissions": "private"
+    },
+    {
+      "path": "/sistema/script.py",
+      "type": "FILE",
+      "startBlock": 62,
+      "blocks": 2,
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/sistema/core.dll",
+      "type": "FILE",
+      "startBlock": 64,
+      "blocks": 31,
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/sistema/config.sys",
+      "type": "FILE",
+      "startBlock": 95,
+      "blocks": 24,
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/usuarios/img1.png",
+      "type": "FILE",
+      "startBlock": 119,
+      "blocks": 4,
+      "owner": "user1",
+      "permissions": "private"
+    },
+    {
+      "path": "/usuarios/data.csv",
+      "type": "FILE",
+      "startBlock": 123,
+      "blocks": 57,
+      "owner": "user2",
+      "permissions": "public"
+    },
+    {
+      "path": "/usuarios/video.mp4",
+      "type": "FILE",
+      "startBlock": 180,
+      "blocks": 20,
+      "owner": "user1",
+      "permissions": "public"
+    }
+  ]
+}

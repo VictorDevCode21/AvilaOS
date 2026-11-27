@@ -1,0 +1,70 @@
+{
+  "globalConfig": {
+    "cycleDurationMs": 300,
+    "swapSizeBlocks": 100,
+    "initialDiskPolicy": "C-SCAN"
+  },
+  "computer": {
+    "ramCapacity": 1024,
+    "policy": "FCFS",
+    "quantum": 0
+  },
+  "processes": [
+    {
+      "name": "Proc_82",
+      "memory": 16,
+      "deadline": 1000,
+      "instructions": 2,
+      "targetPath": "/anexo/bloque-82.dat",
+      "operation": "READ"
+    },
+    {
+      "name": "Proc_17",
+      "memory": 16,
+      "deadline": 1000,
+      "instructions": 2,
+      "targetPath": "/anexo/bloque-17.dat",
+      "operation": "READ"
+    },
+    {
+      "name": "Proc_43",
+      "memory": 16,
+      "deadline": 1000,
+      "instructions": 2,
+      "targetPath": "/anexo/bloque-43.dat",
+      "operation": "READ"
+    },
+    {
+      "name": "Proc_140",
+      "memory": 16,
+      "deadline": 1000,
+      "instructions": 2,
+      "targetPath": "/anexo/bloque-140.dat",
+      "operation": "READ"
+    },
+    {
+      "name": "Proc_24",
+      "memory": 16,
+      "deadline": 1000,
+      "instructions": 2,
+      "targetPath": "/anexo/bloque-24.dat",
+      "operation": "READ"
+    },
+    {
+      "name": "Proc_16",
+      "memory": 16,
+      "deadline": 1000,
+      "instructions": 2,
+      "targetPath": "/anexo/bloque-16.dat",
+      "operation": "READ"
+    },
+    {
+      "name": "Proc_190",
+      "memory": 16,
+      "deadline": 1000,
+      "instructions": 2,
+      "targetPath": "/anexo/bloque-190.dat",
+      "operation": "READ"
+    }
+  ]
+}

@@ -4,8 +4,8 @@ import com.unimet.avilaos.datastructures.LinkedList;
 import java.util.concurrent.Semaphore;
 
 /**
- * Métricas del sistema distribuido completo: junta las de cada computador
- * y lleva los contadores de producidos/consumidos de cada buffer.
+ * Métricas del sistema completo: junta las de cada computador (el Proyecto 2 tiene uno solo)
+ * y lleva los contadores de producidos/consumidos de cada buffer (productor-consumidor del P1).
  *
  * Los promedios del sistema se calculan sumando los acumulados de todos los
  * computadores (no promediando los promedios), para que un computador con
@@ -143,7 +143,7 @@ public class SystemMetrics {
     /** Suma los acumulados de todos los computadores. */
     private ComputerMetrics.Totals total() {
         LinkedList<ComputerMetrics> list = getComputers();
-        long lastCycle = 0, completed = 0, onTime = 0, responseCount = 0, responseSum = 0, turnaround = 0;
+        long lastCycle = 0, completed = 0, onTime = 0, failed = 0, responseCount = 0, responseSum = 0, turnaround = 0;
         long fairnessCount = 0, bufferUsers = 0, blocked = 0, busy = 0, idle = 0;
         double fairnessSum = 0, fairnessSquareSum = 0;
         for (int i = 0; i < list.size(); i++) {
@@ -151,6 +151,7 @@ public class SystemMetrics {
             lastCycle = Math.max(lastCycle, t.lastCycle());   // el reloj es global: todos van en el mismo ciclo
             completed += t.completed();
             onTime += t.onTime();
+            failed += t.failed();
             responseCount += t.responseCount();
             responseSum += t.responseSum();
             turnaround += t.turnaroundSum();
@@ -162,7 +163,7 @@ public class SystemMetrics {
             busy += t.busyCycles();
             idle += t.idleCycles();
         }
-        return new ComputerMetrics.Totals(lastCycle, completed, onTime, responseCount, responseSum,
+        return new ComputerMetrics.Totals(lastCycle, completed, onTime, failed, responseCount, responseSum,
                 turnaround, fairnessCount, fairnessSum, fairnessSquareSum, bufferUsers, blocked, busy, idle);
     }
 

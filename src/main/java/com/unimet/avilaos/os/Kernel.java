@@ -1,15 +1,23 @@
 package com.unimet.avilaos.os;
 
+import com.unimet.avilaos.datastructures.ElementComparator;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.hardware.Cpu;
 import com.unimet.avilaos.hardware.CpuMode;
+import com.unimet.avilaos.hardware.DiskRequest;
 import com.unimet.avilaos.hardware.Interrupt;
 import com.unimet.avilaos.hardware.InterruptHandler;
 import com.unimet.avilaos.hardware.InterruptType;
 import com.unimet.avilaos.hardware.IoDevice;
+import com.unimet.avilaos.hardware.IoOperation;
+import com.unimet.avilaos.hardware.SeekPlan;
 import com.unimet.avilaos.metrics.ComputerMetrics;
+import com.unimet.avilaos.metrics.DiskMetrics;
 import com.unimet.avilaos.metrics.SystemMetrics;
+import com.unimet.avilaos.os.disk.DiskPolicyType;
+import com.unimet.avilaos.os.fs.FsOperation;
+import com.unimet.avilaos.os.fs.FsResult;
 import com.unimet.avilaos.os.memory.MemoryManager;
 import com.unimet.avilaos.os.process.BlockReason;
 import com.unimet.avilaos.os.process.Pcb;
@@ -29,7 +37,7 @@ import java.util.concurrent.Semaphore;
  * Es también el único lugar donde cambian los estados de los procesos.
  *
  * Cada ciclo, el Computer lo llama en su propio hilo, en este orden:
- *   1. io.onTick(c)            el disco avanza
+ *   1. io.onTick(c), disk.onTick(c)   el dispositivo de E/S del P1 y el disco avanzan
  *   2. kernel.beforeCpu(c)     PLANEA: solicitudes, despertares, admisión,
  *                              expropiación y qué hará la CPU este ciclo
  *   3. cpu.onTick(c)           EJECUTA (y atiende interrupciones → handleInterrupt)
@@ -45,18 +53,98 @@ import java.util.concurrent.Semaphore;
  *  - Si un proceso termina y se le vence el deadline en el mismo ciclo, gana terminar.
  *  - Al morir un proceso se deshace lo que dejó tomado (como SEM_UNDO en UNIX).
  *
+ * Proceso de E/S de archivo (Proyecto 2):
+ *  - Al obtener la CPU, su primera instrucción (en modo SO) es pedir su operación:
+ *    el sistema de archivos la revisa (check) y, si se puede, la solicitud entra a la
+ *    cola del disco y el proceso queda Bloqueado por E/S. Si no se puede (por ejemplo,
+ *    otro proceso borró el archivo mientras esperaba en Listo), el proceso termina y el
+ *    log explica por qué, como una llamada al sistema que falla.
+ *  - Con la interrupción DISK_COMPLETION toma la solicitud terminada (Disk.pollCompleted),
+ *    aplica la operación (FileSystem.apply), lo anota en el log y el proceso pasa a Listo
+ *    para ejecutar el resto de sus instrucciones (o termina, si no le quedan).
+ *  - Si muere esperando, su solicitud se cancela en la cola del disco y en el disco.
+ *
+ * Planificador a mediano plazo y modelo de 7 estados (Proyecto 2). Corre al inicio de cada
+ * ciclo, antes de admitir Nuevos (mediumTerm):
+ *  1. Un Nuevo por el que ya se suspendieron procesos entra apenas cabe, aunque sus
+ *     víctimas todavía se estén escribiendo (si otro proceso terminó y liberó RAM antes,
+ *     no espera de balde); las víctimas en camino siguen y después se reactivan normalmente.
+ *  2. Reactivar: si hay RAM, el Listo/Suspendido de mayor prioridad (empate: el que lleva
+ *     más tiempo suspendido) pide volver; su RAM se reserva al pedirlo y una solicitud
+ *     RESUME pasa por la cola del disco. Al terminar, libera sus bloques del swap y pasa a
+ *     Listo. Se reactiva antes de admitir Nuevos porque ya estaban en el sistema.
+ *  3. Admitir Nuevos como en el P1, sin tocar la RAM prometida en el paso 1.
+ *  4. Suspender: si un Nuevo no cabe ni contando la RAM de las suspensiones que ya están en
+ *     camino, se eligen Bloqueados (por E/S) de menor prioridad y, si empatan, el que lleva
+ *     más tiempo bloqueado, hasta juntar la RAM que falta. Nunca el proceso cuya solicitud
+ *     está atendiendo el disco, ni uno cuya E/S ya terminó en este ciclo (su interrupción
+ *     está pendiente: la CPU la entrega al final del ciclo, después del mediano plazo).
+ *     Si no alcanza (o no hay swap), no se suspende ninguno. Cada uno reserva sus bloques
+ *     del swap, pasa a Bloqueado/Suspendido y una solicitud SUSPEND pasa por la cola del
+ *     disco; su RAM se libera cuando el disco termina de escribirlo
+ *     (escribe y después libera, como dice el enunciado) y queda para ese Nuevo (así no la
+ *     toma otro y no hay thrashing). Un bloque del swap equivale a una unidad de RAM.
+ *     La víctima no se compara con la prioridad del Nuevo: si el único Bloqueado que se
+ *     puede suspender tiene más prioridad que el que entra, igual se suspende. El enunciado
+ *     pide suspender a un Bloqueado cuando un Nuevo no cabe, sin condicionarlo a la
+ *     prioridad; el Bloqueado no usa la CPU mientras espera su evento, así que sacarlo de la
+ *     RAM no le quita turno, y al ocurrir su evento es el primero en reactivarse (mayor
+ *     prioridad primero). Negarse dejaría al Nuevo esperando con la RAM ocupada por un
+ *     proceso que no avanza.
+ *  - Un Bloqueado/Suspendido cuyo evento ocurre pasa a Listo/Suspendido.
+ *  - Si un suspendido muere, se cancelan sus solicitudes y se liberan su swap y su RAM.
+ *
+ * Cola inicial completa (Proyecto 2, InitialDiskHold): si se pidió con
+ * holdDiskForInitialLoad, el disco no toma su primera decisión hasta que los procesos de E/S
+ * de la carga inicial pidieron el disco o ya no pueden pedirlo. Al final de cada ciclo
+ * (checkInitialHold) se suelta el disco cuando:
+ *  - todos los de la carga inicial pidieron el disco o terminaron;
+ *  - el planificador a mediano plazo encola una solicitud SUSPEND o RESUME (necesita el disco
+ *    ya: si esperara, el Nuevo por el que suspende no entraría nunca);
+ *  - los que faltan solo esperan RAM en Nuevo y no hay nadie en Listo ni en la CPU (nada más
+ *    puede avanzar hasta que el disco libere a alguien);
+ *  - se llega al tope de ciclos (el menor deadline de la carga inicial).
+ * Los procesos que se crean después (desde la GUI) no entran en la espera.
+ *
  * Hilos: todo lo de arriba corre en el hilo de su computador. Desde otros hilos solo
- * se llaman submit, deliverWakeup, requestPolicy, requestQuantum y las consultas,
- * que pasan por un mutex.
+ * se llaman submit, deliverWakeup, requestPolicy, requestQuantum, holdDiskForInitialLoad
+ * (antes de iniciar el reloj) y las consultas, que pasan por un mutex.
  *
  * @author victor1102
+ * @author NicollPinzon
  */
 public class Kernel implements InterruptHandler {
 
     /** Qué hace la CPU en el ciclo actual (lo decide beforeCpu, lo aplica afterCpu). */
     private enum Action {
-        IDLE, DISPATCH, USER_INSTRUCTION, KERNEL_INSTRUCTION, IO_REQUEST, REMOTE_REQUEST
+        IDLE, DISPATCH, USER_INSTRUCTION, KERNEL_INSTRUCTION, IO_REQUEST, REMOTE_REQUEST, DISK_REQUEST
     }
+
+    /** Origen de las líneas del log que escribe el disco. */
+    private static final String DISK_SOURCE = "Disco";
+    /** Origen de las líneas del log del planificador a mediano plazo. */
+    private static final String MEDIUM_TERM_SOURCE = "Mediano plazo";
+
+    /** Un Nuevo por el que se suspendieron procesos: la RAM que liberen es para él. */
+    private static final class Reservation {
+        final Pcb newcomer;
+
+        Reservation(Pcb newcomer) {
+            this.newcomer = newcomer;
+        }
+    }
+
+    /** Menor prioridad primero (número más alto); empate: el que lleva más tiempo bloqueado. */
+    private static final ElementComparator<ProcessRuntime> VICTIM_ORDER = (a, b) -> {
+        int byPriority = Integer.compare(b.pcb.getPriority(), a.pcb.getPriority());
+        return byPriority != 0 ? byPriority : Long.compare(a.blockedCycle, b.blockedCycle);
+    };
+
+    /** Mayor prioridad primero (número más bajo); empate: el que lleva más tiempo suspendido. */
+    private static final ElementComparator<ProcessRuntime> RESUME_ORDER = (a, b) -> {
+        int byPriority = Integer.compare(a.pcb.getPriority(), b.pcb.getPriority());
+        return byPriority != 0 ? byPriority : Long.compare(a.suspendedCycle, b.suspendedCycle);
+    };
 
     private final int computerId;
     private final String source;
@@ -68,6 +156,7 @@ public class Kernel implements InterruptHandler {
     private final ComputerMetrics metrics;
     private final SystemMetrics systemMetrics;      // puede ser null (pruebas)
     private final Interconnect network;
+    private final Storage storage;
 
     // ---------- Estado del kernel (solo el hilo del computador) ----------
     private final LinkedList<ProcessRuntime> processes = new LinkedList<>();   // todos los vivos
@@ -79,11 +168,17 @@ public class Kernel implements InterruptHandler {
     private final Semaphore mutex = new Semaphore(1, true);
     private final LinkedList<Pcb> blocked = new LinkedList<>();
     private final LinkedList<Pcb> terminated = new LinkedList<>();
+    private final LinkedList<Pcb> readySuspended = new LinkedList<>();
+    private final LinkedList<Pcb> blockedSuspended = new LinkedList<>();
+    private final LinkedList<Reservation> reservations = new LinkedList<>();   // solo el hilo del kernel
+    private final DiskMetrics diskMetrics;
     private final LinkedList<Pcb> arrivals = new LinkedList<>();
     private final LinkedList<Wakeup> wakeups = new LinkedList<>();
     private PolicyType pendingPolicy;
     private int pendingQuantum;
+    private DiskPolicyType pendingDiskPolicy;
     private volatile Pcb runningPcb;
+    private volatile InitialDiskHold initialHold;   // null: el disco ya decide normalmente
     private volatile String activity = "Ociosa";
 
     /** Un despertar en camino: quién, desde qué semáforo y en qué ciclo se envió. */
@@ -91,13 +186,15 @@ public class Kernel implements InterruptHandler {
     }
 
     public Kernel(int computerId, Cpu cpu, IoDevice io, MemoryManager memory, Scheduler scheduler,
-            EventLog log, ComputerMetrics metrics, SystemMetrics systemMetrics, Interconnect network) {
+            EventLog log, ComputerMetrics metrics, SystemMetrics systemMetrics, Interconnect network,
+            Storage storage) {
         if (computerId < 1) {
             throw new IllegalArgumentException("El computador debe ser 1 o mayor");
         }
         if (cpu == null || io == null || memory == null || scheduler == null || log == null
-                || metrics == null || network == null) {
-            throw new IllegalArgumentException("El kernel necesita CPU, E/S, memoria, planificador, log, métricas y red");
+                || metrics == null || network == null || storage == null) {
+            throw new IllegalArgumentException("El kernel necesita CPU, E/S, memoria, planificador, log, métricas, red"
+                    + " y almacenamiento");
         }
         if (memory.getComputerId() != computerId) {
             throw new IllegalArgumentException("La memoria es del computador " + memory.getComputerId()
@@ -113,6 +210,8 @@ public class Kernel implements InterruptHandler {
         this.metrics = metrics;
         this.systemMetrics = systemMetrics;
         this.network = network;
+        this.storage = storage;
+        this.diskMetrics = new DiskMetrics(storage.disk());
     }
 
     // =====================================================================
@@ -177,6 +276,34 @@ public class Kernel implements InterruptHandler {
         }
     }
 
+    /**
+     * Regla "cola inicial completa" (ver la clase): el disco no decide hasta que los procesos
+     * de E/S de la carga inicial pidan el disco o ya no puedan. Se llama una vez, después de
+     * entregar los procesos del JSON y antes de iniciar el reloj.
+     *
+     * @param initial  procesos de E/S de archivos de la carga inicial
+     * @param maxCycle tope: en ese ciclo el disco empieza a atender aunque falten solicitudes
+     * @throws IllegalArgumentException si la lista está vacía o el tope es menor que 1
+     */
+    public void holdDiskForInitialLoad(LinkedList<Pcb> initial, long maxCycle) {
+        InitialDiskHold hold = new InitialDiskHold(initial, maxCycle);
+        storage.diskScheduler().holdFirstDecision();
+        initialHold = hold;
+    }
+
+    /** La GUI pide cambiar la política de disco: se aplica al inicio del próximo ciclo. */
+    public void requestDiskPolicy(DiskPolicyType policy) {
+        if (policy == null) {
+            throw new IllegalArgumentException("La política de disco no puede ser null");
+        }
+        mutex.acquireUninterruptibly();
+        try {
+            pendingDiskPolicy = policy;
+        } finally {
+            mutex.release();
+        }
+    }
+
     // =====================================================================
     // 2. Antes de la CPU: planear el ciclo
     // =====================================================================
@@ -186,7 +313,7 @@ public class Kernel implements InterruptHandler {
         applyRequests();
         acceptArrivals();
         deliverWakeups();
-        admitNewProcesses();
+        mediumTerm();
         preemptIfNeeded();
         planCpu();
         countReadyWaits();
@@ -195,12 +322,15 @@ public class Kernel implements InterruptHandler {
     private void applyRequests() {
         PolicyType policy;
         int quantum;
+        DiskPolicyType diskPolicy;
         mutex.acquireUninterruptibly();
         try {
             policy = pendingPolicy;
             quantum = pendingQuantum;
+            diskPolicy = pendingDiskPolicy;
             pendingPolicy = null;
             pendingQuantum = 0;
+            pendingDiskPolicy = null;
         } finally {
             mutex.release();
         }
@@ -211,6 +341,11 @@ public class Kernel implements InterruptHandler {
         if (quantum > 0 && quantum != scheduler.getQuantum()) {
             scheduler.setQuantum(quantum);
             log.log(cycle, source, "cambia el quantum de Round Robin a " + quantum + " ciclos");
+        }
+        if (diskPolicy != null && diskPolicy != storage.diskScheduler().getPolicyType()) {
+            storage.diskScheduler().setPolicy(diskPolicy);
+            log.log(cycle, DISK_SOURCE, "cambia su política de planificación a " + diskPolicy.getLabel()
+                    + " (se aplica desde la próxima solicitud)");
         }
     }
 
@@ -275,8 +410,241 @@ public class Kernel implements InterruptHandler {
         }
     }
 
+    // =====================================================================
+    // Planificador a mediano plazo (ver el diseño arriba)
+    // =====================================================================
+
+    private void mediumTerm() {
+        dropFinishedReservations();
+        admitReservedNewcomers();
+        reactivateSuspended();
+        admitNewProcesses();
+        suspendForNewcomer();
+    }
+
+    /** RAM ya prometida a los Nuevos por los que se suspendieron procesos. */
+    private int reservedRam() {
+        int total = 0;
+        for (int i = 0; i < reservations.size(); i++) {
+            total += reservations.get(i).newcomer.getMemorySize();
+        }
+        return total;
+    }
+
+    /** RAM de los procesos que el disco está escribiendo en el swap (se liberará al terminar). */
+    private int ramOnTheWay() {
+        int total = 0;
+        LinkedList<ProcessRuntime> all = processes.copy();
+        while (!all.isEmpty()) {
+            ProcessRuntime rt = all.removeFirst();
+            if (rt.swappingOut) {
+                total += rt.pcb.getMemorySize();
+            }
+        }
+        return total;
+    }
+
+    private void dropFinishedReservations() {
+        LinkedList<Reservation> all = reservations.copy();
+        while (!all.isEmpty()) {
+            Reservation r = all.removeFirst();
+            if (r.newcomer.getState() != ProcessState.NEW) {
+                reservations.remove(r);                     // terminó por deadline esperando
+            }
+        }
+    }
+
+    /**
+     * Admite a cada Nuevo con reserva apenas cabe, sin esperar a que terminen de escribirse
+     * sus víctimas: si la RAM ya está (por ejemplo, otro proceso terminó), esperar sería
+     * dejarla ociosa. Respeta la RAM de las reservas que van antes que él.
+     */
+    private void admitReservedNewcomers() {
+        LinkedList<Reservation> all = reservations.copy();
+        int keepForEarlier = 0;
+        while (!all.isEmpty()) {
+            Reservation r = all.removeFirst();
+            if (!memory.admitOne(r.newcomer, keepForEarlier)) {
+                keepForEarlier += r.newcomer.getMemorySize();
+            } else {
+                reservations.remove(r);
+                r.newcomer.markReady();
+                scheduler.addReady(r.newcomer);
+                log.log(cycle, source, "admite el proceso " + r.newcomer
+                        + " con la RAM que liberaron las suspensiones ("
+                        + memory.getMemory().getFreeSize() + " MB libres)");
+            }
+        }
+    }
+
+    private void reactivateSuspended() {
+        LinkedList<ProcessRuntime> candidates = new LinkedList<>();
+        LinkedList<ProcessRuntime> all = processes.copy();
+        while (!all.isEmpty()) {
+            ProcessRuntime rt = all.removeFirst();
+            if (rt.pcb.getState() == ProcessState.READY_SUSPENDED && rt.swapBlock >= 0 && !rt.swappingOut
+                    && !rt.swappingIn) {
+                candidates.insertSorted(rt, RESUME_ORDER);
+            }
+        }
+        while (!candidates.isEmpty()) {
+            ProcessRuntime rt = candidates.removeFirst();
+            if (!memory.reserveForResume(rt.pcb, reservedRam())) {
+                continue;                                   // no cabe todavía; quizá uno más pequeño sí
+            }
+            int size = rt.pcb.getMemorySize();
+            rt.swappingIn = true;
+            storage.diskScheduler().enqueue(new DiskRequest(rt.pcb.getId(), IoOperation.RESUME, DiskRequest.SWAP_TARGET,
+                    rt.swapBlock, size, cycle));
+            log.log(cycle, MEDIUM_TERM_SOURCE, "Se reactiva al proceso " + rt.pcb
+                    + ": hay RAM y el disco lo trae del swap ("
+                    + size + " bloques desde el bloque " + rt.swapBlock + ")");
+        }
+    }
+
+    /**
+     * Si un Nuevo no cabe ni contando la RAM que viene en camino, suspende los Bloqueados
+     * necesarios (o ninguno si no alcanza). Atiende a un solo Nuevo por ciclo.
+     */
+    private void suspendForNewcomer() {
+        LinkedList<Pcb> waiting = memory.getNewProcesses();
+        while (!waiting.isEmpty()) {
+            Pcb newcomer = waiting.removeFirst();
+            if (newcomer.getState() != ProcessState.NEW || hasReservation(newcomer)) {
+                continue;
+            }
+            int future = memory.getMemory().getFreeSize() + ramOnTheWay() - reservedRam();
+            int missing = newcomer.getMemorySize() - future;
+            if (missing <= 0) {
+                continue;                                   // entra en cuanto se libere lo que viene
+            }
+            LinkedList<ProcessRuntime> victims = chooseVictims(missing);
+            if (victims != null) {
+                suspend(victims, newcomer);
+                return;
+            }
+        }
+    }
+
+    /** Los Bloqueados a suspender para juntar missing MB, o null si no alcanza (RAM o swap). */
+    private LinkedList<ProcessRuntime> chooseVictims(int missing) {
+        DiskRequest serving = storage.disk().getCurrentRequest();
+        int servingPid = serving == null ? -1 : serving.getProcessId();
+        LinkedList<ProcessRuntime> candidates = new LinkedList<>();
+        LinkedList<ProcessRuntime> all = processes.copy();
+        while (!all.isEmpty()) {
+            ProcessRuntime rt = all.removeFirst();
+            if (rt.pcb.getState() == ProcessState.BLOCKED && rt.pcb.getBlockReason() == BlockReason.IO
+                    && rt.pcb.getId() != servingPid && !rt.swappingIn && !rt.swappingOut && memory.isResident(rt.pcb)
+                    && !cpu.hasPendingInterruptFor(rt.pcb.getId())) {   // su E/S ya terminó: no espera nada
+                candidates.insertSorted(rt, VICTIM_ORDER);
+            }
+        }
+        int freeSwap = storage.disk().getBlockMap().getFreeSwapBlocks();
+        LinkedList<ProcessRuntime> chosen = new LinkedList<>();
+        int gathered = 0;
+        int swapUsed = 0;
+        while (!candidates.isEmpty() && gathered < missing) {
+            ProcessRuntime rt = candidates.removeFirst();
+            int size = rt.pcb.getMemorySize();
+            if (swapUsed + size <= freeSwap) {              // un bloque del swap por unidad de RAM
+                chosen.addLast(rt);
+                gathered += size;
+                swapUsed += size;
+            }
+        }
+        return gathered >= missing ? chosen : null;
+    }
+
+    private void suspend(LinkedList<ProcessRuntime> victims, Pcb newcomer) {
+        reservations.addLast(new Reservation(newcomer));
+        while (!victims.isEmpty()) {
+            ProcessRuntime rt = victims.removeFirst();
+            int size = rt.pcb.getMemorySize();
+            rt.swapBlock = storage.disk().getBlockMap().allocateSwap(size, rt.pcb.creatorLabel());
+            rt.swappingOut = true;
+            rt.suspendedCycle = cycle;
+            rt.suspendedFor = newcomer;
+            removeBlocked(rt.pcb);
+            rt.pcb.markSuspended();
+            mutex.acquireUninterruptibly();
+            try {
+                blockedSuspended.addLast(rt.pcb);
+            } finally {
+                mutex.release();
+            }
+            storage.diskScheduler().enqueue(new DiskRequest(rt.pcb.getId(), IoOperation.SUSPEND,
+                    DiskRequest.SWAP_TARGET, rt.swapBlock, size, cycle));
+            log.log(cycle, MEDIUM_TERM_SOURCE, "Se suspende al proceso " + rt.pcb + " para admitir a " + newcomer
+                    + ": el disco lo escribe en el swap (" + size + " bloques desde el bloque " + rt.swapBlock + ")");
+        }
+        if (initialHold != null) {
+            // Si el disco siguiera esperando a la carga inicial, el Nuevo no entraría nunca
+            releaseInitialHold("el planificador a mediano plazo necesita el disco");
+        }
+    }
+
+    private boolean hasReservation(Pcb pcb) {
+        for (int i = 0; i < reservations.size(); i++) {
+            if (reservations.get(i).newcomer == pcb) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** El disco terminó de escribir (SUSPEND) o de traer (RESUME) a un proceso. */
+    private void swapCompleted(ProcessRuntime rt, DiskRequest done, String policy) {
+        log.log(cycle, DISK_SOURCE, "atiende la solicitud de " + (rt == null ? "P" + done.getProcessId() : rt.pcb)
+                + " en el bloque " + done.getTargetBlock() + " (" + policy + ")");
+        if (rt == null) {
+            return;                                          // ya terminó: terminate liberó todo
+        }
+        int size = rt.pcb.getMemorySize();
+        if (done.getOperation() == IoOperation.SUSPEND) {
+            rt.swappingOut = false;
+            memory.release(rt.pcb);
+            diskMetrics.suspensionCompleted();              // se cuenta al completarse, igual que las reactivaciones
+            log.log(cycle, MEDIUM_TERM_SOURCE, "El proceso " + rt.pcb + " ya está en el swap: se liberan " + size
+                    + " MB de RAM para " + rt.suspendedFor);
+            return;
+        }
+        rt.swappingIn = false;
+        storage.disk().getBlockMap().free(rt.swapBlock);
+        rt.swapBlock = -1;
+        removeSuspended(rt.pcb);
+        rt.pcb.markReady();
+        scheduler.addReady(rt.pcb);
+        diskMetrics.reactivationCompleted();
+        log.log(cycle, MEDIUM_TERM_SOURCE, "El proceso " + rt.pcb + " vuelve a la RAM (libera " + size
+                + " bloques del swap) y pasa a Listo");
+    }
+
+    /** Ocurrió el evento de un Bloqueado/Suspendido: sigue en el swap, pero ya está listo. */
+    private void eventWhileSuspended(ProcessRuntime rt, String why) {
+        mutex.acquireUninterruptibly();
+        try {
+            blockedSuspended.remove(rt.pcb);
+            readySuspended.addLast(rt.pcb);
+        } finally {
+            mutex.release();
+        }
+        rt.pcb.markReadySuspended();
+        log.log(cycle, source, "el proceso " + rt.pcb + " " + why + " estando suspendido y pasa a Listo/Suspendido");
+    }
+
+    private void removeSuspended(Pcb pcb) {
+        mutex.acquireUninterruptibly();
+        try {
+            readySuspended.remove(pcb);
+            blockedSuspended.remove(pcb);
+        } finally {
+            mutex.release();
+        }
+    }
+
     private void admitNewProcesses() {
-        LinkedList<Pcb> admitted = memory.admit();
+        LinkedList<Pcb> admitted = memory.admit(reservedRam());
         while (!admitted.isEmpty()) {
             Pcb pcb = admitted.removeFirst();
             pcb.markReady();
@@ -329,6 +697,10 @@ public class Kernel implements InterruptHandler {
             cpu.scheduleKernelWork();
             action = Action.IO_REQUEST;
             activity = "SO: registra la E/S de " + rt.pcb;
+        } else if (step == ExecutionStep.DISK_REQUEST) {
+            cpu.setMode(CpuMode.KERNEL);                     // 1 instrucción del proceso, en modo SO
+            action = Action.DISK_REQUEST;
+            activity = rt.pcb + ": pide al disco " + rt.pcb.getFileOperation();
         } else if (step == ExecutionStep.USER) {
             cpu.setMode(CpuMode.USER);
             action = Action.USER_INSTRUCTION;
@@ -351,16 +723,72 @@ public class Kernel implements InterruptHandler {
 
     @Override
     public void handleInterrupt(Interrupt interrupt) {
+        if (interrupt.type() == InterruptType.DISK_COMPLETION) {
+            diskCompleted();
+            return;
+        }
         if (interrupt.type() != InterruptType.IO_COMPLETION) {
             log.log(cycle, source, "ignora la interrupción " + interrupt.type().getLabel());
             return;
         }
         ProcessRuntime rt = findById(interrupt.processId());
+        if (rt != null && rt.pcb.getState() == ProcessState.BLOCKED_SUSPENDED
+                && rt.pcb.getBlockReason() == BlockReason.IO) {
+            eventWhileSuspended(rt, "termina su E/S");
+            return;
+        }
         if (rt == null || rt.pcb.getState() != ProcessState.BLOCKED || rt.pcb.getBlockReason() != BlockReason.IO) {
             log.log(cycle, source, "ignora el fin de E/S de P" + interrupt.processId() + " (ya no la espera)");
             return;
         }
         makeReady(rt, "termina su E/S");
+    }
+
+    /**
+     * El disco terminó una solicitud: se aplica la operación en el sistema de archivos
+     * y el proceso vuelve a Listo (o termina, si ya no le quedan instrucciones).
+     * Hay una interrupción por solicitud terminada, así que se toma una sola.
+     */
+    private void diskCompleted() {
+        SeekPlan plan = storage.disk().pollCompleted();
+        if (plan == null) {
+            return;
+        }
+        DiskRequest done = plan.getRequest();
+        // La política que ELIGIÓ la solicitud, no la vigente ahora (pueden haberla cambiado);
+        // si no viniera anotada, la vigente: así el log y las métricas nunca quedan sin política
+        String policy = plan.getChosenBy() != null ? plan.getChosenBy()
+                : storage.diskScheduler().getPolicyType().getLabel();
+        diskMetrics.requestServed(cycle, policy);
+        ProcessRuntime rt = findById(done.getProcessId());
+        if (!done.getOperation().isFileOperation()) {
+            swapCompleted(rt, done, policy);                // SUSPEND o RESUME
+            return;
+        }
+        boolean waiting = rt != null && (rt.pcb.getState() == ProcessState.BLOCKED
+                || rt.pcb.getState() == ProcessState.BLOCKED_SUSPENDED);
+        if (!waiting || !rt.pcb.getType().isFileIo() || rt.pcb.getBlockReason() != BlockReason.IO) {
+            log.log(cycle, DISK_SOURCE, "termina la solicitud de P" + done.getProcessId()
+                    + ", pero el proceso ya no la espera");
+            return;
+        }
+        log.log(cycle, DISK_SOURCE, "atiende la solicitud de " + rt.pcb + " en el bloque " + done.getTargetBlock()
+                + " (" + policy + ")");
+        // Se aplica con "P5 (Proc_95)" como creador: el nombre se puede repetir, el PID no
+        FsResult result = storage.fileSystem().apply(rt.pcb.getSession(),
+                rt.pcb.getFileOperation().withCreator(rt.pcb.creatorLabel()));
+        if (!result.isOk()) {
+            terminate(rt, false, lowerFirst(result.getMessage()));
+            return;
+        }
+        log.log(cycle, source, "el proceso " + rt.pcb + ": " + result.getMessage());
+        if (rt.pcb.isFinished()) {
+            terminate(rt, false, null);                     // su única instrucción era la operación
+        } else if (rt.pcb.getState() == ProcessState.BLOCKED_SUSPENDED) {
+            eventWhileSuspended(rt, "termina su E/S de disco");
+        } else {
+            makeReady(rt, "termina su E/S de disco");
+        }
     }
 
     // =====================================================================
@@ -373,6 +801,38 @@ public class Kernel implements InterruptHandler {
         applyAction();
         tickDeadlines();
         countSemaphoreWaits();
+        checkInitialHold();
+    }
+
+    // =====================================================================
+    // Cola inicial completa (ver la clase)
+    // =====================================================================
+
+    /** Al final del ciclo: ¿ya puede decidir el disco? Si no, informa la cuenta cuando cambia. */
+    private void checkInitialHold() {
+        InitialDiskHold hold = initialHold;
+        if (hold == null) {
+            return;
+        }
+        if (hold.generated() == hold.size()) {
+            releaseInitialHold(null);
+        } else if (cycle >= hold.getMaxCycle()) {
+            releaseInitialHold("se cumplió el tope de " + hold.getMaxCycle() + " ciclos");
+        } else if (hold.missingOnlyWaitForRam() && runningPcb == null && scheduler.getReadyCount() == 0) {
+            releaseInitialHold("los que faltan esperan RAM y no hay otro proceso que pueda avanzar");
+        } else if (hold.countChanged(hold.requestCount())) {
+            log.log(cycle, DISK_SOURCE, "espera a que la carga inicial pida el disco (" + hold.requestCount()
+                    + " de " + hold.size() + " solicitudes)");
+        }
+    }
+
+    /** Suelta el disco: decide desde el próximo ciclo con lo que haya en la cola. */
+    private void releaseInitialHold(String reason) {
+        initialHold = null;
+        storage.diskScheduler().releaseFirstDecision();
+        int queued = storage.diskScheduler().getPendingRequests().size();
+        log.log(cycle, DISK_SOURCE, "empieza a atender: " + queued + (queued == 1 ? " solicitud" : " solicitudes")
+                + " en cola" + (reason == null ? "" : " (" + reason + ")"));
     }
 
     /** Latencias de red: las que llegan a 0 vuelven a Listo (ya pagaron su acceso). */
@@ -409,6 +869,11 @@ public class Kernel implements InterruptHandler {
                 log.log(cycle, source, "el proceso " + rt.pcb + " pide E/S (" + rt.pcb.getIoDuration() + " ciclos)");
                 return;
             }
+            case DISK_REQUEST -> {
+                rt.pcb.instructionExecuted();
+                requestDisk(rt);
+                return;
+            }
             case USER_INSTRUCTION -> {
                 rt.pcb.instructionExecuted();
                 afterUserInstruction(rt);
@@ -421,14 +886,43 @@ public class Kernel implements InterruptHandler {
             }
         }
         if (running == rt && rt.pcb.isFinished()) {
-            terminate(rt, false);
+            terminate(rt, false, null);
         }
+    }
+
+    /**
+     * El proceso de E/S pide su operación. El sistema de archivos la revisa con el
+     * usuario del proceso: si se puede, la solicitud va a la cola del disco y el
+     * proceso queda Bloqueado por E/S; si no, el proceso termina con el motivo.
+     */
+    private void requestDisk(ProcessRuntime rt) {
+        FsOperation op = rt.pcb.getFileOperation();
+        FsResult check = storage.fileSystem().check(rt.pcb.getSession(), op);
+        if (!check.isOk()) {
+            terminate(rt, false, "no se pudo " + op + ": " + check.getMessage());
+            return;
+        }
+        String target = op.getOperation() == IoOperation.CREATE
+                ? op.getCreatedPath() : op.getPath();
+        DiskRequest request = new DiskRequest(rt.pcb.getId(), op.getOperation(), target, check.getTargetBlock(),
+                check.getBlockCount(), cycle);
+        storage.diskScheduler().enqueue(request);
+        InitialDiskHold hold = initialHold;
+        if (hold != null) {
+            hold.requested(rt.pcb);
+        }
+        rt.step = ExecutionStep.USER;                        // al volver, ejecuta sus instrucciones de usuario
+        block(rt, BlockReason.IO, "disco, " + op);
+        // Sin paréntesis propios: el texto de crear ya trae "(3 bloques)"
+        log.log(cycle, source, "el proceso " + rt.pcb + " pide al disco " + op + "; va al bloque "
+                + check.getTargetBlock() + " y abarca " + check.getBlockCount()
+                + (check.getBlockCount() == 1 ? " bloque" : " bloques") + "; queda bloqueado por E/S");
     }
 
     private void afterUserInstruction(ProcessRuntime rt) {
         switch (rt.pcb.getType()) {
-            case CPU_BOUND -> {
-                // solo calcula
+            case CPU_BOUND, FILE_IO -> {
+                // solo calcula (el proceso de E/S ya hizo su operación)
             }
             case IO_BOUND -> {
                 rt.sinceIo++;
@@ -506,7 +1000,7 @@ public class Kernel implements InterruptHandler {
         while (!all.isEmpty()) {
             ProcessRuntime rt = all.removeFirst();
             if (rt.pcb.tickDeadline()) {
-                terminate(rt, true);
+                terminate(rt, true, null);
             }
         }
     }
@@ -543,9 +1037,25 @@ public class Kernel implements InterruptHandler {
     // Terminación (con limpieza tipo SEM_UNDO)
     // =====================================================================
 
-    private void terminate(ProcessRuntime rt, boolean deadlineExpired) {
+    /**
+     * @param failure motivo si su operación de E/S no se pudo hacer (el proceso queda como
+     *                fallido y las métricas no lo cuentan a tiempo), o null si terminó su
+     *                trabajo o le venció el deadline
+     */
+    private void terminate(ProcessRuntime rt, boolean deadlineExpired, String failure) {
         Pcb pcb = rt.pcb;
-        boolean admitted = pcb.getState() != ProcessState.NEW;
+        int removedFromQueue = 0;
+        boolean aborted = false;
+        // Solicitudes al disco que hay que cancelar: su operación de archivo o su ida/vuelta al swap
+        boolean waitsForFile = pcb.getType().isFileIo() && pcb.getBlockReason() == BlockReason.IO
+                && (pcb.getState() == ProcessState.BLOCKED || pcb.getState() == ProcessState.BLOCKED_SUSPENDED);
+        if (waitsForFile || rt.swappingOut || rt.swappingIn) {
+            // Se cancela en los dos sin mirar lo que devuelven: si el disco estaba
+            // pidiendo la siguiente, Disk.cancel da false pero igual la descarta.
+            removedFromQueue = storage.diskScheduler().cancel(pcb.getId());
+            aborted = storage.disk().cancel(pcb.getId());
+            diskMetrics.requestsRemovedFromQueue(removedFromQueue);   // las del disco las cuenta el disco
+        }
         switch (pcb.getState()) {
             case NEW -> memory.removeFromNew(pcb);
             case READY -> scheduler.remove(pcb);
@@ -557,7 +1067,11 @@ public class Kernel implements InterruptHandler {
             case BLOCKED -> {
                 removeBlocked(pcb);
                 switch (pcb.getBlockReason()) {
-                    case IO -> io.cancel(pcb.getId());
+                    case IO -> {
+                        if (!pcb.getType().isFileIo()) {
+                            io.cancel(pcb.getId());
+                        }
+                    }
                     case NETWORK -> rt.networkLeft = 0;
                     case SEMAPHORE -> {
                         if (!rt.waitingOn.removeWaiting(pcb)) {
@@ -566,16 +1080,34 @@ public class Kernel implements InterruptHandler {
                     }
                 }
             }
+            case READY_SUSPENDED, BLOCKED_SUSPENDED -> {
+                removeSuspended(pcb);
+                if (pcb.getState() == ProcessState.BLOCKED_SUSPENDED && pcb.getBlockReason() == BlockReason.IO
+                        && !pcb.getType().isFileIo()) {
+                    io.cancel(pcb.getId());
+                }
+            }
             case TERMINATED -> {
                 return;
             }
         }
+        int freedSwap = 0;
+        if (rt.swapBlock >= 0) {
+            freedSwap = storage.disk().getBlockMap().free(rt.swapBlock);
+            rt.swapBlock = -1;
+        }
+        rt.swappingOut = false;                             // si se estaba escribiendo, su RAM se libera aquí mismo
+        rt.swappingIn = false;
         if (pcb.getType().usesBuffer()) {
             releaseBufferHoldings(rt);
         }
-        pcb.markTerminated(cycle, deadlineExpired);
-        if (admitted) {
-            memory.release(pcb);
+        if (failure != null) {
+            pcb.markFailed(cycle, failure);
+        } else {
+            pcb.markTerminated(cycle, deadlineExpired);
+        }
+        if (memory.isResident(pcb)) {
+            memory.release(pcb);                            // un suspendido ya en el swap no tiene RAM
         }
         processes.remove(rt);
         mutex.acquireUninterruptibly();
@@ -585,8 +1117,24 @@ public class Kernel implements InterruptHandler {
             mutex.release();
         }
         metrics.processTerminated(pcb);
-        log.log(cycle, source, "el proceso " + pcb + (deadlineExpired
-                ? " se termina: venció su deadline" : " terminó su ejecución"));
+        String text = failure != null ? "se termina: " + failure
+                : deadlineExpired ? "se termina: venció su deadline" : "terminó su ejecución";
+        log.log(cycle, source, "el proceso " + pcb + " " + text);
+        String cause = deadlineExpired ? "venció su deadline" : "el proceso terminó";
+        if (aborted) {
+            log.log(cycle, DISK_SOURCE, "aborta la solicitud de " + pcb + " que estaba atendiendo (" + cause + ")");
+        } else if (removedFromQueue > 0) {
+            log.log(cycle, DISK_SOURCE, "saca de su cola " + (removedFromQueue == 1 ? "la solicitud"
+                    : "las " + removedFromQueue + " solicitudes") + " de " + pcb + " (" + cause + ")");
+        }
+        if (freedSwap > 0) {
+            log.log(cycle, MEDIUM_TERM_SOURCE, "se liberan los " + freedSwap + " bloques del swap de " + pcb);
+        }
+    }
+
+    /** "No se pudo leer /x" → "no se pudo leer /x" (para continuar una frase del log). */
+    private static String lowerFirst(String text) {
+        return text.isEmpty() ? text : Character.toLowerCase(text.charAt(0)) + text.substring(1);
     }
 
     /**
@@ -628,6 +1176,7 @@ public class Kernel implements InterruptHandler {
 
     /** Saca al proceso de la CPU y lo deja Bloqueado con su motivo. */
     private void block(ProcessRuntime rt, BlockReason reason, String detail) {
+        rt.blockedCycle = cycle;
         rt.pcb.setProgramCounter(cpu.saveContext());
         cpu.unload();
         rt.pcb.markBlocked(reason, detail);
@@ -750,6 +1299,45 @@ public class Kernel implements InterruptHandler {
         }
     }
 
+    /** Cola Listo/Suspendido: en el swap, ya listos, esperan RAM para volver. */
+    public LinkedList<Pcb> getReadySuspendedSnapshot() {
+        mutex.acquireUninterruptibly();
+        try {
+            return readySuspended.copy();
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /** Cola Bloqueado/Suspendido: en el swap y todavía esperando su evento. */
+    public LinkedList<Pcb> getBlockedSuspendedSnapshot() {
+        mutex.acquireUninterruptibly();
+        try {
+            return blockedSuspended.copy();
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /**
+     * Suspensiones completadas: procesos que el disco terminó de escribir en el swap
+     * (métrica del enunciado). Se cuentan al completarse, igual que las reactivaciones:
+     * una suspensión cancelada porque la víctima murió antes no cuenta.
+     */
+    public long getSuspensions() {
+        return diskMetrics.getSuspensions();
+    }
+
+    /** Reactivaciones terminadas (el proceso volvió a la RAM). */
+    public long getReactivations() {
+        return diskMetrics.getReactivations();
+    }
+
+    /** Métricas del disco y de la suspensión, y los puntos de la gráfica de desplazamiento. */
+    public DiskMetrics getDiskMetrics() {
+        return diskMetrics;
+    }
+
     public LinkedList<Pcb> getTerminatedSnapshot() {
         mutex.acquireUninterruptibly();
         try {
@@ -765,5 +1353,9 @@ public class Kernel implements InterruptHandler {
 
     public MemoryManager getMemoryManager() {
         return memory;
+    }
+
+    public Storage getStorage() {
+        return storage;
     }
 }

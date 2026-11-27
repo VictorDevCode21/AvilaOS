@@ -14,16 +14,21 @@ import java.util.concurrent.Semaphore;
  *
  * Definiciones (todas medidas en ciclos):
  * - Throughput: procesos que TERMINARON SU TRABAJO a tiempo / ciclos transcurridos
- *   (los que mató su deadline no cuentan: Stallings, cap. 9).
+ *   (los que mató su deadline no cuentan: Stallings, cap. 9; tampoco los procesos de
+ *   E/S cuya operación falló, porque no hicieron su trabajo).
  * - Utilización de CPU: ciclos ocupada / ciclos totales (contadores de la Cpu).
  * - Tiempo de respuesta: primer ciclo en CPU - ciclo de llegada (Stallings, cap. 9).
  * - Tiempo de retorno: ciclo de fin - ciclo de llegada.
- * - Cumplimiento de deadlines: terminados a tiempo / terminados.
+ * - Cumplimiento de deadlines: terminados a tiempo / terminados, sin contar los fallidos
+ *   (su fallo no tiene que ver con el deadline: no suman ni restan).
  * - Equidad: índice de Jain sobre la fracción del tiempo que el proceso QUERÍA la CPU
  *   (en CPU o en Listos) que realmente la tuvo: ejecutadas / (ejecutadas + ciclos en Listos).
  *   El tiempo bloqueado en E/S o semáforos no cuenta: un I/O bound no sale "tratado
  *   injustamente" por su propia naturaleza (1 = todos tratados igual).
  * - Bloqueo en semáforos: promedio de ciclos bloqueado de productores y consumidores.
+ *
+ * Los fallidos sí cuentan en getCompletedProcesses (ya salieron del sistema) y en los
+ * tiempos de respuesta y de retorno (sí estuvieron en el sistema).
  *
  * @author NicollPinzon
  */
@@ -49,6 +54,7 @@ public class ComputerMetrics {
     // ---------- Acumulados de procesos terminados ----------
     private long completed;
     private long onTime;
+    private long failed;
     private long responseCount;          // terminados que llegaron a ejecutarse
     private long responseSum;
     private long turnaroundSum;
@@ -117,7 +123,9 @@ public class ComputerMetrics {
         mutex.acquireUninterruptibly();
         try {
             completed++;
-            if (!pcb.isDeadlineMissed()) {
+            if (pcb.isFailed()) {
+                failed++;
+            } else if (!pcb.isDeadlineMissed()) {
                 onTime++;
             }
             turnaroundSum += turnaround;
@@ -153,6 +161,11 @@ public class ComputerMetrics {
 
     public long getCompletedProcesses() {
         return getSnapshot().completedProcesses();
+    }
+
+    /** Procesos de E/S que terminaron porque su operación no se pudo hacer. */
+    public long getFailedProcesses() {
+        return snapshot().failed();
     }
 
     /** Procesos que terminaron su trabajo (sin vencer su deadline) por ciclo. */
@@ -203,7 +216,7 @@ public class ComputerMetrics {
     Totals snapshot() {
         mutex.acquireUninterruptibly();
         try {
-            return new Totals(lastCycle, completed, onTime, responseCount, responseSum, turnaroundSum,
+            return new Totals(lastCycle, completed, onTime, failed, responseCount, responseSum, turnaroundSum,
                     fairnessCount, fairnessSum, fairnessSquareSum, bufferUsers, semaphoreBlockedSum,
                     cpu.getBusyCycles(), cpu.getIdleCycles());
         } finally {
@@ -211,13 +224,14 @@ public class ComputerMetrics {
         }
     }
 
-    record Totals(long lastCycle, long completed, long onTime, long responseCount, long responseSum,
+    record Totals(long lastCycle, long completed, long onTime, long failed, long responseCount, long responseSum,
             long turnaroundSum, long fairnessCount, double fairnessSum, double fairnessSquareSum,
             long bufferUsers, long semaphoreBlockedSum, long busyCycles, long idleCycles) {
 
         /** Convierte los acumulados en los valores que muestra la GUI. */
         MetricsSnapshot toMetrics() {
             long cycles = busyCycles + idleCycles;
+            long judged = completed - failed;              // los que se pueden juzgar por su deadline
             return new MetricsSnapshot(
                     lastCycle,
                     completed,
@@ -225,9 +239,10 @@ public class ComputerMetrics {
                     cycles == 0 ? 0.0 : (double) busyCycles / cycles,
                     responseCount == 0 ? 0.0 : (double) responseSum / responseCount,
                     completed == 0 ? 0.0 : (double) turnaroundSum / completed,
-                    completed == 0 ? 0.0 : (double) onTime / completed,
+                    judged == 0 ? 0.0 : (double) onTime / judged,
                     jain(fairnessCount, fairnessSum, fairnessSquareSum),
-                    bufferUsers == 0 ? 0.0 : (double) semaphoreBlockedSum / bufferUsers);
+                    bufferUsers == 0 ? 0.0 : (double) semaphoreBlockedSum / bufferUsers,
+                    failed);
         }
     }
 

@@ -9,6 +9,9 @@ import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.hardware.GlobalClock;
 import com.unimet.avilaos.metrics.SystemMetrics;
 import com.unimet.avilaos.os.Interconnect;
+import com.unimet.avilaos.os.disk.DiskPolicyType;
+import com.unimet.avilaos.os.fs.FsOperation;
+import com.unimet.avilaos.os.fs.UserSession;
 import com.unimet.avilaos.os.process.Pcb;
 import com.unimet.avilaos.os.process.PidGenerator;
 import com.unimet.avilaos.os.scheduling.PolicyType;
@@ -17,12 +20,15 @@ import com.unimet.avilaos.os.sync.KernelSemaphore;
 import java.util.concurrent.Semaphore;
 
 /**
- * El sistema distribuido: N computadores (instancias de Computer), los buffers,
- * el reloj global, el log y las métricas del sistema.
+ * La simulación completa: los computadores (instancias de Computer), los buffers, el
+ * reloj global, el log y las métricas del sistema. Proyecto 2: un solo computador
+ * (SimulationConfig.COMPUTER_COUNT) y sin productor-consumidor en la interfaz; los
+ * buffers y la red quedan del Proyecto 1 (se siguen leyendo de un CSV del P1).
  *
- * Implementa Interconnect: es "la red" que ve cada kernel. Así el kernel (capa os)
- * no importa el clúster (capa superior): inversión de dependencias, igual que
- * InterruptHandler entre el hardware y el SO.
+ * Implementa Interconnect: es "la red" que ve cada kernel (accesos a buffers remotos y
+ * despertares entre computadores, del P1). Así el kernel (capa os) no importa el
+ * clúster (capa superior): inversión de dependencias, igual que InterruptHandler
+ * entre el hardware y el SO.
  *
  * Hilos:
  *  - Cada computador corre en su propio hilo (el GlobalClock lo crea al registrarlo).
@@ -71,7 +77,8 @@ public class Cluster implements Interconnect {
         LinkedList<ComputerConfig> computerConfigs = config.getComputers();
         computers = new Computer[computerConfigs.size()];
         for (int i = 0; i < computers.length; i++) {
-            Computer computer = new Computer(computerConfigs.get(i), config.getQuantum(), log, systemMetrics, this);
+            Computer computer = new Computer(computerConfigs.get(i), config.getDisk(), config.getQuantum(), log,
+                    systemMetrics, this);
             computers[i] = computer;
             systemMetrics.addComputer(computer.getMetrics());
             clock.register(computer, "Computer-" + computer.getId());
@@ -126,6 +133,11 @@ public class Cluster implements Interconnect {
         }
     }
 
+    /** Cambia la política de disco en plena ejecución (se aplica desde la próxima solicitud). */
+    public void setDiskPolicy(DiskPolicyType policy) {
+        getComputer(1).getKernel().requestDiskPolicy(policy);
+    }
+
     /** Cada computador cambia su política de forma independiente (lo exige el enunciado). */
     public void setPolicy(int computerId, PolicyType policy) {
         getComputer(computerId).getKernel().requestPolicy(policy);
@@ -146,6 +158,31 @@ public class Cluster implements Interconnect {
             throw new IllegalArgumentException("El proceso no puede ser null");
         }
         return submitProcess(process);
+    }
+
+    /**
+     * Crea un proceso de E/S de archivo (Proyecto 2) y lo entrega al computador. La
+     * interfaz solo crea el proceso: la operación la hace él cuando obtiene la CPU.
+     *
+     * @param operation operación del sistema de archivos; su creador debe ser el nombre del proceso
+     *                  (al aplicarla, el kernel guarda "P5 (nombre)" como creador)
+     * @param session   usuario en cuyo nombre actúa: el de la sesión activa desde la GUI,
+     *                  o adminSession() para los procesos que carga el JSON
+     * @return el PCB creado
+     * @throws IllegalArgumentException si algún dato no es válido o no cabe en la RAM
+     */
+    public Pcb createIoProcess(String name, int priority, int memorySize, int instructions, long deadline,
+            FsOperation operation, UserSession session) {
+        Computer target = getComputer(1);
+        Pcb pcb = Pcb.fileIo(name, priority, memorySize, instructions, deadline, target.getId(),
+                clock.getCurrentCycle(), operation, session);
+        target.submit(pcb);
+        return pcb;
+    }
+
+    /** Sesión del administrador (dueño de la raíz): en su nombre corren los procesos del JSON. */
+    public UserSession adminSession() {
+        return UserSession.admin(Computer.ROOT_OWNER);
     }
 
     private Pcb submitProcess(ProcessConfig process) {
