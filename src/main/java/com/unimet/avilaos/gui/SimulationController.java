@@ -2,8 +2,12 @@ package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.cluster.Cluster;
 import com.unimet.avilaos.cluster.Computer;
+import com.unimet.avilaos.config.DiskConfig;
+import com.unimet.avilaos.config.FileSystemJson;
 import com.unimet.avilaos.config.ProcessConfig;
+import com.unimet.avilaos.config.ProcessesJson;
 import com.unimet.avilaos.config.SimulationConfig;
+import com.unimet.avilaos.config.SimulationLoader;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.LogEntry;
 import com.unimet.avilaos.hardware.BlockMap;
@@ -23,6 +27,8 @@ import com.unimet.avilaos.os.fs.Permission;
 import com.unimet.avilaos.os.process.Pcb;
 import com.unimet.avilaos.os.scheduling.PolicyType;
 import com.unimet.avilaos.os.scheduling.Scheduler;
+import java.io.File;
+import java.io.IOException;
 import javax.swing.JOptionPane;
 import javax.swing.Timer;
 
@@ -41,6 +47,16 @@ import javax.swing.Timer;
  * disk policy selector), the Files view (tree and allocation table from the file system), the
  * user mode selector and the "Nuevo proceso de E/S" form, and shows the disk metrics.
  *
+ * El enunciado pide que la interfaz EXIJA los dos JSON antes de iniciar el reloj global: "Iniciar"
+ * abre el diálogo de carga mientras la simulación actual no salió de ellos, y su "Iniciar
+ * simulación" la arma con SimulationLoader (los JSON mandan; la configuración solo da las claves
+ * opcionales) y arranca el reloj. "Reiniciar" la vuelve a armar desde los mismos dos JSON.
+ *
+ * Reiniciar con procesos nuevos conservando el disco (punto del enunciado): con una simulación ya
+ * cargada, el diálogo ofrece "Usar el disco actual"; los archivos y bloques de ahora (con los
+ * cambios de la simulación) pasan a ser el sistema de archivos de la nueva, con el JSON de procesos
+ * que se elija (FileSystemJson.snapshot, con el cabezal donde está).
+ *
  * @author victor1102
  * @author donatovodola
  */
@@ -55,7 +71,13 @@ public final class SimulationController {
      */
     static final int IO_PROCESS_INSTRUCTIONS = 1;
 
-    private final SimulationConfig config;
+    private SimulationConfig config;      // al cargar los JSON se reemplaza por la que resulta de ellos
+    /**
+     * Disco de la configuración (diálogo o CSV) con que se abrió esta ventana: al cargar los JSON
+     * da la dirección inicial, las posiciones por ciclo y la espera de la carga inicial si el JSON
+     * de procesos no las trae (los JSON mandan en lo demás, ver SimulationLoader).
+     */
+    private final DiskConfig configuredDisk;
     private final MainWindow window;
     private final PlanningDialog planningDialog;
     private final Timer refreshTimer;
@@ -68,12 +90,31 @@ public final class SimulationController {
     private int nextIoNumber = 1;         // for the default name of an I/O process ("IO_Read_3")
     /** Disk policy chosen in the Disk view that the kernel hasn't applied yet (next cycle), or null. */
     private DiskPolicyType pendingDiskPolicy;
+    /** Los dos JSON de la última carga (llenan de antemano el diálogo de carga), o null. */
+    private File fileSystemFile;
+    private File processesFile;
+    /** De dónde salió el disco de la simulación actual: el nombre del archivo o "disco conservado…". */
+    private String fileSystemLabel;
+    /** Los dos JSON ya leídos, si la simulación actual salió de ellos; si no, null. */
+    private FileSystemJson.Image fileSystemImage;
+    private ProcessesJson.Image processesImage;
 
     public SimulationController(SimulationConfig config) {
+        this(config, null, null);
+    }
+
+    /**
+     * @param fileSystemFile JSON del sistema de archivos elegido antes (solo llena el diálogo de carga), o null
+     * @param processesFile  JSON de procesos elegido antes, o null
+     */
+    private SimulationController(SimulationConfig config, File fileSystemFile, File processesFile) {
         if (config == null) {
             throw new IllegalArgumentException("La configuración no puede ser null");
         }
         this.config = config;
+        this.configuredDisk = config.getDisk();
+        this.fileSystemFile = fileSystemFile;
+        this.processesFile = processesFile;
         this.window = new MainWindow(config.getComputerCount());
         this.planningDialog = new PlanningDialog(window, config.getComputerCount());
         this.refreshTimer = new Timer(REFRESH_MS, e -> refresh());
@@ -84,6 +125,7 @@ public final class SimulationController {
         cluster = Cluster.create(config);
         connect();
         window.showSession(session);
+        window.showLoadedJson(null, null);
         showInitialSettings();
         refresh();
         window.setVisible(true);
@@ -97,6 +139,7 @@ public final class SimulationController {
         window.setResetAction(e -> reset());
         window.setCreateProcessAction(e -> createProcess());
         window.setConfigAction(e -> configure());
+        window.setLoadJsonAction(e -> loadJson());
         window.setPlanningAction(e -> openPlanning());
         window.setCreateIoProcessAction(e -> createIoProcess(null, window.getFileSystemPanel().getSelectedPath()));
         window.getFileSystemPanel().setFileActionListener(this::createIoProcess);
@@ -122,6 +165,10 @@ public final class SimulationController {
     // ---------- Acciones ----------
 
     private void startOrPause() {
+        if (!cluster.isRunning() && !loadedFromJson()) {
+            loadJson();                           // el reloj solo arranca con los dos JSON
+            return;
+        }
         if (!cluster.isRunning()) {
             hadWork = cluster.getTotalLoad() > 0;   // un proceso corto puede terminar antes del primer refresco
             cluster.start();
@@ -137,13 +184,27 @@ public final class SimulationController {
     }
 
     /**
-     * Detiene la simulación y arma una nueva desde la configuración (ciclo 0, PID desde 1).
+     * Detiene la simulación y arma una nueva (ciclo 0, PID desde 1): desde los dos JSON si la
+     * actual salió de ellos, o desde la configuración.
      *
      * El clúster nuevo se arma ANTES de apagar el actual: si la configuración no se puede
      * cargar, se muestra el error y la simulación actual sigue viva (antes quedaba apagada
      * y sin reemplazo, e Iniciar ya no hacía nada).
      */
     private void reset() {
+        if (loadedFromJson()) {
+            SimulationLoader.Loaded loaded;
+            try {
+                loaded = SimulationLoader.start(fileSystemImage, processesImage, configuredDisk);
+            } catch (IllegalArgumentException ex) {
+                showError("No se pudo reiniciar", ex);
+                return;
+            }
+            replaceCluster(loaded.cluster(), loaded.config());
+            logLoad(loaded.warnings());
+            refresh();
+            return;
+        }
         Cluster next;
         try {
             next = Cluster.create(config);
@@ -151,8 +212,14 @@ public final class SimulationController {
             showError("No se pudo reiniciar", ex);
             return;
         }
+        replaceCluster(next, config);
+    }
+
+    /** Pone una simulación nueva en lugar de la actual y deja la vista como al inicio. */
+    private void replaceCluster(Cluster next, SimulationConfig nextConfig) {
         cluster.shutdown();
         cluster = next;
+        config = nextConfig;
         window.resetView();
         usersKey = "";
         pendingDiskPolicy = null;                 // the new cluster starts with the configured policy
@@ -194,7 +261,94 @@ public final class SimulationController {
         cluster.shutdown();
         planningDialog.dispose();
         window.dispose();
-        new SimulationController(newConfig).show();
+        new SimulationController(newConfig, fileSystemFile, processesFile).show();
+    }
+
+    // ---------- Los dos JSON (Proyecto 2) ----------
+
+    private boolean loadedFromJson() {
+        return fileSystemImage != null && processesImage != null;
+    }
+
+    /**
+     * Abre "Cargar la simulación". Si el usuario pulsa "Iniciar simulación", los dos JSON (o el disco
+     * actual más un JSON de procesos) pasan a ser la simulación (disco, sistema de archivos,
+     * configuración y procesos) en lugar de la actual, y el reloj arranca. Cancelar deja todo como
+     * estaba. Los avisos de crossCheck no impiden la carga: van al log, y cada proceso con un
+     * problema termina con su motivo cuando se ejecuta.
+     */
+    private void loadJson() {
+        // El disco actual solo se ofrece si la simulación salió de los JSON (si no, está vacío)
+        FileSystemJson.Image current = loadedFromJson() ? currentDisk() : null;
+        LoadDialog.Selection chosen = new LoadDialog(window, JsonChecks::checkFileSystem,
+                JsonChecks::checkProcesses,
+                (fs, procs) -> fs != null ? JsonChecks.crossCheck(fs, procs) : JsonChecks.crossCheck(current, procs),
+                fileSystemFile, processesFile, current == null ? null : JsonChecks.summary(current)).showDialog();
+        if (chosen == null) {
+            return;
+        }
+        boolean keepDisk = chosen.fileSystem() == null;
+        FileSystemJson.Image fileSystem;
+        ProcessesJson.Image processes;
+        SimulationLoader.Loaded loaded;
+        try {
+            // Conservar el disco: su estado al pulsar "Iniciar simulación" (la simulación seguía corriendo)
+            fileSystem = keepDisk ? currentDisk() : JsonChecks.readFileSystem(chosen.fileSystem());
+            processes = JsonChecks.readProcesses(chosen.processes());
+            loaded = SimulationLoader.start(fileSystem, processes, configuredDisk);
+        } catch (IOException ex) {
+            showError("No se pudo cargar la simulación", new IllegalArgumentException(JsonChecks.cannotRead(ex), ex));
+            return;
+        } catch (IllegalArgumentException ex) {
+            showError("No se pudo cargar la simulación", ex);
+            return;
+        }
+        // Solo ahora, con la carga hecha: si fallaba, la simulación y sus archivos seguían siendo los anteriores
+        if (keepDisk) {
+            fileSystemLabel = "disco conservado del ciclo " + cluster.getCurrentCycle();
+        } else {
+            fileSystemFile = chosen.fileSystem();
+            fileSystemLabel = fileSystemFile.getName();
+        }
+        processesFile = chosen.processes();
+        fileSystemImage = fileSystem;
+        processesImage = processes;
+        replaceCluster(loaded.cluster(), loaded.config());
+        window.showLoadedJson(fileSystemLabel, processesFile.getName());
+        int warnings = logLoad(loaded.warnings());
+        if (warnings > 0) {
+            window.showNotice("Simulación cargada con " + warnings + (warnings == 1 ? " aviso" : " avisos")
+                    + " (están en el log).");
+        }
+        startOrPause();
+    }
+
+    /**
+     * El sistema de archivos actual como si se hubiera leído de un JSON, con el cabezal donde está
+     * (FileSystemJson.snapshot): es el disco que se conserva al cargar otros procesos.
+     */
+    private FileSystemJson.Image currentDisk() {
+        return FileSystemJson.snapshot(computer().getFileSystem(), computer().getDisk().getHeadBlock());
+    }
+
+    /**
+     * Escribe en el log (ciclo 0) de dónde salió la simulación (los dos JSON, o el disco conservado
+     * y el JSON de procesos) y los avisos de crossCheck, uno por línea.
+     *
+     * @return cuántos avisos hubo
+     */
+    private int logLoad(String warnings) {
+        cluster.getLog().log(0, "Carga", "sistema de archivos " + fileSystemLabel + " ("
+                + JsonChecks.summary(fileSystemImage) + ") y procesos " + processesFile.getName() + " ("
+                + JsonChecks.summary(processesImage) + ")");
+        int count = 0;
+        if (warnings != null) {
+            for (String line : warnings.split("\n")) {
+                cluster.getLog().log(0, "Carga", "aviso: " + line);
+                count++;
+            }
+        }
+        return count;
     }
 
     // ---------- Disk, file system and user mode (Project 2) ----------
@@ -322,8 +476,9 @@ public final class SimulationController {
         DiskPanel diskPanel = window.getDiskPanel();
         diskPanel.showSnapshot(DiskData.Snapshot.from(blocks.snapshot(), blocks.getSwapStart(), head, direction));
         DiskRequest serving = disk.getCurrentRequest();
-        diskPanel.showQueue(serving == null ? null : DiskData.Request.from(serving, cycle),
-                serving == null ? null : disk.getPhase().getLabel(),
+        String status = serving != null ? disk.getPhase().getLabel()
+                : scheduler.isHolding() ? "El disco espera a que la carga inicial pida el disco" : null;
+        diskPanel.showQueue(serving == null ? null : DiskData.Request.from(serving, cycle), status,
                 DiskData.Request.fromPlans(scheduler.previewServiceOrder(head, direction), cycle));
         DiskPolicyType current = scheduler.getPolicyType();
         if (pendingDiskPolicy == current) {

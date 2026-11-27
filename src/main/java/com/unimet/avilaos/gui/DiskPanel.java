@@ -171,14 +171,15 @@ public final class DiskPanel extends JPanel {
      * Shows the I/O queue in the order the active policy will serve it.
      *
      * @param serving request the disk is working on now, or null if it is idle
-     * @param status  what the disk is doing with it (e.g. "Moviendo el cabezal"), or null
+     * @param status  what the disk is doing with it (e.g. "Moviendo el cabezal"); si está libre, por
+     *                qué no atiende (por ejemplo, que espera a la carga inicial); o null
      * @param queue   waiting requests, first = next to be served
      */
     public void showQueue(DiskData.Request serving, String status, DiskData.Request[] queue) {
         queueModel.setRequests(queue);
         queueCount.setText(String.valueOf(queue.length));
         if (serving == null) {
-            currentLabel.setText("El disco está libre");
+            currentLabel.setText(status == null ? "El disco está libre" : status);
         } else {
             currentLabel.setText("Atendiendo: " + serving.pid() + " · " + operationName(serving) + " · "
                     + serving.target() + " · bloque " + serving.block() + (status == null ? "" : " · " + status));
