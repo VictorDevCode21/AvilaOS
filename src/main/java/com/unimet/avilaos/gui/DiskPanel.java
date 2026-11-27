@@ -1,5 +1,6 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.os.disk.DiskPolicyType;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -20,12 +21,19 @@ import javax.swing.table.AbstractTableModel;
  *
  * It only shows the copies it receives (showSnapshot, showQueue, showPolicy). Changing the policy
  * goes through {@link #setPolicyListener}: the simulation decides and then calls showPolicy.
+ * The policy selector lists every {@link DiskPolicyType}, in the enum order.
  *
  * @author donatovodola
  */
 public final class DiskPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
+
+    /** Receives the disk policy the user clicked. */
+    @FunctionalInterface
+    public interface PolicyListener {
+        void requested(DiskPolicyType policy);
+    }
 
     private final transient OwnerPalette palette;
     private final BlockMapPanel blockMap;
@@ -40,16 +48,13 @@ public final class DiskPanel extends JPanel {
     private final UiKit.Pill queueCount = new UiKit.Pill("0", new Color(0xEEF0F3), Theme.MUTED);
     private final QueueModel queueModel = new QueueModel();
 
-    /**
-     * @param palette  shared palette (same colors as the Files view)
-     * @param policies labels of the disk policies, in order (e.g. FIFO, SSTF, SCAN, C-SCAN)
-     */
-    public DiskPanel(OwnerPalette palette, String[] policies) {
+    /** @param palette shared palette (same colors as the Files view) */
+    public DiskPanel(OwnerPalette palette) {
         super(new BorderLayout(14, 0));
         setOpaque(false);
         this.palette = palette;
         this.blockMap = new BlockMapPanel(palette);
-        this.policySelector = new SegmentedControl(policies);
+        this.policySelector = new SegmentedControl(DiskPolicyType.labels());
         add(buildMapCard(), BorderLayout.CENTER);
         add(buildSideColumn(), BorderLayout.EAST);
     }
@@ -170,22 +175,32 @@ public final class DiskPanel extends JPanel {
         if (serving == null) {
             currentLabel.setText("El disco está libre");
         } else {
-            currentLabel.setText("Atendiendo: " + serving.pid() + " · " + serving.operation() + " · "
+            currentLabel.setText("Atendiendo: " + serving.pid() + " · " + operationName(serving) + " · "
                     + serving.target() + " · bloque " + serving.block() + " · " + progress + " bloques hechos");
         }
         currentLabel.setToolTipText(currentLabel.getText());
         nextLabel.setText(queue.length == 0 ? "—" : queue[0].pid() + " → bloque " + queue[0].block()
-                + "  (" + queue[0].operation() + ")");
+                + "  (" + operationName(queue[0]) + ")");
     }
 
-    /** Marks the policy the disk is really using. */
-    public void showPolicy(String policy) {
-        policySelector.setSelected(policy);
+    private static String operationName(DiskData.Request request) {
+        return request.operation() == null ? "?" : request.operation().name();
     }
 
-    /** Who is told when the user clicks a policy (the simulation decides and calls showPolicy). */
-    public void setPolicyListener(SegmentedControl.ChoiceListener listener) {
-        policySelector.setChoiceListener(listener);
+    /** Marks the policy the disk is really using (DiskScheduler.getPolicyType()). */
+    public void showPolicy(DiskPolicyType policy) {
+        if (policy != null) {
+            policySelector.setSelected(policy.getLabel());
+        }
+    }
+
+    /**
+     * Who is told when the user clicks a policy. The simulation decides (e.g. DiskScheduler.setPolicy)
+     * and then calls showPolicy; the selector does not change the disk by itself.
+     */
+    public void setPolicyListener(PolicyListener listener) {
+        PolicyListener target = listener == null ? policy -> { } : listener;
+        policySelector.setChoiceListener(label -> target.requested(DiskPolicyType.fromLabel(label)));
     }
 
     /** Empties the view (e.g. on reset). */

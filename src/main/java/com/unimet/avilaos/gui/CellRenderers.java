@@ -1,5 +1,6 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.hardware.IoOperation;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -23,33 +24,37 @@ public final class CellRenderers {
     private CellRenderers() {
     }
 
-    /** Background of the pill of an I/O operation (CREATE, READ, UPDATE, DELETE, SUSPEND, RESUME). */
-    public static Color operationFill(String operation) {
-        return switch (operation == null ? "" : operation) {
-            case "CREATE" -> new Color(0xE7F6EC);
-            case "READ" -> new Color(0xEAF1FE);
-            case "UPDATE" -> new Color(0xFFF4E0);
-            case "DELETE" -> new Color(0xFDECEC);
-            case "SUSPEND" -> new Color(0xF1EAFE);
-            case "RESUME" -> new Color(0xFCE7F3);
-            default -> new Color(0xEEF0F3);
+    /** Background of the pill of an I/O operation. */
+    public static Color operationFill(IoOperation operation) {
+        if (operation == null) {
+            return new Color(0xEEF0F3);
+        }
+        return switch (operation) {
+            case CREATE -> new Color(0xE7F6EC);
+            case READ -> new Color(0xEAF1FE);
+            case UPDATE -> new Color(0xFFF4E0);
+            case DELETE -> new Color(0xFDECEC);
+            case SUSPEND -> new Color(0xF1EAFE);
+            case RESUME -> new Color(0xFCE7F3);
         };
     }
 
     /** Text color of the pill of an I/O operation (dark enough to read on its fill). */
-    public static Color operationText(String operation) {
-        return switch (operation == null ? "" : operation) {
-            case "CREATE" -> new Color(0x15703A);
-            case "READ" -> new Color(0x1D4FB8);
-            case "UPDATE" -> new Color(0x8A5300);
-            case "DELETE" -> new Color(0xA61B1B);
-            case "SUSPEND" -> new Color(0x5B21B6);
-            case "RESUME" -> new Color(0x9D174D);
-            default -> Theme.MUTED;
+    public static Color operationText(IoOperation operation) {
+        if (operation == null) {
+            return Theme.MUTED;
+        }
+        return switch (operation) {
+            case CREATE -> new Color(0x15703A);
+            case READ -> new Color(0x1D4FB8);
+            case UPDATE -> new Color(0x8A5300);
+            case DELETE -> new Color(0xA61B1B);
+            case SUSPEND -> new Color(0x5B21B6);
+            case RESUME -> new Color(0x9D174D);
         };
     }
 
-    /** Shows the cell text (an operation name) as a colored pill. */
+    /** Shows the cell value (an IoOperation) as a colored pill with its name; the label goes in the tooltip. */
     public static final class OperationRenderer implements TableCellRenderer {
 
         private final JPanel cell = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -62,8 +67,9 @@ public final class CellRenderers {
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
                 boolean hasFocus, int row, int column) {
-            String operation = value == null ? "" : value.toString();
-            pill.setText(operation);
+            IoOperation operation = value instanceof IoOperation op ? op : null;
+            pill.setText(operation == null ? "" : operation.name());
+            cell.setToolTipText(operation == null ? null : operation.getLabel());
             pill.setColors(operationFill(operation), operationText(operation));
             cell.setBackground(row % 2 == 0 ? Theme.SURFACE : Theme.ROW_ALT);
             return cell;
