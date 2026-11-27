@@ -9,7 +9,6 @@ import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.hardware.HeadDirection;
 import com.unimet.avilaos.os.disk.DiskPolicyType;
-import com.unimet.avilaos.os.scheduling.PolicyType;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -72,9 +71,12 @@ public final class ConfigDialog extends JDialog {
     private final JComboBox<String> directionCombo = new JComboBox<>(directionLabels());
     private final JTextField positionsField = new JTextField(8);
 
-    /** Una fila por computador: su RAM y su política inicial. */
-    private transient ComputerRow[] computerRows = new ComputerRow[0];
-    private final JPanel computersPanel = new JPanel();
+    /**
+     * El computador del archivo (su RAM y su política inicial). Proyecto 2: uno solo, y al cargar
+     * los JSON su RAM y su política salen del JSON de procesos, así que no se muestra; se conserva
+     * para armar la configuración y para que "Guardar" no lo pierda.
+     */
+    private transient LinkedList<ComputerConfig> computers = new LinkedList<>();
 
     // Carga inicial: se guarda aparte y se vuelve a validar al armar la configuración
     private transient LinkedList<BufferConfig> buffers = new LinkedList<>();
@@ -83,9 +85,6 @@ public final class ConfigDialog extends JDialog {
     private final JList<String> processList = new JList<>();
 
     private transient SimulationConfig result;
-
-    private record ComputerRow(JTextField ram, JComboBox<String> policy) {
-    }
 
     /**
      * Muestra el diálogo (modal) con los valores de la configuración actual.
@@ -111,7 +110,6 @@ public final class ConfigDialog extends JDialog {
         JPanel center = new JPanel();
         center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
         center.add(buildGeneralFields());
-        center.add(buildComputersArea());
         center.add(buildDiskFields());
         center.add(buildLoadArea());
 
@@ -134,15 +132,6 @@ public final class ConfigDialog extends JDialog {
         addRow(panel, "Duración del ciclo (" + SimulationConfig.MIN_CYCLE_MS + "-"
                 + SimulationConfig.MAX_CYCLE_MS + " ms):", cycleField);
         addRow(panel, "Quantum de Round Robin (1-" + SimulationConfig.MAX_QUANTUM + " ciclos):", quantumField);
-        return panel;
-    }
-
-    private JPanel buildComputersArea() {
-        // Proyecto 2: un solo computador (SimulationConfig.COMPUTER_COUNT), sin agregar ni quitar
-        computersPanel.setLayout(new GridLayout(0, 3, 6, 4));
-        JPanel panel = new JPanel(new BorderLayout(4, 4));
-        panel.setBorder(BorderFactory.createTitledBorder("Computador"));
-        panel.add(computersPanel, BorderLayout.NORTH);
         return panel;
     }
 
@@ -278,43 +267,10 @@ public final class ConfigDialog extends JDialog {
         headField.setText(String.valueOf(disk.initialHead()));
         directionCombo.setSelectedItem(disk.initialDirection().getLabel());
         positionsField.setText(String.valueOf(disk.positionsPerCycle()));
-        computerRows = new ComputerRow[0];
-        LinkedList<ComputerConfig> computers = config.getComputers();
-        while (!computers.isEmpty()) {
-            ComputerConfig c = computers.removeFirst();
-            addComputerRow(c.ramSize(), c.initialPolicy());
-        }
+        computers = config.getComputers();      // ya son copias
         buffers = config.getBuffers();          // ya son copias
         processes = config.getProcesses();
         refreshLists();
-    }
-
-    private void addComputerRow(int ram, PolicyType policy) {
-        ComputerRow row = new ComputerRow(new JTextField(String.valueOf(ram), 8), new JComboBox<>(PolicyType.labels()));
-        row.policy().setSelectedItem(policy.getLabel());
-        FormValidator.clearErrorOnEdit(row.ram());
-        ComputerRow[] rows = new ComputerRow[computerRows.length + 1];
-        System.arraycopy(computerRows, 0, rows, 0, computerRows.length);
-        rows[computerRows.length] = row;
-        computerRows = rows;
-        rebuildComputerRows();
-    }
-
-    private void rebuildComputerRows() {
-        computersPanel.removeAll();
-        for (int i = 0; i < computerRows.length; i++) {
-            computersPanel.add(new JLabel("Computador " + (i + 1)));
-            JPanel ram = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-            ram.add(new JLabel("RAM (MB):"));
-            ram.add(computerRows[i].ram());
-            computersPanel.add(ram);
-            // In a FlowLayout the combo keeps its normal height instead of filling the grid cell
-            JPanel policy = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-            policy.add(computerRows[i].policy());
-            computersPanel.add(policy);
-        }
-        computersPanel.revalidate();
-        computersPanel.repaint();
     }
 
     private void refreshLists() {
@@ -437,18 +393,9 @@ public final class ConfigDialog extends JDialog {
         int head = v.integer(headField, "Posición inicial del cabezal", 0, lastBlock);
         int positions = v.integer(positionsField, "Posiciones del cabezal por ciclo", 1,
                 DiskConfig.MAX_POSITIONS_PER_CYCLE);
-        int[] rams = new int[computerRows.length];
-        for (int i = 0; i < rams.length; i++) {
-            rams[i] = v.integer(computerRows[i].ram(), "RAM del Computador " + (i + 1) + " (MB)", 1, Integer.MAX_VALUE);
-        }
         if (v.hasErrors()) {
             JOptionPane.showMessageDialog(this, "Corrige estos datos:\n\n" + v.getMessage(),
                     "Datos inválidos", JOptionPane.WARNING_MESSAGE);
-            return null;
-        }
-        String orphans = orphansMessage(computerRows.length);
-        if (orphans != null) {
-            showError("Computador en uso", orphans);
             return null;
         }
         try {
@@ -456,8 +403,8 @@ public final class ConfigDialog extends JDialog {
             config.setDisk(new DiskConfig(fileBlocks, swap,
                     DiskPolicyType.fromLabel((String) diskPolicyCombo.getSelectedItem()), head,
                     directionOf(directionCombo.getSelectedItem()), positions));
-            for (int i = 0; i < computerRows.length; i++) {
-                config.addComputer(rams[i], PolicyType.fromLabel((String) computerRows[i].policy().getSelectedItem()));
+            for (int i = 0; i < computers.size(); i++) {
+                config.addComputer(computers.get(i).ramSize(), computers.get(i).initialPolicy());
             }
             for (int i = 0; i < buffers.size(); i++) {
                 config.addBuffer(buffers.get(i));
@@ -471,31 +418,6 @@ public final class ConfigDialog extends JDialog {
             showError("Configuración inválida", ex.getMessage());
             return null;
         }
-    }
-
-    /**
-     * Si hay buffers o procesos asignados a un computador que ya no existe, el mensaje
-     * que los nombra; si no, null.
-     */
-    private String orphansMessage(int computerCount) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < buffers.size(); i++) {
-            BufferConfig b = buffers.get(i);
-            if (b.hostComputerId() > computerCount) {
-                sb.append("\n• buffer ").append(b.name()).append(" (Computador ").append(b.hostComputerId()).append(')');
-            }
-        }
-        for (int i = 0; i < processes.size(); i++) {
-            ProcessConfig p = processes.get(i);
-            if (!p.isAutomatic() && p.computerId() > computerCount) {
-                sb.append("\n• proceso ").append(p.name()).append(" (Computador ").append(p.computerId()).append(')');
-            }
-        }
-        if (sb.length() == 0) {
-            return null;
-        }
-        return "Hay elementos de la carga inicial en computadores que ya no existen (quedan " + computerCount
-                + "):" + sb + "\n\nQuítalos de la carga inicial o vuelve a agregar los computadores.";
     }
 
     // ---------- Botones ----------
