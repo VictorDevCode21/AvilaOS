@@ -59,7 +59,6 @@ public final class ConfigDialog extends JDialog {
     /** Una fila por computador: su RAM y su política inicial. */
     private transient ComputerRow[] computerRows = new ComputerRow[0];
     private final JPanel computersPanel = new JPanel();
-    private final JButton removeComputerButton = new JButton("Quitar último");
 
     // Carga inicial: se guarda aparte y se vuelve a validar al armar la configuración
     private transient LinkedList<BufferConfig> buffers = new LinkedList<>();
@@ -122,23 +121,11 @@ public final class ConfigDialog extends JDialog {
     }
 
     private JPanel buildComputersArea() {
+        // Proyecto 2: un solo computador (SimulationConfig.COMPUTER_COUNT), sin agregar ni quitar
         computersPanel.setLayout(new GridLayout(0, 3, 6, 4));
-        JScrollPane scroll = new JScrollPane(computersPanel);
-        scroll.setPreferredSize(new Dimension(700, 130));
-        scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.getVerticalScrollBar().setUnitIncrement(16);
-
-        JButton add = new JButton("Agregar computador");
-        add.addActionListener(e -> addComputerRow(1024, PolicyType.FCFS));
-        removeComputerButton.addActionListener(e -> removeLastComputer());
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        buttons.add(add);
-        buttons.add(removeComputerButton);
-
         JPanel panel = new JPanel(new BorderLayout(4, 4));
-        panel.setBorder(BorderFactory.createTitledBorder("Computadores (mínimo " + SimulationConfig.MIN_COMPUTERS + ")"));
-        panel.add(scroll, BorderLayout.CENTER);
-        panel.add(buttons, BorderLayout.SOUTH);
+        panel.setBorder(BorderFactory.createTitledBorder("Computador"));
+        panel.add(computersPanel, BorderLayout.NORTH);
         return panel;
     }
 
@@ -237,21 +224,6 @@ public final class ConfigDialog extends JDialog {
         rebuildComputerRows();
     }
 
-    /** Quitar un computador puede dejar buffers o procesos sin dueño: se avisa al aceptar (orphansMessage). */
-    private void removeLastComputer() {
-        if (computerRows.length <= SimulationConfig.MIN_COMPUTERS) {
-            return;
-        }
-        ComputerRow[] rows = new ComputerRow[computerRows.length - 1];
-        System.arraycopy(computerRows, 0, rows, 0, rows.length);
-        computerRows = rows;
-        rebuildComputerRows();
-        String orphans = orphansMessage(computerRows.length);
-        if (orphans != null) {
-            JOptionPane.showMessageDialog(this, orphans, "Computador en uso", JOptionPane.WARNING_MESSAGE);
-        }
-    }
-
     private void rebuildComputerRows() {
         computersPanel.removeAll();
         for (int i = 0; i < computerRows.length; i++) {
@@ -265,7 +237,6 @@ public final class ConfigDialog extends JDialog {
             policy.add(computerRows[i].policy());
             computersPanel.add(policy);
         }
-        removeComputerButton.setEnabled(computerRows.length > SimulationConfig.MIN_COMPUTERS);
         computersPanel.revalidate();
         computersPanel.repaint();
     }
