@@ -173,8 +173,11 @@ public final class SimulationLoader {
             int slash = p.path().lastIndexOf('/');
             String parent = slash == 0 ? "/" : p.path().substring(0, slash);
             FileInfo dir = fs.find(parent);
-            if (dir == null || !dir.isDirectory()) {
+            if (dir == null) {
                 return "no existe el directorio " + parent + " donde crea " + p.path();
+            }
+            if (!dir.isDirectory()) {
+                return parent + " es un archivo, no un directorio: no se puede crear " + p.path() + " dentro";
             }
             if (fs.exists(p.path())) {
                 return "ya existe " + p.path();
