@@ -564,13 +564,17 @@ public final class SimulationController {
             LinkedList<Pcb> blockedQueue = kernel.getBlockedSnapshot();
             LinkedList<Pcb> terminatedQueue = kernel.getTerminatedSnapshot();
             panel.showQueues(newQueue, readyQueue, blockedQueue, terminatedQueue);
+            LinkedList<Pcb> readySuspended = kernel.getReadySuspendedSnapshot();
+            LinkedList<Pcb> blockedSuspended = kernel.getBlockedSuspendedSnapshot();
+            panel.showSuspendedQueues(readySuspended, blockedSuspended);
             if (inCpu != null) {
                 busy++;
                 running.append(running.length() == 0 ? "" : ", ").append(inCpu);
             }
             usedMb += computer.getRam().getUsedSize();
             totalMb += computer.getRam().getTotalSize();
-            live += newQueue.size() + readyQueue.size() + blockedQueue.size() + (inCpu == null ? 0 : 1);
+            live += newQueue.size() + readyQueue.size() + blockedQueue.size() + readySuspended.size()
+                    + blockedSuspended.size() + (inCpu == null ? 0 : 1);
             blocked += blockedQueue.size();
             terminated += terminatedQueue.size();
             Scheduler scheduler = kernel.getScheduler();
