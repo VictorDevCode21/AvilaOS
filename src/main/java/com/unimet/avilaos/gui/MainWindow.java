@@ -507,12 +507,13 @@ public final class MainWindow extends JFrame {
      * @param runningNames procesos en CPU, separados por coma ("" si ninguno)
      * @param usedMb       RAM usada sumando todos los computadores
      * @param totalMb      RAM total sumando todos los computadores
-     * @param live         procesos vivos (nuevos, listos, en CPU y bloqueados)
-     * @param blocked      procesos bloqueados
+     * @param live         procesos vivos (nuevos, listos, en CPU, bloqueados y suspendidos)
+     * @param blocked      procesos bloqueados (en RAM)
+     * @param suspended    procesos suspendidos en el swap (listos o bloqueados)
      * @param terminated   procesos terminados
      */
     public void showOverview(int busyCpus, String runningNames, int usedMb, int totalMb, int live, int blocked,
-            int terminated) {
+            int suspended, int terminated) {
         if (computerPanels.length == 1) {
             cpuKpi.show(busyCpus == 1 ? "Ocupada" : "Ociosa",
                     runningNames.isEmpty() ? "Esperando un proceso en Listos" : runningNames);
@@ -523,8 +524,14 @@ public final class MainWindow extends JFrame {
         int percent = totalMb == 0 ? 0 : (int) Math.round(usedMb * 100.0 / totalMb);
         memoryKpi.show(usedMb + " / " + totalMb + " MB", percent + " % en uso");
         processKpi.show(live + (live == 1 ? " vivo" : " vivos"),
-                blocked + " bloqueados · " + terminated + " terminados");
+                count(blocked, "bloqueado") + " · " + (suspended == 0 ? "" : count(suspended, "suspendido") + " · ")
+                        + count(terminated, "terminado"));
         setBadge(VIEW_COMPUTERS, live == 0 ? "" : String.valueOf(live));
+    }
+
+    /** "1 bloqueado", "3 bloqueados". */
+    private static String count(int n, String singular) {
+        return n + " " + singular + (n == 1 ? "" : "s");
     }
 
     /** Disk and suspension metrics (Project 2): indicators and requests served per policy. */
@@ -560,7 +567,7 @@ public final class MainWindow extends JFrame {
         for (ComputerPanel panel : computerPanels) {
             panel.clear();
         }
-        showOverview(0, "", 0, 0, 0, 0, 0);
+        showOverview(0, "", 0, 0, 0, 0, 0, 0);
         performanceKpi.show("—", "Aún no termina ningún proceso");
     }
 

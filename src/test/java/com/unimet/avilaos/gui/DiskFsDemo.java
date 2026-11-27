@@ -138,19 +138,24 @@ public final class DiskFsDemo {
         finished.markTerminated(412, false);
         done.addLast(finished);
         panel.showQueues(newQueue, ready, blocked, done);
-        // Until the seven-state enum exists, the suspended ones are shown with their current state
+        // Suspendidos con sus estados reales: Bloqueado → Bloqueado/Suspendido (→ Listo/Suspendido)
         LinkedList<Pcb> readySuspended = new LinkedList<>();
         Pcb rs = Pcb.cpuBound("Proc_62", 3, 16, 8, 500, 1, 0);
         rs.markReady();
+        rs.markRunning(0);
+        rs.markBlocked(BlockReason.IO, "disco · READ /sistema/script.py");
+        rs.markSuspended();
+        rs.markReadySuspended();
         readySuspended.addLast(rs);
         LinkedList<Pcb> blockedSuspended = new LinkedList<>();
         Pcb bs = Pcb.cpuBound("Proc_95", 4, 16, 8, 500, 1, 0);
         bs.markReady();
         bs.markRunning(0);
         bs.markBlocked(BlockReason.IO, "disco · READ /sistema/config.sys (en swap 224–239)");
+        bs.markSuspended();
         blockedSuspended.addLast(bs);
         panel.showSuspendedQueues(readySuspended, blockedSuspended);
-        window.showOverview(1, running.toString(), 208, 256, 10, 3, 1);
+        window.showOverview(1, running.toString(), 208, 256, 10, 3, 2, 1);
     }
 
     // ---------- Fake file system (the statement's example) ----------
