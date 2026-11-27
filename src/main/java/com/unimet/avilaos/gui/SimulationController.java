@@ -267,14 +267,12 @@ public final class SimulationController {
         if (chosen == null) {
             return;
         }
-        fileSystemFile = chosen.fileSystem();
-        processesFile = chosen.processes();
         FileSystemJson.Image fileSystem;
         ProcessesJson.Image processes;
         SimulationLoader.Loaded loaded;
         try {
-            fileSystem = JsonChecks.readFileSystem(fileSystemFile);
-            processes = JsonChecks.readProcesses(processesFile);
+            fileSystem = JsonChecks.readFileSystem(chosen.fileSystem());
+            processes = JsonChecks.readProcesses(chosen.processes());
             loaded = SimulationLoader.start(fileSystem, processes);
         } catch (IOException ex) {
             showError("No se pudo cargar la simulación", new IllegalArgumentException(JsonChecks.cannotRead(ex), ex));
@@ -283,6 +281,9 @@ public final class SimulationController {
             showError("No se pudo cargar la simulación", ex);
             return;
         }
+        // Solo ahora, con la carga hecha: si fallaba, la simulación y sus archivos seguían siendo los anteriores
+        fileSystemFile = chosen.fileSystem();
+        processesFile = chosen.processes();
         fileSystemImage = fileSystem;
         processesImage = processes;
         replaceCluster(loaded.cluster(), loaded.config());
