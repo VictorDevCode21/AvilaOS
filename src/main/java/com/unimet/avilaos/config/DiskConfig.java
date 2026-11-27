@@ -15,8 +15,8 @@ import com.unimet.avilaos.os.disk.DiskPolicyType;
  * De dónde sale: del diálogo de Configuración o de la fila "disk" del CSV. Cuando se cargan
  * los dos JSON, ellos mandan en lo que traen (bloques y cabezal del JSON del sistema de
  * archivos; swap y política de disco del JSON de procesos) y este DiskConfig solo aporta lo
- * que el JSON de procesos no trae: la dirección inicial y las posiciones por ciclo (ver
- * SimulationLoader).
+ * que el JSON de procesos no trae: la dirección inicial, las posiciones por ciclo y si el
+ * disco espera a la carga inicial (ver SimulationLoader).
  *
  * @param fileBlocks        bloques para archivos (MIN_FILE_BLOCKS a MAX_FILE_BLOCKS)
  * @param swapBlocks        bloques del área de intercambio (0 a MAX_SWAP_BLOCKS)
@@ -24,11 +24,14 @@ import com.unimet.avilaos.os.disk.DiskPolicyType;
  * @param initialHead       bloque donde empieza el cabezal
  * @param initialDirection  dirección inicial del cabezal
  * @param positionsPerCycle posiciones que recorre el cabezal en un ciclo (1 a MAX_POSITIONS_PER_CYCLE)
+ * @param waitForInitialRequests true si, antes de su primera decisión, el disco espera a que los
+ *                          procesos de la carga inicial (los del JSON) pidan el disco; así la
+ *                          primera decisión ve la cola completa, como en los casos del enunciado
  *
  * @author NicollPinzon
  */
 public record DiskConfig(int fileBlocks, int swapBlocks, DiskPolicyType initialPolicy, int initialHead,
-        HeadDirection initialDirection, int positionsPerCycle) {
+        HeadDirection initialDirection, int positionsPerCycle, boolean waitForInitialRequests) {
 
     /** El enunciado pide "una cantidad razonable, por ejemplo entre 100 y 500 bloques". */
     public static final int MIN_FILE_BLOCKS = 100;
@@ -49,9 +52,16 @@ public record DiskConfig(int fileBlocks, int swapBlocks, DiskPolicyType initialP
         ConfigText.requireRange(positionsPerCycle, 1, MAX_POSITIONS_PER_CYCLE, "Las posiciones del cabezal por ciclo");
     }
 
+    /** El disco con la espera de la carga inicial activada (el valor por defecto). */
+    public DiskConfig(int fileBlocks, int swapBlocks, DiskPolicyType initialPolicy, int initialHead,
+            HeadDirection initialDirection, int positionsPerCycle) {
+        this(fileBlocks, swapBlocks, initialPolicy, initialHead, initialDirection, positionsPerCycle, true);
+    }
+
     /**
      * El disco de los casos de prueba del enunciado: 200 bloques + 100 de swap,
-     * FIFO, cabezal en 50 hacia los bloques mayores, 10 posiciones por ciclo.
+     * FIFO, cabezal en 50 hacia los bloques mayores, 10 posiciones por ciclo, y espera
+     * a la carga inicial antes de su primera decisión.
      */
     public static DiskConfig defaults() {
         return new DiskConfig(200, 100, DiskPolicyType.FIFO, 50, HeadDirection.UP, 10);

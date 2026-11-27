@@ -94,9 +94,21 @@ import java.util.concurrent.Semaphore;
  *  - Un Bloqueado/Suspendido cuyo evento ocurre pasa a Listo/Suspendido.
  *  - Si un suspendido muere, se cancelan sus solicitudes y se liberan su swap y su RAM.
  *
+ * Cola inicial completa (Proyecto 2, InitialDiskHold): si se pidió con
+ * holdDiskForInitialLoad, el disco no toma su primera decisión hasta que los procesos de E/S
+ * de la carga inicial pidieron el disco o ya no pueden pedirlo. Al final de cada ciclo
+ * (checkInitialHold) se suelta el disco cuando:
+ *  - todos los de la carga inicial pidieron el disco o terminaron;
+ *  - el planificador a mediano plazo encola una solicitud SUSPEND o RESUME (necesita el disco
+ *    ya: si esperara, el Nuevo por el que suspende no entraría nunca);
+ *  - los que faltan solo esperan RAM en Nuevo y no hay nadie en Listo ni en la CPU (nada más
+ *    puede avanzar hasta que el disco libere a alguien);
+ *  - se llega al tope de ciclos (el menor deadline de la carga inicial).
+ * Los procesos que se crean después (desde la GUI) no entran en la espera.
+ *
  * Hilos: todo lo de arriba corre en el hilo de su computador. Desde otros hilos solo
- * se llaman submit, deliverWakeup, requestPolicy, requestQuantum y las consultas,
- * que pasan por un mutex.
+ * se llaman submit, deliverWakeup, requestPolicy, requestQuantum, holdDiskForInitialLoad
+ * (antes de iniciar el reloj) y las consultas, que pasan por un mutex.
  *
  * @author victor1102
  * @author NicollPinzon
@@ -166,6 +178,7 @@ public class Kernel implements InterruptHandler {
     private int pendingQuantum;
     private DiskPolicyType pendingDiskPolicy;
     private volatile Pcb runningPcb;
+    private volatile InitialDiskHold initialHold;   // null: el disco ya decide normalmente
     private volatile String activity = "Ociosa";
 
     /** Un despertar en camino: quién, desde qué semáforo y en qué ciclo se envió. */
@@ -261,6 +274,21 @@ public class Kernel implements InterruptHandler {
         } finally {
             mutex.release();
         }
+    }
+
+    /**
+     * Regla "cola inicial completa" (ver la clase): el disco no decide hasta que los procesos
+     * de E/S de la carga inicial pidan el disco o ya no puedan. Se llama una vez, después de
+     * entregar los procesos del JSON y antes de iniciar el reloj.
+     *
+     * @param initial  procesos de E/S de archivos de la carga inicial
+     * @param maxCycle tope: en ese ciclo el disco empieza a atender aunque falten solicitudes
+     * @throws IllegalArgumentException si la lista está vacía o el tope es menor que 1
+     */
+    public void holdDiskForInitialLoad(LinkedList<Pcb> initial, long maxCycle) {
+        InitialDiskHold hold = new InitialDiskHold(initial, maxCycle);
+        storage.diskScheduler().holdFirstDecision();
+        initialHold = hold;
     }
 
     /** La GUI pide cambiar la política de disco: se aplica al inicio del próximo ciclo. */
@@ -550,6 +578,10 @@ public class Kernel implements InterruptHandler {
             log.log(cycle, MEDIUM_TERM_SOURCE, "Se suspende al proceso " + rt.pcb + " para admitir a " + newcomer
                     + ": el disco lo escribe en el swap (" + size + " bloques desde el bloque " + rt.swapBlock + ")");
         }
+        if (initialHold != null) {
+            // Si el disco siguiera esperando a la carga inicial, el Nuevo no entraría nunca
+            releaseInitialHold("el planificador a mediano plazo necesita el disco");
+        }
     }
 
     private boolean hasReservation(Pcb pcb) {
@@ -769,6 +801,38 @@ public class Kernel implements InterruptHandler {
         applyAction();
         tickDeadlines();
         countSemaphoreWaits();
+        checkInitialHold();
+    }
+
+    // =====================================================================
+    // Cola inicial completa (ver la clase)
+    // =====================================================================
+
+    /** Al final del ciclo: ¿ya puede decidir el disco? Si no, informa la cuenta cuando cambia. */
+    private void checkInitialHold() {
+        InitialDiskHold hold = initialHold;
+        if (hold == null) {
+            return;
+        }
+        if (hold.generated() == hold.size()) {
+            releaseInitialHold(null);
+        } else if (cycle >= hold.getMaxCycle()) {
+            releaseInitialHold("se cumplió el tope de " + hold.getMaxCycle() + " ciclos");
+        } else if (hold.missingOnlyWaitForRam() && runningPcb == null && scheduler.getReadyCount() == 0) {
+            releaseInitialHold("los que faltan esperan RAM y no hay otro proceso que pueda avanzar");
+        } else if (hold.countChanged(hold.requestCount())) {
+            log.log(cycle, DISK_SOURCE, "espera a que la carga inicial pida el disco (" + hold.requestCount()
+                    + " de " + hold.size() + " solicitudes)");
+        }
+    }
+
+    /** Suelta el disco: decide desde el próximo ciclo con lo que haya en la cola. */
+    private void releaseInitialHold(String reason) {
+        initialHold = null;
+        storage.diskScheduler().releaseFirstDecision();
+        int queued = storage.diskScheduler().getPendingRequests().size();
+        log.log(cycle, DISK_SOURCE, "empieza a atender: " + queued + (queued == 1 ? " solicitud" : " solicitudes")
+                + " en cola" + (reason == null ? "" : " (" + reason + ")"));
     }
 
     /** Latencias de red: las que llegan a 0 vuelven a Listo (ya pagaron su acceso). */
@@ -843,6 +907,10 @@ public class Kernel implements InterruptHandler {
         DiskRequest request = new DiskRequest(rt.pcb.getId(), op.getOperation(), target, check.getTargetBlock(),
                 check.getBlockCount(), cycle);
         storage.diskScheduler().enqueue(request);
+        InitialDiskHold hold = initialHold;
+        if (hold != null) {
+            hold.requested(rt.pcb);
+        }
         rt.step = ExecutionStep.USER;                        // al volver, ejecuta sus instrucciones de usuario
         block(rt, BlockReason.IO, "disco, " + op);
         // Sin paréntesis propios: el texto de crear ya trae "(3 bloques)"

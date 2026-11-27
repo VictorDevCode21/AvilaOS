@@ -9,6 +9,7 @@ import com.unimet.avilaos.hardware.IoOperation;
 import com.unimet.avilaos.os.fs.FileInfo;
 import com.unimet.avilaos.os.fs.FileSystem;
 import com.unimet.avilaos.os.fs.UserSession;
+import com.unimet.avilaos.os.process.Pcb;
 import java.io.IOException;
 import java.nio.file.Path;
 
@@ -25,15 +26,20 @@ import java.nio.file.Path;
  *   <li>Cluster.create con esa configuración (un computador con su disco vacío);</li>
  *   <li>FileSystemJson.load: los archivos y directorios en el disco del computador;</li>
  *   <li>los procesos de E/S, en el orden del JSON, como administrador (los carga el
- *       sistema al iniciar, no un usuario).</li>
+ *       sistema al iniciar, no un usuario);</li>
+ *   <li>si "waitForInitialRequests" está activo (por defecto sí), el disco espera a que esos
+ *       procesos pidan el disco antes de su primera decisión, con el menor deadline de la carga
+ *       como tope (Kernel.holdDiskForInitialLoad). Así la primera decisión ve la cola completa
+ *       y los casos de prueba del enunciado salen en vivo igual que en la tabla.</li>
  * </ol>
  * El reloj no arranca: lo arranca quien llama, cuando la interfaz ya está lista.
  *
  * Precedencia de la configuración: los JSON mandan en todo lo que traen (bloques y cabezal
  * del sistema de archivos; ciclo, swap, política de disco, RAM, política de CPU y quantum de
  * procesos). La configuración del diálogo o del CSV (su DiskConfig) solo da el valor de las
- * claves opcionales que el JSON de procesos no trae: la dirección inicial del cabezal y las
- * posiciones por ciclo. Sin configuración, se usan las de DiskConfig.defaults().
+ * claves opcionales que el JSON de procesos no trae: la dirección inicial del cabezal, las
+ * posiciones por ciclo y si el disco espera a la carga inicial. Sin configuración, se usan las
+ * de DiskConfig.defaults().
  *
  * Reiniciar con procesos nuevos conservando el disco modificado:
  * {@code start(FileSystemJson.snapshot(fsViejo, cabezal), nuevosProcesos)}.
@@ -76,8 +82,9 @@ public final class SimulationLoader {
     /**
      * La configuración completa que resulta de los dos JSON (ver la precedencia en la clase).
      *
-     * @param fallback disco de la configuración del diálogo o del CSV: da la dirección inicial y
-     *                 las posiciones por ciclo si el JSON de procesos no las trae
+     * @param fallback disco de la configuración del diálogo o del CSV: da la dirección inicial, las
+     *                 posiciones por ciclo y la espera de la carga inicial si el JSON de procesos no
+     *                 las trae
      */
     public static SimulationConfig buildConfig(FileSystemJson.Image fileSystem, ProcessesJson.Image processes,
             DiskConfig fallback) {
@@ -88,10 +95,12 @@ public final class SimulationLoader {
         ProcessesJson.Settings s = processes.settings();
         HeadDirection direction = s.headDirection() != null ? s.headDirection() : fallback.initialDirection();
         int positions = s.positionsPerCycle() > 0 ? s.positionsPerCycle() : fallback.positionsPerCycle();
+        boolean waitForInitial = s.waitForInitialRequests() != null ? s.waitForInitialRequests()
+                : fallback.waitForInitialRequests();
         SimulationConfig config = new SimulationConfig(s.cycleDurationMs(), s.quantum(), 0);   // sin red: 1 computador
         config.addComputer(s.ramCapacity(), s.cpuPolicy());
         config.setDisk(new DiskConfig(fileSystem.disk().totalBlocks(), s.swapBlocks(), s.diskPolicy(),
-                fileSystem.disk().initialHead(), direction, positions));
+                fileSystem.disk().initialHead(), direction, positions, waitForInitial));
         config.validate();
         return config;
     }
@@ -109,7 +118,8 @@ public final class SimulationLoader {
 
     /**
      * Como start, con el disco de la configuración del diálogo o del CSV como valor por defecto
-     * de la dirección inicial y las posiciones por ciclo (ver la precedencia en la clase).
+     * de la dirección inicial, las posiciones por ciclo y la espera de la carga inicial (ver la
+     * precedencia en la clase).
      *
      * @throws IllegalArgumentException si la configuración no es válida o el sistema de archivos no carga
      */
@@ -119,7 +129,10 @@ public final class SimulationLoader {
         try {
             FileSystemJson.load(fileSystem, cluster.getComputer(1).getFileSystem());
             String warnings = crossCheck(fileSystem, processes);
-            createProcesses(cluster, processes);
+            LinkedList<Pcb> initial = createProcesses(cluster, processes);
+            if (config.getDisk().waitForInitialRequests() && !initial.isEmpty()) {
+                cluster.getComputer(1).getKernel().holdDiskForInitialLoad(initial, smallestDeadline(initial));
+            }
             return new Loaded(cluster, config, warnings);
         } catch (RuntimeException e) {
             cluster.shutdown();          // falle lo que falle, no queda un clúster a medias
@@ -127,18 +140,30 @@ public final class SimulationLoader {
         }
     }
 
-    private static void createProcesses(Cluster cluster, ProcessesJson.Image processes) {
+    /** Crea los procesos del JSON en su orden y los devuelve (la carga inicial). */
+    private static LinkedList<Pcb> createProcesses(Cluster cluster, ProcessesJson.Image processes) {
         UserSession admin = cluster.adminSession();
+        LinkedList<Pcb> created = new LinkedList<>();
         LinkedList<ProcessesJson.ProcessSpec> all = processes.processes().copy();
         while (!all.isEmpty()) {
             ProcessesJson.ProcessSpec p = all.removeFirst();
             try {
-                cluster.createIoProcess(p.name(), p.priority(), p.memory(), p.instructions(), p.deadline(),
-                        p.toOperation(), admin);
+                created.addLast(cluster.createIoProcess(p.name(), p.priority(), p.memory(), p.instructions(),
+                        p.deadline(), p.toOperation(), admin));
             } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException("Proceso " + p.number() + " (" + p.name() + "): " + e.getMessage(), e);
             }
         }
+        return created;
+    }
+
+    /** El menor deadline de la carga inicial: el tope de espera del disco. */
+    private static long smallestDeadline(LinkedList<Pcb> initial) {
+        long smallest = Long.MAX_VALUE;
+        for (int i = 0; i < initial.size(); i++) {
+            smallest = Math.min(smallest, initial.get(i).getInitialDeadline());
+        }
+        return smallest;
     }
 
     /** Lee los dos archivos y arma la simulación. */
