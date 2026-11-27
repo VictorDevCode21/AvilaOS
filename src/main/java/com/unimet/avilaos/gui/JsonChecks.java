@@ -54,6 +54,19 @@ public final class JsonChecks {
         }
     }
 
+    /**
+     * Como crossCheck, contra un sistema de archivos ya leído (el disco actual que se conserva).
+     *
+     * @return un aviso por línea, o null si encajan
+     */
+    public static String crossCheck(FileSystemJson.Image fileSystem, File processes) {
+        try {
+            return SimulationLoader.crossCheck(fileSystem, readProcesses(processes));
+        } catch (IOException e) {
+            return cannotRead(e);
+        }
+    }
+
     static FileSystemJson.Image readFileSystem(File file) throws IOException {
         return FileSystemJson.read(file.toPath());
     }

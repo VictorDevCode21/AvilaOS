@@ -10,6 +10,7 @@ import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.RenderingHints;
 import java.io.File;
+import javax.swing.Box;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
@@ -25,6 +26,11 @@ import javax.swing.filechooser.FileNameExtensionFilter;
  * The dialog only picks and checks files: it does not load anything into the simulation. Whoever
  * opens it gets the two files back and loads them (the controller uses the same parsers, see
  * {@link JsonChecks}).
+ *
+ * Conservar el disco (lo pide el enunciado: reiniciar con procesos nuevos conservando el disco
+ * modificado, y cargar otro JSON de procesos sobre el mismo disco): si quien lo abre ofrece el
+ * disco actual, la fila del sistema de archivos tiene además "Usar el disco actual". Elegirlo
+ * deja esa fila lista sin archivo, y la selección devuelve fileSystem = null.
  *
  * @author donatovodola
  */
@@ -55,7 +61,10 @@ public final class LoadDialog extends JDialog {
         Check check(File file);
     }
 
-    /** Checks that the two files fit together; returns null if fine, or a warning (it does not block). */
+    /**
+     * Checks that the two files fit together; returns null if fine, or a warning (it does not block).
+     * fileSystem es null si se eligió conservar el disco actual.
+     */
     @FunctionalInterface
     public interface CrossValidator {
         String warning(File fileSystem, File processes);
@@ -64,7 +73,7 @@ public final class LoadDialog extends JDialog {
     /**
      * Files chosen by the user.
      *
-     * @param fileSystem file system JSON
+     * @param fileSystem file system JSON, o null para conservar el disco actual de la simulación
      * @param processes  processes and configuration JSON
      */
     public record Selection(File fileSystem, File processes) {
@@ -89,12 +98,23 @@ public final class LoadDialog extends JDialog {
      */
     public LoadDialog(Frame owner, Validator fsValidator, Validator procValidator, CrossValidator cross,
             File previousFs, File previousProc) {
+        this(owner, fsValidator, procValidator, cross, previousFs, previousProc, null);
+    }
+
+    /**
+     * Como el otro constructor, ofreciendo además conservar el disco actual.
+     *
+     * @param currentDisk resumen del disco actual (por ejemplo "200 bloques · cabezal en 62 · …") para
+     *                    ofrecer "Usar el disco actual", o null si no hay un disco que conservar
+     */
+    public LoadDialog(Frame owner, Validator fsValidator, Validator procValidator, CrossValidator cross,
+            File previousFs, File previousProc, String currentDisk) {
         super(owner, "Cargar la simulación", true);
         this.crossValidator = cross;
         fileSystemRow = new FileRow("Sistema de archivos",
-                "Disco (bloques y cabezal inicial) y los archivos que ya existen", fsValidator);
+                "Disco (bloques y cabezal inicial) y los archivos que ya existen", fsValidator, currentDisk);
         processesRow = new FileRow("Procesos y configuración",
-                "Ciclo, swap, política de disco inicial, el computador y sus procesos", procValidator);
+                "Ciclo, swap, política de disco inicial, el computador y sus procesos", procValidator, null);
 
         JPanel content = new JPanel(new BorderLayout(0, 16));
         content.setBackground(Theme.SURFACE);
@@ -129,7 +149,7 @@ public final class LoadDialog extends JDialog {
         UiKit.Button cancel = new UiKit.Button("Cancelar", UiKit.Kind.SECONDARY);
         cancel.addActionListener(e -> dispose());
         startButton.addActionListener(e -> {
-            result = new Selection(fileSystemRow.file, processesRow.file);
+            result = new Selection(fileSystemRow.keepCurrent ? null : fileSystemRow.file, processesRow.file);
             dispose();
         });
         buttons.add(cancel);
@@ -167,7 +187,8 @@ public final class LoadDialog extends JDialog {
         String warning = null;
         if (ready && crossValidator != null) {
             try {
-                warning = crossValidator.warning(fileSystemRow.file, processesRow.file);
+                warning = crossValidator.warning(fileSystemRow.keepCurrent ? null : fileSystemRow.file,
+                        processesRow.file);
             } catch (RuntimeException e) {
                 warning = "no se pudo comparar los dos archivos: " + e.getMessage();
             }
@@ -187,8 +208,10 @@ public final class LoadDialog extends JDialog {
         private final UiKit.Button chooseButton = new UiKit.Button("Elegir archivo…", UiKit.Kind.PRIMARY);
         private transient File file;
         private boolean ok;
+        private boolean keepCurrent;      // true: conservar el disco actual en vez de un archivo
 
-        FileRow(String title, String description, Validator validator) {
+        /** @param currentDisk resumen del disco actual para ofrecer conservarlo, o null */
+        FileRow(String title, String description, Validator validator, String currentDisk) {
             super(new BorderLayout(14, 0));
             this.validator = validator;
             setBorder(Theme.padding(14, 14, 14, 14));
@@ -205,6 +228,13 @@ public final class LoadDialog extends JDialog {
             texts.add(detail, BorderLayout.CENTER);
             add(texts, BorderLayout.CENTER);
             JPanel right = Theme.transparent(new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0)));
+            if (currentDisk != null) {
+                UiKit.Button keepButton = new UiKit.Button("Usar el disco actual", UiKit.Kind.SECONDARY);
+                keepButton.setToolTipText("Conserva los archivos y bloques de la simulación actual, con sus cambios");
+                keepButton.addActionListener(e -> keepCurrentDisk(currentDisk));
+                right.add(keepButton);
+                right.add(Box.createHorizontalStrut(8));
+            }
             right.add(chooseButton);
             add(right, BorderLayout.EAST);
             chooseButton.addActionListener(e -> pick());
@@ -221,7 +251,18 @@ public final class LoadDialog extends JDialog {
             }
         }
 
+        /** Deja la fila lista con el disco actual (sin archivo). */
+        private void keepCurrentDisk(String summary) {
+            keepCurrent = true;
+            ok = true;
+            setStatus(StatusIcon.OK, "Disco actual, con sus cambios · " + summary, Theme.MUTED, new Color(0xF0FDF4),
+                    new Color(0xBBF7D0));
+            chooseButton.setText("Cambiar");
+            updateState();
+        }
+
         void choose(File chosen) {
+            keepCurrent = false;
             file = chosen;
             lastFolder = chosen.getParentFile();
             Check check;

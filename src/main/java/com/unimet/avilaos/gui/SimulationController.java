@@ -47,10 +47,15 @@ import javax.swing.Timer;
  * disk policy selector), the Files view (tree and allocation table from the file system), the
  * user mode selector and the "Nuevo proceso de E/S" form, and shows the disk metrics.
  *
- * The statement asks the interface to require BOTH JSON files before the global clock starts:
- * "Iniciar" opens the load dialog while the current simulation wasn't built from them, and the
- * dialog's "Iniciar simulación" builds it with SimulationLoader and starts the clock. "Reiniciar"
- * then rebuilds it from the same two files.
+ * El enunciado pide que la interfaz EXIJA los dos JSON antes de iniciar el reloj global: "Iniciar"
+ * abre el diálogo de carga mientras la simulación actual no salió de ellos, y su "Iniciar
+ * simulación" la arma con SimulationLoader (los JSON mandan; la configuración solo da las claves
+ * opcionales) y arranca el reloj. "Reiniciar" la vuelve a armar desde los mismos dos JSON.
+ *
+ * Reiniciar con procesos nuevos conservando el disco (punto del enunciado): con una simulación ya
+ * cargada, el diálogo ofrece "Usar el disco actual"; los archivos y bloques de ahora (con los
+ * cambios de la simulación) pasan a ser el sistema de archivos de la nueva, con el JSON de procesos
+ * que se elija (FileSystemJson.snapshot, con el cabezal donde está).
  *
  * @author victor1102
  * @author donatovodola
@@ -88,6 +93,8 @@ public final class SimulationController {
     /** The two JSON files last chosen (they pre-fill the load dialog), or null. */
     private File fileSystemFile;
     private File processesFile;
+    /** De dónde salió el disco de la simulación actual: el nombre del archivo o "disco conservado…". */
+    private String fileSystemLabel;
     /** The two files already parsed, if the current simulation was built from them; else null. */
     private FileSystemJson.Image fileSystemImage;
     private ProcessesJson.Image processesImage;
@@ -270,16 +277,22 @@ public final class SimulationController {
      * they go to the log, and each process with a problem ends with its reason when it runs.
      */
     private void loadJson() {
+        // El disco actual solo se ofrece si la simulación salió de los JSON (si no, está vacío)
+        FileSystemJson.Image current = loadedFromJson() ? currentDisk() : null;
         LoadDialog.Selection chosen = new LoadDialog(window, JsonChecks::checkFileSystem,
-                JsonChecks::checkProcesses, JsonChecks::crossCheck, fileSystemFile, processesFile).showDialog();
+                JsonChecks::checkProcesses,
+                (fs, procs) -> fs != null ? JsonChecks.crossCheck(fs, procs) : JsonChecks.crossCheck(current, procs),
+                fileSystemFile, processesFile, current == null ? null : JsonChecks.summary(current)).showDialog();
         if (chosen == null) {
             return;
         }
+        boolean keepDisk = chosen.fileSystem() == null;
         FileSystemJson.Image fileSystem;
         ProcessesJson.Image processes;
         SimulationLoader.Loaded loaded;
         try {
-            fileSystem = JsonChecks.readFileSystem(chosen.fileSystem());
+            // Conservar el disco: su estado al pulsar "Iniciar simulación" (la simulación seguía corriendo)
+            fileSystem = keepDisk ? currentDisk() : JsonChecks.readFileSystem(chosen.fileSystem());
             processes = JsonChecks.readProcesses(chosen.processes());
             loaded = SimulationLoader.start(fileSystem, processes, configuredDisk);
         } catch (IOException ex) {
@@ -290,12 +303,17 @@ public final class SimulationController {
             return;
         }
         // Solo ahora, con la carga hecha: si fallaba, la simulación y sus archivos seguían siendo los anteriores
-        fileSystemFile = chosen.fileSystem();
+        if (keepDisk) {
+            fileSystemLabel = "disco conservado del ciclo " + cluster.getCurrentCycle();
+        } else {
+            fileSystemFile = chosen.fileSystem();
+            fileSystemLabel = fileSystemFile.getName();
+        }
         processesFile = chosen.processes();
         fileSystemImage = fileSystem;
         processesImage = processes;
         replaceCluster(loaded.cluster(), loaded.config());
-        window.showLoadedJson(fileSystemFile.getName(), processesFile.getName());
+        window.showLoadedJson(fileSystemLabel, processesFile.getName());
         int warnings = logLoad(loaded.warnings());
         if (warnings > 0) {
             window.showNotice("Simulación cargada con " + warnings + (warnings == 1 ? " aviso" : " avisos")
@@ -305,13 +323,21 @@ public final class SimulationController {
     }
 
     /**
+     * El sistema de archivos actual como si se hubiera leído de un JSON, con el cabezal donde está
+     * (FileSystemJson.snapshot): es el disco que se conserva al cargar otros procesos.
+     */
+    private FileSystemJson.Image currentDisk() {
+        return FileSystemJson.snapshot(computer().getFileSystem(), computer().getDisk().getHeadBlock());
+    }
+
+    /**
      * Writes in the log (cycle 0) which two files the simulation came from and the cross check's
      * warnings, one per line.
      *
      * @return how many warnings there were
      */
     private int logLoad(String warnings) {
-        cluster.getLog().log(0, "Carga", "sistema de archivos " + fileSystemFile.getName() + " ("
+        cluster.getLog().log(0, "Carga", "sistema de archivos " + fileSystemLabel + " ("
                 + JsonChecks.summary(fileSystemImage) + ") y procesos " + processesFile.getName() + " ("
                 + JsonChecks.summary(processesImage) + ")");
         int count = 0;
