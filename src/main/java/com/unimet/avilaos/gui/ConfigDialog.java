@@ -116,7 +116,9 @@ public final class ConfigDialog extends JDialog {
         addRow(panel, "Duración del ciclo (" + SimulationConfig.MIN_CYCLE_MS + "-"
                 + SimulationConfig.MAX_CYCLE_MS + " ms):", cycleField);
         addRow(panel, "Quantum de Round Robin (1-" + SimulationConfig.MAX_QUANTUM + " ciclos):", quantumField);
-        addRow(panel, "Latencia de red (0-" + SimulationConfig.MAX_NETWORK_LATENCY + " ciclos):", latencyField);
+        // La latencia de red solo cuenta en el acceso a un buffer de OTRO computador (P1). Con un
+        // solo computador no se usa: no se muestra, pero el campo guarda el valor del archivo para
+        // que Guardar no lo pierda.
         return panel;
     }
 
