@@ -7,9 +7,9 @@ import java.io.File;
 import java.io.IOException;
 
 /**
- * Checks of the two JSON files for the "Cargar la simulación" dialog, done with the real parsers
- * (FileSystemJson, ProcessesJson and SimulationLoader.crossCheck): what the dialog accepts is
- * exactly what the simulation can load. Nothing is loaded here.
+ * Revisión de los dos JSON para el diálogo "Cargar la simulación", con los parsers reales
+ * (FileSystemJson, ProcessesJson y SimulationLoader.crossCheck): lo que el diálogo acepta es
+ * exactamente lo que la simulación puede cargar. Aquí no se carga nada.
  *
  * @author donatovodola
  */
@@ -18,7 +18,7 @@ public final class JsonChecks {
     private JsonChecks() {
     }
 
-    /** The file system JSON: format, disk size, head and entries. On success, a short summary. */
+    /** El JSON del sistema de archivos: formato, tamaño del disco, cabezal y entradas. Si está bien, un resumen. */
     public static LoadDialog.Check checkFileSystem(File file) {
         try {
             return LoadDialog.Check.ok(summary(readFileSystem(file)));
@@ -29,7 +29,7 @@ public final class JsonChecks {
         }
     }
 
-    /** The processes and configuration JSON: format, settings and every process. */
+    /** El JSON de procesos y configuración: formato, configuración y cada proceso. */
     public static LoadDialog.Check checkProcesses(File file) {
         try {
             return LoadDialog.Check.ok(summary(readProcesses(file)));
@@ -41,10 +41,10 @@ public final class JsonChecks {
     }
 
     /**
-     * The two files together (paths that don't exist, a file created where there is one, a process
-     * bigger than the swap...). Only called when both files passed their own check.
+     * Los dos archivos juntos (rutas que no existen, un archivo que se crea donde ya hay otro, un
+     * proceso más grande que el swap...). Solo se llama cuando los dos pasaron su propia revisión.
      *
-     * @return one warning per line, or null if they fit
+     * @return un aviso por línea, o null si encajan
      */
     public static String crossCheck(File fileSystem, File processes) {
         try {

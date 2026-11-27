@@ -24,7 +24,7 @@ import javax.swing.filechooser.FileNameExtensionFilter;
  * disabled while one is missing or has an error, and each row explains what is wrong.
  *
  * The dialog only picks and checks files: it does not load anything into the simulation. Whoever
- * opens it gets the two files back and loads them (the controller uses the same parsers, see
+ * opens it gets the two files back and loads them (el controlador usa los mismos parsers, ver
  * {@link JsonChecks}).
  *
  * Conservar el disco (lo pide el enunciado: reiniciar con procesos nuevos conservando el disco
@@ -39,10 +39,10 @@ public final class LoadDialog extends JDialog {
     private static final long serialVersionUID = 1L;
 
     /**
-     * Result of checking one file.
+     * Resultado de revisar un archivo.
      *
-     * @param ok      true if the file can be used
-     * @param message summary when ok (e.g. "200 bloques · cabezal en 50 · …"), or what is wrong
+     * @param ok      true si el archivo se puede usar
+     * @param message el resumen si está bien (por ejemplo "200 bloques · cabezal en 50 · …"), o qué está mal
      */
     public record Check(boolean ok, String message) {
 

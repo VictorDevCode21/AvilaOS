@@ -71,7 +71,7 @@ public final class SimulationController {
      */
     static final int IO_PROCESS_INSTRUCTIONS = 1;
 
-    private SimulationConfig config;      // the JSON loader replaces it with the one of the two files
+    private SimulationConfig config;      // al cargar los JSON se reemplaza por la que resulta de ellos
     /**
      * Disco de la configuración (diálogo o CSV) con que se abrió esta ventana: al cargar los JSON
      * da la dirección inicial, las posiciones por ciclo y la espera de la carga inicial si el JSON
@@ -90,12 +90,12 @@ public final class SimulationController {
     private int nextIoNumber = 1;         // for the default name of an I/O process ("IO_Read_3")
     /** Disk policy chosen in the Disk view that the kernel hasn't applied yet (next cycle), or null. */
     private DiskPolicyType pendingDiskPolicy;
-    /** The two JSON files last chosen (they pre-fill the load dialog), or null. */
+    /** Los dos JSON de la última carga (llenan de antemano el diálogo de carga), o null. */
     private File fileSystemFile;
     private File processesFile;
     /** De dónde salió el disco de la simulación actual: el nombre del archivo o "disco conservado…". */
     private String fileSystemLabel;
-    /** The two files already parsed, if the current simulation was built from them; else null. */
+    /** Los dos JSON ya leídos, si la simulación actual salió de ellos; si no, null. */
     private FileSystemJson.Image fileSystemImage;
     private ProcessesJson.Image processesImage;
 
@@ -104,8 +104,8 @@ public final class SimulationController {
     }
 
     /**
-     * @param fileSystemFile file system JSON chosen before (only pre-fills the load dialog), or null
-     * @param processesFile  processes JSON chosen before, or null
+     * @param fileSystemFile JSON del sistema de archivos elegido antes (solo llena el diálogo de carga), o null
+     * @param processesFile  JSON de procesos elegido antes, o null
      */
     private SimulationController(SimulationConfig config, File fileSystemFile, File processesFile) {
         if (config == null) {
@@ -166,7 +166,7 @@ public final class SimulationController {
 
     private void startOrPause() {
         if (!cluster.isRunning() && !loadedFromJson()) {
-            loadJson();                           // the clock only starts with the two JSON files
+            loadJson();                           // el reloj solo arranca con los dos JSON
             return;
         }
         if (!cluster.isRunning()) {
@@ -215,7 +215,7 @@ public final class SimulationController {
         replaceCluster(next, config);
     }
 
-    /** Puts a new simulation in place of the current one and leaves the view as at the start. */
+    /** Pone una simulación nueva en lugar de la actual y deja la vista como al inicio. */
     private void replaceCluster(Cluster next, SimulationConfig nextConfig) {
         cluster.shutdown();
         cluster = next;
@@ -264,17 +264,18 @@ public final class SimulationController {
         new SimulationController(newConfig, fileSystemFile, processesFile).show();
     }
 
-    // ---------- The two JSON files (Project 2) ----------
+    // ---------- Los dos JSON (Proyecto 2) ----------
 
     private boolean loadedFromJson() {
         return fileSystemImage != null && processesImage != null;
     }
 
     /**
-     * Opens "Cargar la simulación". If the user presses "Iniciar simulación", the two files become
-     * the simulation (disk, file system, settings and processes) in place of the current one, and the
-     * clock starts. Cancelling leaves everything as it was. The cross check's warnings don't block:
-     * they go to the log, and each process with a problem ends with its reason when it runs.
+     * Abre "Cargar la simulación". Si el usuario pulsa "Iniciar simulación", los dos JSON (o el disco
+     * actual más un JSON de procesos) pasan a ser la simulación (disco, sistema de archivos,
+     * configuración y procesos) en lugar de la actual, y el reloj arranca. Cancelar deja todo como
+     * estaba. Los avisos de crossCheck no impiden la carga: van al log, y cada proceso con un
+     * problema termina con su motivo cuando se ejecuta.
      */
     private void loadJson() {
         // El disco actual solo se ofrece si la simulación salió de los JSON (si no, está vacío)
@@ -331,10 +332,10 @@ public final class SimulationController {
     }
 
     /**
-     * Writes in the log (cycle 0) which two files the simulation came from and the cross check's
-     * warnings, one per line.
+     * Escribe en el log (ciclo 0) de dónde salió la simulación (los dos JSON, o el disco conservado
+     * y el JSON de procesos) y los avisos de crossCheck, uno por línea.
      *
-     * @return how many warnings there were
+     * @return cuántos avisos hubo
      */
     private int logLoad(String warnings) {
         cluster.getLog().log(0, "Carga", "sistema de archivos " + fileSystemLabel + " ("
