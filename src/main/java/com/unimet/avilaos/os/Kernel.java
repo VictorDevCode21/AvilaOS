@@ -540,9 +540,10 @@ public class Kernel implements InterruptHandler {
         storage.diskScheduler().enqueue(request);
         rt.step = ExecutionStep.USER;                        // al volver, ejecuta sus instrucciones de usuario
         block(rt, BlockReason.IO, "disco, " + op);
-        log.log(cycle, source, "el proceso " + rt.pcb + " pide al disco " + op + " (bloque "
-                + check.getTargetBlock() + ", " + check.getBlockCount()
-                + (check.getBlockCount() == 1 ? " bloque" : " bloques") + ") y queda bloqueado por E/S");
+        // Sin paréntesis propios: el texto de crear ya trae "(3 bloques)"
+        log.log(cycle, source, "el proceso " + rt.pcb + " pide al disco " + op + "; va al bloque "
+                + check.getTargetBlock() + " y abarca " + check.getBlockCount()
+                + (check.getBlockCount() == 1 ? " bloque" : " bloques") + "; queda bloqueado por E/S");
     }
 
     private void afterUserInstruction(ProcessRuntime rt) {
