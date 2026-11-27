@@ -8,6 +8,10 @@ import com.unimet.avilaos.os.scheduling.PolicyType;
  * duración del ciclo, quantum, latencia de red, computadores con su RAM y
  * política inicial, y la carga inicial de buffers y procesos.
  *
+ * El Proyecto 2 simula un solo computador (COMPUTER_COUNT). addComputer no lo limita
+ * para que se pueda armar la configuración paso a paso; lo exige validate(), que se
+ * llama al cargar el archivo, al aceptar el diálogo y al crear el clúster.
+ *
  * Se arma en este orden: computadores → buffers → procesos, porque cada paso
  * valida contra el anterior (un buffer necesita que exista su anfitrión; un
  * productor necesita que exista su buffer). ConfigRepository respeta ese orden
@@ -20,7 +24,7 @@ import com.unimet.avilaos.os.scheduling.PolicyType;
  */
 public class SimulationConfig {
 
-    public static final int MIN_COMPUTERS = 2;
+    public static final int COMPUTER_COUNT = 1;
     public static final long MIN_CYCLE_MS = 10;
     public static final long MAX_CYCLE_MS = 10_000;
     public static final int MAX_QUANTUM = 100;
@@ -137,12 +141,13 @@ public class SimulationConfig {
     }
 
     /**
-     * Revisión final antes de arrancar o guardar. Vuelve a comprobar que cada proceso
-     * quepa, por si se agregó un buffer después de él (desde la GUI el orden es libre).
+     * Revisión final antes de arrancar o guardar: hay exactamente COMPUTER_COUNT computadores
+     * y cada proceso cabe, por si se agregó un buffer después de él (desde la GUI el orden es libre).
      */
     public void validate() {
-        if (computers.size() < MIN_COMPUTERS) {
-            throw new IllegalArgumentException("Se necesitan al menos " + MIN_COMPUTERS + " computadores");
+        if (computers.size() != COMPUTER_COUNT) {
+            throw new IllegalArgumentException("ÁvilaOS simula un solo computador y la configuración tiene "
+                    + computers.size() + " computadores");
         }
         LinkedList<ProcessConfig> all = processes.copy();
         while (!all.isEmpty()) {
@@ -203,11 +208,10 @@ public class SimulationConfig {
 
     // ---------- Configuración por defecto ----------
 
-    /** 2 computadores sin carga inicial: punto de partida si no hay archivo. */
+    /** Un computador sin carga inicial: punto de partida si no hay archivo. */
     public static SimulationConfig defaults() {
         SimulationConfig config = new SimulationConfig(500, 3, 2);
         config.addComputer(1024, PolicyType.ROUND_ROBIN);
-        config.addComputer(1024, PolicyType.FCFS);
         return config;
     }
 

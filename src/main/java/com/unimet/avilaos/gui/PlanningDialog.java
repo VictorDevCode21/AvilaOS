@@ -132,10 +132,14 @@ public final class PlanningDialog extends JDialog {
         all.add(allCombo);
         all.add(copyButton);
 
+        // Con un solo computador (Proyecto 2) "Usar en todos" no tiene sentido: solo se muestra con varios
+        boolean several = policyCombos.length > 1;
         JPanel section = new JPanel(new BorderLayout(0, 8));
-        section.setBorder(BorderFactory.createTitledBorder("Política de cada computador"));
+        section.setBorder(BorderFactory.createTitledBorder(several ? "Política de cada computador" : "Política"));
         section.add(grid, BorderLayout.CENTER);
-        section.add(all, BorderLayout.SOUTH);
+        if (several) {
+            section.add(all, BorderLayout.SOUTH);
+        }
         return section;
     }
 
