@@ -384,6 +384,18 @@ public final class ComputerPanel extends UiKit.Card {
         setText(policyPill, quantum > 0 ? label + " · q " + quantum : label);
     }
 
+    /**
+     * Antes de cargar los dos JSON: la tarjeta dice que falta cargar la simulación, sin la RAM, la
+     * política ni los procesos de la configuración por defecto (no son la simulación real).
+     */
+    public void showNotLoaded() {
+        clear();
+        setText(processLabel, "Falta cargar la simulación");
+        processLabel.setToolTipText(null);
+        setText(detailLabel, "Carga los dos JSON (sistema de archivos y procesos) con «Cargar JSON» o «Iniciar»");
+        setText(policyPill, "Sin cargar");
+    }
+
     /** Deja el panel como recién creado (ej. al reiniciar la simulación). */
     public void clear() {
         showIdle();
