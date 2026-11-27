@@ -1,0 +1,82 @@
+@startuml secuencia-proceso-es
+' Diagrama de secuencia: un proceso de E/S de archivo (P2, READ) pide el disco, el planificador
+' a mediano plazo lo suspende mientras espera (llega un Nuevo que no cabe), su evento ocurre
+' estando suspendido y después se reactiva hasta volver a Listo. Mismo orden de ciclo que
+' Computer.onTick: disk.onTick → kernel.beforeCpu → cpu.onTick → kernel.afterCpu.
+skinparam shadowing false
+skinparam defaultFontName SansSerif
+skinparam sequenceMessageAlign left
+skinparam responseMessageBelowArrow true
+autonumber
+title ÁvilaOS (Proyecto 2): proceso de E/S desde que pide el disco hasta que vuelve a Listo, con una suspensión
+
+participant "Cpu" as CPU
+participant "Kernel" as K
+participant "FileSystem" as FS
+participant "DiskScheduler" as DS
+participant "DiskSchedulingPolicy" as POL
+participant "Disk" as D
+participant "BlockMap" as BM
+participant "MemoryManager" as MM
+participant "DiskMetrics" as DM
+
+== P2 tiene la CPU: su operación es una instrucción en modo SO ==
+K -> CPU : setMode(KERNEL)  (paso DISK_REQUEST)
+K -> K : requestDisk(P2)  [afterCpu]
+K -> FS : check(sesión, leer /sistema/config.sys)
+FS --> K : FsResult (bloque 95, 24 bloques)
+K -> DS : enqueue(DiskRequest READ, bloque 95)
+K -> K : block(P2, IO)  → Bloqueado
+note over K : Log: "el proceso P2 pide al disco leer /sistema/config.sys;\nva al bloque 95 y abarca 24 bloques; queda bloqueado por E/S"
+
+== Llega un Nuevo (P7) que no cabe en RAM: mediano plazo ==
+K -> K : mediumTerm() → suspendForNewcomer()  [beforeCpu]
+K -> K : chooseVictims(faltante)\nBloqueado por E/S, menor prioridad,\nmás tiempo bloqueado
+K -> CPU : hasPendingInterruptFor(P2)
+CPU --> K : false (todavía espera su E/S)
+K -> BM : allocateSwap(memoria de P2, "P2 (…)")
+BM --> K : primer bloque del swap (200)
+K -> K : P2.markSuspended()  → Bloqueado/Suspendido
+K -> DS : enqueue(DiskRequest SUSPEND, swap 200)
+note over K : Log: "Se suspende al proceso P2 para admitir a P7:\nel disco lo escribe en el swap (N bloques desde el bloque 200)"
+
+== El disco atiende el SUSPEND (escribe y luego libera) ==
+D -> DS : next(cabezal, dirección)  [disk.onTick, el disco está libre]
+DS -> POL : select(copia de la cola, cabezal, dirección)
+POL --> DS : SeekPlan (SUSPEND de P2)
+DS --> D : SeekPlan
+D -> D : mueve el cabezal N posiciones por ciclo,\n1 ciclo por bloque escrito
+D -> CPU : raiseInterrupt(DISK_COMPLETION, P2)
+CPU -> K : handleInterrupt(…)  [al final de cpu.onTick]
+K -> K : diskCompleted() → swapCompleted(SUSPEND)
+K -> DM : requestServed(ciclo, política) · suspensionCompleted()
+K -> MM : release(P2)  (la RAM queda reservada para P7)
+K -> MM : admitOne(P7, …)  [ciclo siguiente]
+
+== Ocurre el evento de P2 estando suspendido ==
+D -> DS : next(…)
+DS --> D : SeekPlan (READ de P2, bloque 95)
+D -> CPU : raiseInterrupt(DISK_COMPLETION, P2)
+CPU -> K : handleInterrupt(…)
+K -> K : diskCompleted()
+K -> FS : apply(sesión, leer /sistema/config.sys)
+FS --> K : "Se leyó /sistema/config.sys (24 bloques)."
+K -> DM : requestServed(ciclo, política)
+K -> K : eventWhileSuspended(P2)\nP2.markReadySuspended()  → Listo/Suspendido
+
+== Se libera RAM: reactivación ==
+K -> K : mediumTerm() → reactivateSuspended()\nmayor prioridad, más tiempo suspendido
+K -> MM : reserveForResume(P2, …)
+MM --> K : true (la RAM queda apartada mientras vuelve)
+K -> DS : enqueue(DiskRequest RESUME, swap 200)
+note over K : Log: "Se reactiva al proceso P2: hay RAM y el disco\nlo trae del swap (N bloques desde el bloque 200)"
+D -> DS : next(…)
+DS --> D : SeekPlan (RESUME de P2)
+D -> CPU : raiseInterrupt(DISK_COMPLETION, P2)
+CPU -> K : handleInterrupt(…)
+K -> K : diskCompleted() → swapCompleted(RESUME)
+K -> BM : free(200)  (libera sus bloques del swap)
+K -> DM : requestServed(ciclo, política) · reactivationCompleted()
+K -> K : P2.markReady() · scheduler.addReady(P2)  → Listo
+note over K : Log: "El proceso P2 vuelve a la RAM (libera N bloques\ndel swap) y pasa a Listo". Cuando vuelva a tener la CPU,\nejecuta el resto de sus instrucciones y termina.
+@enduml
