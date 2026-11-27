@@ -1,0 +1,59 @@
+{
+  "globalConfig": {
+    "cycleDurationMs": 300,
+    "swapSizeBlocks": 100,
+    "initialDiskPolicy": "SSTF"
+  },
+  "computer": {
+    "ramCapacity": 100,
+    "policy": "FCFS",
+    "quantum": 0
+  },
+  "processes": [
+    {
+      "name": "Lee_datos",
+      "priority": 3,
+      "memory": 40,
+      "deadline": 2000,
+      "instructions": 3,
+      "targetPath": "/usuarios/data.csv",
+      "operation": "READ"
+    },
+    {
+      "name": "Lee_core",
+      "priority": 5,
+      "memory": 40,
+      "deadline": 2000,
+      "instructions": 3,
+      "targetPath": "/sistema/core.dll",
+      "operation": "READ"
+    },
+    {
+      "name": "Lee_notas",
+      "priority": 1,
+      "memory": 45,
+      "deadline": 2000,
+      "instructions": 3,
+      "targetPath": "/usuarios/notas.txt",
+      "operation": "READ"
+    },
+    {
+      "name": "Lee_boot",
+      "priority": 2,
+      "memory": 30,
+      "deadline": 2000,
+      "instructions": 3,
+      "targetPath": "/sistema/boot.bin",
+      "operation": "READ"
+    },
+    {
+      "name": "Actualiza_config",
+      "priority": 4,
+      "memory": 35,
+      "deadline": 2000,
+      "instructions": 3,
+      "targetPath": "/sistema/config.sys",
+      "operation": "UPDATE"
+    }
+  ]
+}
