@@ -9,6 +9,7 @@ import com.unimet.avilaos.hardware.IoOperation;
 import com.unimet.avilaos.os.fs.FileInfo;
 import com.unimet.avilaos.os.fs.FileSystem;
 import com.unimet.avilaos.os.fs.UserSession;
+import com.unimet.avilaos.os.process.Pcb;
 import java.io.IOException;
 import java.nio.file.Path;
 
@@ -25,7 +26,11 @@ import java.nio.file.Path;
  *   <li>Cluster.create con esa configuración (un computador con su disco vacío);</li>
  *   <li>FileSystemJson.load: los archivos y directorios en el disco del computador;</li>
  *   <li>los procesos de E/S, en el orden del JSON, como administrador (los carga el
- *       sistema al iniciar, no un usuario).</li>
+ *       sistema al iniciar, no un usuario);</li>
+ *   <li>si "waitForInitialRequests" está activo (por defecto sí), el disco espera a que esos
+ *       procesos pidan el disco antes de su primera decisión, con el menor deadline de la carga
+ *       como tope (Kernel.holdDiskForInitialLoad). Así la primera decisión ve la cola completa
+ *       y los casos de prueba del enunciado salen en vivo igual que en la tabla.</li>
  * </ol>
  * El reloj no arranca: lo arranca quien llama, cuando la interfaz ya está lista.
  *
@@ -124,7 +129,10 @@ public final class SimulationLoader {
         try {
             FileSystemJson.load(fileSystem, cluster.getComputer(1).getFileSystem());
             String warnings = crossCheck(fileSystem, processes);
-            createProcesses(cluster, processes);
+            LinkedList<Pcb> initial = createProcesses(cluster, processes);
+            if (config.getDisk().waitForInitialRequests() && !initial.isEmpty()) {
+                cluster.getComputer(1).getKernel().holdDiskForInitialLoad(initial, smallestDeadline(initial));
+            }
             return new Loaded(cluster, config, warnings);
         } catch (RuntimeException e) {
             cluster.shutdown();          // falle lo que falle, no queda un clúster a medias
@@ -132,18 +140,30 @@ public final class SimulationLoader {
         }
     }
 
-    private static void createProcesses(Cluster cluster, ProcessesJson.Image processes) {
+    /** Crea los procesos del JSON en su orden y los devuelve (la carga inicial). */
+    private static LinkedList<Pcb> createProcesses(Cluster cluster, ProcessesJson.Image processes) {
         UserSession admin = cluster.adminSession();
+        LinkedList<Pcb> created = new LinkedList<>();
         LinkedList<ProcessesJson.ProcessSpec> all = processes.processes().copy();
         while (!all.isEmpty()) {
             ProcessesJson.ProcessSpec p = all.removeFirst();
             try {
-                cluster.createIoProcess(p.name(), p.priority(), p.memory(), p.instructions(), p.deadline(),
-                        p.toOperation(), admin);
+                created.addLast(cluster.createIoProcess(p.name(), p.priority(), p.memory(), p.instructions(),
+                        p.deadline(), p.toOperation(), admin));
             } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException("Proceso " + p.number() + " (" + p.name() + "): " + e.getMessage(), e);
             }
         }
+        return created;
+    }
+
+    /** El menor deadline de la carga inicial: el tope de espera del disco. */
+    private static long smallestDeadline(LinkedList<Pcb> initial) {
+        long smallest = Long.MAX_VALUE;
+        for (int i = 0; i < initial.size(); i++) {
+            smallest = Math.min(smallest, initial.get(i).getInitialDeadline());
+        }
+        return smallest;
     }
 
     /** Lee los dos archivos y arma la simulación. */
