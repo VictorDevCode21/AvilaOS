@@ -1,5 +1,6 @@
 package com.unimet.avilaos.gui;
 
+import com.unimet.avilaos.hardware.HeadDirection;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -112,7 +113,7 @@ public final class BlockMapPanel extends JComponent {
         g2.fillRoundRect(swapX, y, left + width - swapX, 4, 4, 4);
 
         int headX = left + Math.round(width * (snapshot.head() + 0.5f) / total);
-        String text = snapshot.movingUp() ? "cabezal " + snapshot.head() + " →"
+        String text = snapshot.direction() != HeadDirection.DOWN ? "cabezal " + snapshot.head() + " →"
                 : "← cabezal " + snapshot.head();
         g2.setFont(Theme.SMALL_BOLD);
         FontMetrics fm = g2.getFontMetrics();
