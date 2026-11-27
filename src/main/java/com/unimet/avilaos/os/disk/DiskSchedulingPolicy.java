@@ -35,12 +35,16 @@ public interface DiskSchedulingPolicy {
      *                   Es una copia: la política no debe modificarla.
      * @param headBlock  bloque donde está el cabezal
      * @param direction  dirección actual del cabezal
-     * @param diskSize   cantidad total de bloques del disco (el último es diskSize - 1).
-     *                   No confundir con DiskRequest.getBlockCount(), que son los
-     *                   bloques que lee o escribe una solicitud.
+     * @param fileBlocks bloques de la zona de archivos: SCAN y C-SCAN barren hasta
+     *                   el bloque fileBlocks - 1 (el 199 en los casos P3 y P4 del
+     *                   enunciado), aunque el área de intercambio esté después. Si
+     *                   el cabezal ya está más arriba (atendió una solicitud del
+     *                   swap), el extremo es donde está el cabezal. No confundir con
+     *                   DiskRequest.getBlockCount(), que son los bloques que lee o
+     *                   escribe una solicitud.
      * @return el recorrido hasta la solicitud elegida, que debe ser uno de los
      *         objetos de pending
      */
     SeekPlan select(LinkedList<DiskRequest> pending, int headBlock, HeadDirection direction,
-            int diskSize);
+            int fileBlocks);
 }
