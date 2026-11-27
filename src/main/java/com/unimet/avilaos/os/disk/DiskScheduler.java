@@ -4,6 +4,7 @@ import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.hardware.DiskRequest;
 import com.unimet.avilaos.hardware.HeadDirection;
 import com.unimet.avilaos.hardware.SeekPlan;
+import com.unimet.avilaos.hardware.SeekPlanSource;
 import java.util.concurrent.Semaphore;
 
 /**
@@ -27,6 +28,9 @@ import java.util.concurrent.Semaphore;
  * llamada a next(). La solicitud que el disco ya está atendiendo no se
  * interrumpe, y como las políticas no guardan estado no queda nada a medias.
  *
+ * Implementa SeekPlanSource: el disco (hardware) le pide la siguiente solicitud
+ * por esa interfaz, sin depender del sistema operativo.
+ *
  * Concurrencia: la cola y la política se protegen con un Semaphore justo. La
  * política se consulta FUERA del mutex, sobre una copia de la cola (regla del
  * equipo: no llamar código ajeno con el mutex tomado). Si mientras tanto la
@@ -34,7 +38,7 @@ import java.util.concurrent.Semaphore;
  *
  * @author NicollPinzon
  */
-public class DiskScheduler {
+public class DiskScheduler implements SeekPlanSource {
 
     private final int fileBlocks;
     private final int diskSize;
@@ -145,6 +149,7 @@ public class DiskScheduler {
      * @throws IllegalArgumentException si el cabezal está fuera del disco o la dirección es null
      * @throws IllegalStateException    si la política devuelve un recorrido inválido
      */
+    @Override
     public SeekPlan next(int headBlock, HeadDirection direction) {
         if (headBlock < 0 || headBlock >= diskSize) {
             throw new IllegalArgumentException("El cabezal está fuera del disco: " + headBlock);
