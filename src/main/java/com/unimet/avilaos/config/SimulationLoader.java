@@ -32,8 +32,9 @@ import java.nio.file.Path;
  * Precedencia de la configuración: los JSON mandan en todo lo que traen (bloques y cabezal
  * del sistema de archivos; ciclo, swap, política de disco, RAM, política de CPU y quantum de
  * procesos). La configuración del diálogo o del CSV (su DiskConfig) solo da el valor de las
- * claves opcionales que el JSON de procesos no trae: la dirección inicial del cabezal y las
- * posiciones por ciclo. Sin configuración, se usan las de DiskConfig.defaults().
+ * claves opcionales que el JSON de procesos no trae: la dirección inicial del cabezal, las
+ * posiciones por ciclo y si el disco espera a la carga inicial. Sin configuración, se usan las
+ * de DiskConfig.defaults().
  *
  * Reiniciar con procesos nuevos conservando el disco modificado:
  * {@code start(FileSystemJson.snapshot(fsViejo, cabezal), nuevosProcesos)}.
@@ -76,8 +77,9 @@ public final class SimulationLoader {
     /**
      * La configuración completa que resulta de los dos JSON (ver la precedencia en la clase).
      *
-     * @param fallback disco de la configuración del diálogo o del CSV: da la dirección inicial y
-     *                 las posiciones por ciclo si el JSON de procesos no las trae
+     * @param fallback disco de la configuración del diálogo o del CSV: da la dirección inicial, las
+     *                 posiciones por ciclo y la espera de la carga inicial si el JSON de procesos no
+     *                 las trae
      */
     public static SimulationConfig buildConfig(FileSystemJson.Image fileSystem, ProcessesJson.Image processes,
             DiskConfig fallback) {
@@ -88,10 +90,12 @@ public final class SimulationLoader {
         ProcessesJson.Settings s = processes.settings();
         HeadDirection direction = s.headDirection() != null ? s.headDirection() : fallback.initialDirection();
         int positions = s.positionsPerCycle() > 0 ? s.positionsPerCycle() : fallback.positionsPerCycle();
+        boolean waitForInitial = s.waitForInitialRequests() != null ? s.waitForInitialRequests()
+                : fallback.waitForInitialRequests();
         SimulationConfig config = new SimulationConfig(s.cycleDurationMs(), s.quantum(), 0);   // sin red: 1 computador
         config.addComputer(s.ramCapacity(), s.cpuPolicy());
         config.setDisk(new DiskConfig(fileSystem.disk().totalBlocks(), s.swapBlocks(), s.diskPolicy(),
-                fileSystem.disk().initialHead(), direction, positions));
+                fileSystem.disk().initialHead(), direction, positions, waitForInitial));
         config.validate();
         return config;
     }
@@ -109,7 +113,8 @@ public final class SimulationLoader {
 
     /**
      * Como start, con el disco de la configuración del diálogo o del CSV como valor por defecto
-     * de la dirección inicial y las posiciones por ciclo (ver la precedencia en la clase).
+     * de la dirección inicial, las posiciones por ciclo y la espera de la carga inicial (ver la
+     * precedencia en la clase).
      *
      * @throws IllegalArgumentException si la configuración no es válida o el sistema de archivos no carga
      */

@@ -26,9 +26,11 @@ import java.nio.file.Path;
  *
  * Campos opcionales (el enunciado no los trae; tienen un valor por defecto):
  * <ul>
- *   <li>globalConfig: "initialDirection" (UP o DOWN) y "positionsPerCycle". Si faltan, quedan
- *       sin valor (null y 0 en Settings) y SimulationLoader usa los de la configuración del
- *       diálogo o del CSV (DiskConfig);</li>
+ *   <li>globalConfig: "initialDirection" (UP o DOWN), "positionsPerCycle" y
+ *       "waitForInitialRequests" (true o false: si el disco espera a que la carga inicial pida
+ *       el disco antes de su primera decisión). Si faltan, quedan sin valor (null o 0 en
+ *       Settings) y SimulationLoader usa los de la configuración del diálogo o del CSV
+ *       (DiskConfig; la espera viene activada por defecto);</li>
  *   <li>proceso: "priority" (por defecto 1); "newName" (UPDATE que renombra; sin él,
  *       UPDATE reescribe el archivo en su lugar); para CREATE, "targetPath" es la ruta
  *       nueva y se agregan "blocks" (archivo), "permissions" (por defecto public),
@@ -67,12 +69,14 @@ public final class ProcessesJson {
      * @param diskPolicy        política de disco inicial
      * @param headDirection     dirección inicial del cabezal, o null si el JSON no la trae
      * @param positionsPerCycle posiciones del cabezal por ciclo, o 0 si el JSON no las trae
+     * @param waitForInitialRequests si el disco espera a la carga inicial, o null si el JSON no lo dice
      * @param ramCapacity       RAM del computador
      * @param cpuPolicy         política de CPU inicial
      * @param quantum           quantum de Round Robin (DEFAULT_QUANTUM si el JSON trae 0)
      */
     public record Settings(long cycleDurationMs, int swapBlocks, DiskPolicyType diskPolicy,
-            HeadDirection headDirection, int positionsPerCycle, int ramCapacity, PolicyType cpuPolicy, int quantum) {
+            HeadDirection headDirection, int positionsPerCycle, Boolean waitForInitialRequests, int ramCapacity,
+            PolicyType cpuPolicy, int quantum) {
     }
 
     /**
@@ -140,7 +144,7 @@ public final class ProcessesJson {
 
         JsonValue global = root.get("globalConfig", "el JSON de procesos").requireObject("\"globalConfig\"");
         global.requireOnlyKeys("\"globalConfig\"", "cycleDurationMs", "swapSizeBlocks", "initialDiskPolicy",
-                "initialDirection", "positionsPerCycle");
+                "initialDirection", "positionsPerCycle", "waitForInitialRequests");
         long cycle = range(global.get("cycleDurationMs", "\"globalConfig\""), "\"cycleDurationMs\"",
                 SimulationConfig.MIN_CYCLE_MS, SimulationConfig.MAX_CYCLE_MS);
         int swap = (int) range(global.get("swapSizeBlocks", "\"globalConfig\""), "\"swapSizeBlocks\"", 0,
@@ -171,6 +175,12 @@ public final class ProcessesJson {
                     DiskConfig.MAX_POSITIONS_PER_CYCLE);
         }
 
+        Boolean waitForInitial = null;                    // sin valor: el de la configuración
+        if (global.has("waitForInitialRequests")) {
+            waitForInitial = global.get("waitForInitialRequests", "\"globalConfig\"")
+                    .asBoolean("\"waitForInitialRequests\"");
+        }
+
         JsonValue computer = root.get("computer", "el JSON de procesos").requireObject("\"computer\"");
         computer.requireOnlyKeys("\"computer\"", "ramCapacity", "policy", "quantum");
         int ram = (int) range(computer.get("ramCapacity", "\"computer\""), "\"ramCapacity\"", 1, MAX_RAM);
@@ -199,7 +209,8 @@ public final class ProcessesJson {
             number++;
             processes.addLast(readProcess(items.removeFirst(), number, ram));
         }
-        return new Image(new Settings(cycle, swap, diskPolicy, direction, positions, ram, cpuPolicy, quantum),
+        return new Image(new Settings(cycle, swap, diskPolicy, direction, positions, waitForInitial, ram, cpuPolicy,
+                quantum),
                 processes);
     }
 
