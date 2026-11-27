@@ -47,9 +47,9 @@ import java.nio.file.Path;
  */
 public final class FileSystemJson {
 
-    /** El enunciado pide "una cantidad razonable, por ejemplo entre 100 y 500 bloques". */
-    public static final int MIN_BLOCKS = 100;
-    public static final int MAX_BLOCKS = 500;
+    /** Los mismos límites que DiskConfig (100 a 500 bloques, como pide el enunciado). */
+    public static final int MIN_BLOCKS = DiskConfig.MIN_FILE_BLOCKS;
+    public static final int MAX_BLOCKS = DiskConfig.MAX_FILE_BLOCKS;
 
     private static final String TYPE_FILE = "FILE";
     private static final String TYPE_DIRECTORY = "DIRECTORY";
@@ -104,6 +104,21 @@ public final class FileSystemJson {
     // =====================================================================
     // Leer
     // =====================================================================
+
+    /**
+     * El sistema de archivos tal como está ahora, como si se hubiera leído de un JSON.
+     * Sirve para reiniciar la simulación con procesos nuevos conservando el disco
+     * modificado (el enunciado lo pide): se toma antes de armar la simulación nueva.
+     *
+     * El cabezal puede estar en el swap (200–299 en el ejemplo) justo después de una
+     * suspensión o reactivación; como en write, se toma el último bloque de archivos, así
+     * que reiniciar en ese momento también funciona.
+     *
+     * @param head posición actual del cabezal (será la inicial de la nueva)
+     */
+    public static Image snapshot(FileSystem fs, int head) {
+        return parse(write(fs, head));
+    }
 
     /**
      * Lee y valida el archivo (formato y datos), sin cargarlo.

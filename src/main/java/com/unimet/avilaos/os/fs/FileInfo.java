@@ -61,7 +61,7 @@ public final class FileInfo {
         return permission;
     }
 
-    /** Nombre del proceso que lo creó (por ejemplo "NuevoArchivo"), o "JSON" si se cargó del archivo. */
+    /** Proceso que lo creó, con su PID y su nombre (por ejemplo "P5 (NuevoArchivo)"), o "JSON" si se cargó del archivo. */
     public String getCreator() {
         return creator;
     }

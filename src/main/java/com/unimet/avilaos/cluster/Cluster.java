@@ -162,6 +162,7 @@ public class Cluster implements Interconnect {
      * interfaz solo crea el proceso: la operación la hace él cuando obtiene la CPU.
      *
      * @param operation operación del sistema de archivos; su creador debe ser el nombre del proceso
+     *                  (al aplicarla, el kernel guarda "P5 (nombre)" como creador)
      * @param session   usuario en cuyo nombre actúa: el de la sesión activa desde la GUI,
      *                  o adminSession() para los procesos que carga el JSON
      * @return el PCB creado

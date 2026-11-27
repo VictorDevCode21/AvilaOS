@@ -441,7 +441,9 @@ public class Kernel implements InterruptHandler {
         }
         log.log(cycle, DISK_SOURCE, "atiende la solicitud de " + rt.pcb + " en el bloque " + done.getTargetBlock()
                 + " (" + policy + ")");
-        FsResult result = storage.fileSystem().apply(rt.pcb.getSession(), rt.pcb.getFileOperation());
+        // Se aplica con "P5 (Proc_95)" como creador: el nombre se puede repetir, el PID no
+        FsResult result = storage.fileSystem().apply(rt.pcb.getSession(),
+                rt.pcb.getFileOperation().withCreator(rt.pcb.creatorLabel()));
         if (!result.isOk()) {
             terminate(rt, false, lowerFirst(result.getMessage()));
             return;
