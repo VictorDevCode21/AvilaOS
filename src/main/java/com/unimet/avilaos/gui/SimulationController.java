@@ -29,8 +29,10 @@ import com.unimet.avilaos.os.scheduling.PolicyType;
 import com.unimet.avilaos.os.scheduling.Scheduler;
 import java.io.File;
 import java.io.IOException;
+import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
 import javax.swing.Timer;
+import javax.swing.filechooser.FileNameExtensionFilter;
 
 /**
  * Une la ventana con el clúster. La ventana solo muestra y reenvía clics; el clúster
@@ -149,6 +151,7 @@ public final class SimulationController {
         window.setPlanningAction(e -> openPlanning());
         window.setCreateIoProcessAction(e -> createIoProcess(null, window.getFileSystemPanel().getSelectedPath()));
         window.getFileSystemPanel().setFileActionListener(this::createIoProcess);
+        window.getFileSystemPanel().setSaveAction(e -> saveFileSystemJson());
         window.setSessionListener(this::changeSession);
         window.getDiskPanel().setPolicyListener(this::chooseDiskPolicy);
         planningDialog.setPlanningListener(this::applyPlanning);
@@ -339,6 +342,59 @@ public final class SimulationController {
                     + " (están en el log).");
         }
         startOrPause();
+    }
+
+    /**
+     * "Guardar JSON…" de la vista Archivos (lo pide el enunciado): elige dónde guardar y escribe el
+     * sistema de archivos actual con el formato del JSON del enunciado. Antes de cargar los JSON no
+     * hay un sistema de archivos real que guardar, así que se rechaza con el motivo.
+     */
+    private void saveFileSystemJson() {
+        if (!loadedFromJson()) {
+            window.showRejected("No hay un sistema de archivos cargado que guardar: carga primero los dos JSON.");
+            return;
+        }
+        JFileChooser chooser = new JFileChooser(fileSystemFile == null ? null : fileSystemFile.getParentFile());
+        chooser.setDialogTitle("Guardar el sistema de archivos");
+        chooser.setFileFilter(new FileNameExtensionFilter("Archivos JSON (*.json)", "json"));
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setSelectedFile(new File("sistema-archivos-ciclo-" + cluster.getCurrentCycle() + ".json"));
+        if (chooser.showSaveDialog(window) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        File target = chooser.getSelectedFile();
+        if (!target.getName().toLowerCase().endsWith(".json")) {
+            target = new File(target.getParentFile(), target.getName() + ".json");
+        }
+        if (target.exists() && JOptionPane.showConfirmDialog(window, "Ya existe " + target.getName()
+                + ". ¿Quieres reemplazarlo?", "Guardar el sistema de archivos", JOptionPane.YES_NO_OPTION)
+                != JOptionPane.YES_OPTION) {
+            return;
+        }
+        writeFileSystemJson(target);
+    }
+
+    /**
+     * Escribe el sistema de archivos actual en target (FileSystemJson.save) con el cabezal donde está;
+     * si el cabezal está en el swap, el JSON guarda el último bloque de archivos (ver FileSystemJson).
+     * Avisa en pantalla y en el log, o muestra el error si no se pudo escribir.
+     */
+    private void writeFileSystemJson(File target) {
+        Computer computer = computer();
+        FileSystem fileSystem = computer.getFileSystem();
+        int head = Math.min(computer.getDisk().getHeadBlock(), fileSystem.getBlockMap().getFileBlocks() - 1);
+        try {
+            FileSystemJson.save(fileSystem, head, target.toPath());
+        } catch (IOException ex) {
+            showError("No se pudo guardar el sistema de archivos", new IllegalArgumentException(
+                    "No se pudo escribir " + target.getName() + ": " + ex.getMessage(), ex));
+            return;
+        }
+        int entries = fileSystem.list().size() - 1;              // sin la raíz, que no se guarda
+        String detail = target.getName() + " (" + entries + (entries == 1 ? " entrada" : " entradas")
+                + ", cabezal en " + head + ")";
+        cluster.getLog().log(cluster.getCurrentCycle(), "Interfaz", "guarda el sistema de archivos en " + detail);
+        window.showNotice("Se guardó el sistema de archivos en " + detail + ".");
     }
 
     /**
