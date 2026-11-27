@@ -1,7 +1,8 @@
 package com.unimet.avilaos.events;
 
 /**
- * Observador de la simulación (patrón Observer). Lo implementa la GUI.
+ * Observador del log de la simulación (patrón Observer). Hoy lo usa la demo GuiDemo (src/test);
+ * la ventana principal no se registra: lee el log por copias (EventLog.getEntries) cada 150 ms.
  *
  * Reglas para quien lo implemente:
  * - Los métodos se llaman desde los hilos de los computadores, NO desde el hilo
@@ -13,17 +14,13 @@ package com.unimet.avilaos.events;
  * - ORDEN: las entradas se GUARDAN en orden, pero dos computadores pueden
  *   notificar al mismo tiempo y adelantarse entre sí, así que onLogEntry puede
  *   recibirlas en otro orden. Para mostrar el log ordenado, usar
- *   LogEntry.sequence() o reconstruir la vista con EventLog.getEntries()
- *   en onCycleCompleted.
+ *   LogEntry.sequence() o reconstruir la vista con EventLog.getEntries().
  *
  * @author victor1102
  */
+@FunctionalInterface
 public interface SimulationListener {
 
     /** Se generó una nueva entrada en el log. */
     void onLogEntry(LogEntry entry);
-
-    /** Terminó un ciclo de reloj: buen momento para refrescar la GUI. */
-    default void onCycleCompleted(long cycle) {
-    }
 }

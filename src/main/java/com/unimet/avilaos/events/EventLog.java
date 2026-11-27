@@ -102,25 +102,6 @@ public class EventLog {
         }
     }
 
-    /** Lo llama el computador/clúster al terminar cada ciclo. */
-    public void cycleCompleted(long cycle) {
-        LinkedList<SimulationListener> toNotify;
-        mutex.acquireUninterruptibly();
-        try {
-            toNotify = listeners.copy();
-        } finally {
-            mutex.release();
-        }
-        for (int i = 0; i < toNotify.size(); i++) {
-            SimulationListener listener = toNotify.get(i);
-            try {
-                listener.onCycleCompleted(cycle);
-            } catch (RuntimeException e) {
-                reportFailure(listener, e);
-            }
-        }
-    }
-
     // ---------- Consultas ----------
 
     /** Copia de las entradas guardadas, en el orden en que llegaron. */
