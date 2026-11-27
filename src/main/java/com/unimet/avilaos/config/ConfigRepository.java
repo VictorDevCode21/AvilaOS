@@ -27,9 +27,11 @@ import java.nio.file.Path;
  * process,Prod,PRODUCER,1,64,100,300,2,0,0,B1,2,5
  * </pre>
  *
- * The disk row (Project 2) is optional: a file without it gets DiskConfig.defaults(), so the
- * Project 1 files still load. Columns: file blocks, swap blocks, initial disk policy, initial
- * head, initial direction (UP/DOWN) and head positions per cycle.
+ * La fila disk (Proyecto 2) es opcional: un archivo sin ella usa DiskConfig.defaults(), así que
+ * los archivos del Proyecto 1 siguen cargando. Columnas: bloques de archivos, bloques del swap,
+ * política de disco inicial, cabezal inicial, dirección inicial (UP/DOWN) y posiciones del
+ * cabezal por ciclo. Si después se cargan los dos JSON, ellos mandan en lo que traen y de esta
+ * fila solo se usan la dirección y las posiciones por ciclo (ver SimulationLoader).
  *
  * Al leer, cualquier dato inválido produce IllegalArgumentException con el número
  * de línea, para que la GUI lo muestre sin detener el simulador.
@@ -239,7 +241,7 @@ public class ConfigRepository {
 
     private static DiskPolicyType parseDiskPolicy(Row r, int column) {
         try {
-            return DiskPolicyType.fromLabel(r.cell(column));    // name (C_SCAN) or label (C-SCAN)
+            return DiskPolicyType.fromLabel(r.cell(column));    // nombre (C_SCAN) o etiqueta (C-SCAN)
         } catch (IllegalArgumentException e) {
             throw r.error("política de disco desconocida '" + r.cell(column) + "'");
         }
