@@ -6,6 +6,7 @@ import com.unimet.avilaos.config.SimulationConfig;
 import com.unimet.avilaos.hardware.HeadDirection;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.Frame;
 import java.awt.GridLayout;
 import java.awt.event.KeyEvent;
@@ -36,6 +37,10 @@ import javax.swing.filechooser.FileNameExtensionFilter;
  * (ver SimulationLoader). Nada de esto se aplica en caliente; la duración del ciclo se cambia en la
  * barra superior.
  *
+ * Los otros cuatro datos del disco que el enunciado pide en la configuración (bloques, área de
+ * intercambio, política de disco inicial y cabezal inicial) se muestran solo para lectura, con el
+ * valor de la configuración actual: después de cargar los JSON son los de los JSON.
+ *
  * Lo que no se muestra (ciclo, quantum, latencia, computador, buffers, procesos y el resto del
  * disco) se conserva tal como vino de la configuración o del archivo CSV, para que "Guardar" no lo
  * pierda.
@@ -55,6 +60,12 @@ public final class ConfigDialog extends JDialog {
 
     private final JComboBox<String> directionCombo = new JComboBox<>(directionLabels());
     private final JTextField positionsField = new JTextField(8);
+
+    // Solo lectura: los manda el JSON (se muestran porque el enunciado los pide en la configuración)
+    private final JTextField fileBlocksValue = readOnlyField();
+    private final JTextField swapValue = readOnlyField();
+    private final JTextField diskPolicyValue = readOnlyField();
+    private final JTextField headValue = readOnlyField();
 
     private transient SimulationConfig result;
 
@@ -90,6 +101,19 @@ public final class ConfigDialog extends JDialog {
 
     /** Lo que sigue teniendo efecto: dirección inicial y velocidad del cabezal, con su nota. */
     private JPanel buildDiskFields() {
+        JPanel fixed = new JPanel(new GridLayout(0, 2, 6, 6));
+        addRow(fixed, "Bloques para archivos:", fileBlocksValue);
+        addRow(fixed, "Área de intercambio (bloques):", swapValue);
+        addRow(fixed, "Política de disco inicial:", diskPolicyValue);
+        addRow(fixed, "Posición inicial del cabezal:", headValue);
+        JLabel fixedTitle = new JLabel("Vienen de los JSON cargados (antes de cargarlos, de la configuración):"
+                + " no se editan aquí.");
+        fixedTitle.setFont(fixedTitle.getFont().deriveFont(Font.ITALIC,
+                fixedTitle.getFont().getSize2D() - 1f));
+        JPanel fixedPart = new JPanel(new BorderLayout(4, 6));
+        fixedPart.add(fixedTitle, BorderLayout.NORTH);
+        fixedPart.add(fixed, BorderLayout.CENTER);
+
         JPanel panel = new JPanel(new GridLayout(0, 2, 6, 6));
         addRow(panel, "Dirección inicial del cabezal:", comboCell(directionCombo));
         addRow(panel, "Posiciones del cabezal por ciclo (1-" + DiskConfig.MAX_POSITIONS_PER_CYCLE + "):",
@@ -98,14 +122,27 @@ public final class ConfigDialog extends JDialog {
         JLabel help = new JLabel("<html><div style='width:420px'>Se usan cuando el JSON de procesos no trae"
                 + " \"initialDirection\" ni"
                 + " \"positionsPerCycle\" (los JSON del enunciado no los traen). El ciclo, el quantum, la RAM,"
-                + " la política de CPU, los procesos y el resto del disco salen de los dos JSON que se cargan"
-                + " antes de iniciar. La duración del ciclo se cambia en la barra superior.</div></html>");
+                + " la política de CPU y los procesos también salen de los dos JSON que se cargan antes de"
+                + " iniciar. La duración del ciclo se cambia en la barra superior.</div></html>");
         help.setFont(help.getFont().deriveFont(help.getFont().getSize2D() - 1f));
-        JPanel section = new JPanel(new BorderLayout(4, 6));
+        JPanel editable = new JPanel(new BorderLayout(4, 6));
+        editable.add(panel, BorderLayout.CENTER);
+        editable.add(help, BorderLayout.SOUTH);
+        JPanel section = new JPanel(new BorderLayout(4, 12));
         section.setBorder(BorderFactory.createTitledBorder("Disco"));
-        section.add(panel, BorderLayout.CENTER);
-        section.add(help, BorderLayout.SOUTH);
+        section.add(fixedPart, BorderLayout.NORTH);
+        section.add(editable, BorderLayout.CENTER);
         return section;
+    }
+
+    /** Campo que solo muestra un valor (no se edita ni recibe el foco), atenuado para que se note. */
+    private static JTextField readOnlyField() {
+        JTextField field = new JTextField(8);
+        field.setEditable(false);
+        field.setFocusable(false);
+        field.setBackground(Theme.SURFACE_ALT);
+        field.setForeground(Theme.MUTED);
+        return field;
     }
 
     /** En un FlowLayout el combo conserva su altura normal en vez de llenar la celda de la grilla. */
@@ -178,6 +215,10 @@ public final class ConfigDialog extends JDialog {
         DiskConfig disk = config.getDisk();
         directionCombo.setSelectedItem(disk.initialDirection().getLabel());
         positionsField.setText(String.valueOf(disk.positionsPerCycle()));
+        fileBlocksValue.setText(String.valueOf(disk.fileBlocks()));
+        swapValue.setText(String.valueOf(disk.swapBlocks()));
+        diskPolicyValue.setText(disk.initialPolicy().getLabel());
+        headValue.setText(String.valueOf(disk.initialHead()));
     }
 
     // ---------- Armar y validar ----------
