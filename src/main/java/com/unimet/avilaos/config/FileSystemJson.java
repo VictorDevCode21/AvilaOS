@@ -286,15 +286,22 @@ public final class FileSystemJson {
     /**
      * El sistema de archivos tal como está ahora, en el formato del enunciado.
      *
+     * Este JSON solo describe la zona de archivos (el tamaño del swap viene en el JSON de
+     * procesos), así que al cargarlo el cabezal debe estar entre 0 y totalBlocks − 1. Si al
+     * guardar el cabezal está en el swap (por ejemplo atendiendo una suspensión en el bloque
+     * 250), se guarda el último bloque de archivos: el archivo siempre se puede volver a cargar.
+     *
      * @param initialHead posición del cabezal que se guarda (normalmente la actual)
      */
     public static String write(FileSystem fs, int initialHead) {
         if (fs == null) {
             throw new IllegalArgumentException("Falta el sistema de archivos");
         }
+        int fileBlocks = fs.getBlockMap().getFileBlocks();
+        int head = Math.max(0, Math.min(initialHead, fileBlocks - 1));   // en el swap → último bloque de archivos
         StringBuilder sb = new StringBuilder();
-        sb.append("{\n  \"diskConfig\": {\n    \"totalBlocks\": ").append(fs.getBlockMap().getFileBlocks())
-                .append(",\n    \"initialHead\": ").append(initialHead).append("\n  },\n  \"fileSystem\": [");
+        sb.append("{\n  \"diskConfig\": {\n    \"totalBlocks\": ").append(fileBlocks)
+                .append(",\n    \"initialHead\": ").append(head).append("\n  },\n  \"fileSystem\": [");
         LinkedList<FileInfo> all = fs.list();
         all.removeFirst();                           // la raíz no se guarda: siempre existe
         boolean first = true;
