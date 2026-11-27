@@ -76,7 +76,8 @@ import java.util.concurrent.Semaphore;
  *  4. Suspender: si un Nuevo no cabe ni contando la RAM de las suspensiones que ya están en
  *     camino, se eligen Bloqueados (por E/S) de menor prioridad y, si empatan, el que lleva
  *     más tiempo bloqueado, hasta juntar la RAM que falta. Nunca el proceso cuya solicitud
- *     está atendiendo el disco. Si no alcanza (o no hay swap), no se suspende ninguno. Cada
+ *     está atendiendo el disco, ni uno cuya E/S ya terminó en este ciclo (su interrupción
+ *     está pendiente: la CPU la entrega al final del ciclo, después del mediano plazo). Si no alcanza (o no hay swap), no se suspende ninguno. Cada
  *     uno reserva sus bloques del swap, pasa a Bloqueado/Suspendido y una solicitud SUSPEND
  *     pasa por la cola del disco; su RAM se libera cuando el disco termina de escribirlo
  *     (escribe y después libera, como dice el enunciado) y queda para ese Nuevo (así no la
@@ -497,7 +498,8 @@ public class Kernel implements InterruptHandler {
         while (!all.isEmpty()) {
             ProcessRuntime rt = all.removeFirst();
             if (rt.pcb.getState() == ProcessState.BLOCKED && rt.pcb.getBlockReason() == BlockReason.IO
-                    && rt.pcb.getId() != servingPid && !rt.swappingIn && !rt.swappingOut && memory.isResident(rt.pcb)) {
+                    && rt.pcb.getId() != servingPid && !rt.swappingIn && !rt.swappingOut && memory.isResident(rt.pcb)
+                    && !cpu.hasPendingInterruptFor(rt.pcb.getId())) {   // su E/S ya terminó: no espera nada
                 candidates.insertSorted(rt, VICTIM_ORDER);
             }
         }
