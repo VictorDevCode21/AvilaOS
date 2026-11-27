@@ -1,5 +1,6 @@
 package com.unimet.avilaos.hardware;
 
+import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.datastructures.LinkedQueue;
 import java.util.concurrent.Semaphore;
 
@@ -25,21 +26,27 @@ import java.util.concurrent.Semaphore;
  * La transferencia empieza en el ciclo siguiente al de llegada, salvo que la
  * solicitud esté en el bloque del cabezal (entonces empieza en el mismo ciclo).
  *
- * Orden dentro de un ciclo: el Computer llama disk.onTick() antes que
- * cpu.onTick(), en su propio hilo (como io.onTick() en el P1), así la
- * interrupción de este ciclo la atiende la CPU al final del mismo ciclo.
+ * Implementa ClockListener, la misma interfaz que los demás componentes que
+ * reaccionan al reloj (lo pide el enunciado). Igual que el IoDevice del P1, no
+ * se registra directamente en el GlobalClock: el Computer llama disk.onTick()
+ * antes que cpu.onTick(), en su propio hilo, así la interrupción de este ciclo
+ * la atiende la CPU al final del mismo ciclo.
  *
  * Concurrencia: un Semaphore protege el estado. El planificador (código ajeno)
- * y cpu.raiseInterrupt se llaman FUERA del mutex.
+ * y cpu.raiseInterrupt se llaman FUERA del mutex. Mientras el disco le pide la
+ * siguiente solicitud al planificador, esa solicitud ya salió de la cola pero
+ * todavía no está en el disco; si en ese momento llega un cancel(pid), se anota
+ * y la solicitud se descarta al recibirla si es de ese proceso (sin interrupción).
  *
  * @author NicollPinzon
  */
-public class Disk {
+public class Disk implements ClockListener {
 
     private final Cpu cpu;
     private final BlockMap blocks;
     private final SeekPlanSource source;
     private final LinkedQueue<DiskRequest> completed = new LinkedQueue<>();
+    private final LinkedList<Integer> cancelledWhileFetching = new LinkedList<>();
     private final Semaphore mutex = new Semaphore(1, true);
 
     private int head;
@@ -47,6 +54,7 @@ public class Disk {
     private int positionsPerCycle;
 
     private SeekPlan plan;               // recorrido en curso (null = libre)
+    private boolean fetching;            // pidiendo la siguiente solicitud al planificador
     private DiskPhase phase = DiskPhase.IDLE;
     private int legTarget;               // a dónde va el tramo actual (SWEEP o SEEK)
     private int remainingBlocks;         // bloques que faltan por transferir
@@ -95,6 +103,7 @@ public class Disk {
 
     // ---------- Un ciclo de reloj ----------
 
+    @Override
     public void onTick(long cycle) {
         int headNow;
         HeadDirection directionNow;
@@ -102,6 +111,7 @@ public class Disk {
         mutex.acquireUninterruptibly();
         try {
             idle = plan == null;
+            fetching = idle;
             headNow = head;
             directionNow = direction;
         } finally {
@@ -112,6 +122,12 @@ public class Disk {
         Interrupt finished = null;
         mutex.acquireUninterruptibly();
         try {
+            fetching = false;
+            if (next != null && wasCancelledWhileFetching(next.getRequest().getProcessId())) {
+                cancelledRequests++;          // la cancelaron mientras se pedía: no se atiende
+                next = null;
+            }
+            cancelledWhileFetching.clear();
             if (plan == null && next != null) {
                 start(next);
             }
@@ -156,11 +172,18 @@ public class Disk {
      * venció el deadline). No hay interrupción. Las que esperan en la cola las
      * cancela el planificador de disco.
      *
-     * @return true si se abortó
+     * Si llega justo mientras el disco le pide la siguiente solicitud al
+     * planificador, se anota: si la solicitud que llega es de ese proceso, se
+     * descarta sin atenderla.
+     *
+     * @return true si se abortó la solicitud en servicio
      */
     public boolean cancel(int processId) {
         mutex.acquireUninterruptibly();
         try {
+            if (fetching) {
+                cancelledWhileFetching.addLast(processId);
+            }
             if (plan == null || plan.getRequest().getProcessId() != processId) {
                 return false;
             }
@@ -367,6 +390,16 @@ public class Disk {
         if (head == target) {
             afterLeg();
         }
+    }
+
+    /** LinkedList.contains compara referencias; aquí se compara el número del proceso. */
+    private boolean wasCancelledWhileFetching(int processId) {
+        for (int i = 0; i < cancelledWhileFetching.size(); i++) {
+            if (cancelledWhileFetching.get(i) == processId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void clear() {
