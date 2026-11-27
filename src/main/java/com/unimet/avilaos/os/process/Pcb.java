@@ -68,6 +68,7 @@ public class Pcb {
     private volatile long readySequence;               // orden de llegada a listos (lo pone el Scheduler)
     private volatile int itemsDone;
     private volatile boolean deadlineMissed;
+    private volatile String failureReason;             // proceso de E/S cuya operación no se pudo hacer
 
     /** Mutex de los cambios de estado: verificar y cambiar deben ser atómicos. */
     private final Semaphore stateMutex = new Semaphore(1, true);
@@ -241,6 +242,29 @@ public class Pcb {
         }
     }
 
+    /**
+     * Cualquier estado → TERMINATED porque su operación de E/S no se pudo hacer (no existe,
+     * sin permiso, sin espacio...). Termina, pero NO terminó su trabajo: las métricas no lo
+     * cuentan como terminado a tiempo.
+     *
+     * @param reason motivo, para la GUI y el log
+     */
+    public void markFailed(long cycle, String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("Un proceso que falla necesita el motivo");
+        }
+        stateMutex.acquireUninterruptibly();
+        try {
+            transitionTo(ProcessState.TERMINATED);
+            finishCycle = cycle;
+            failureReason = reason;
+            blockReason = null;
+            blockDetail = null;
+        } finally {
+            stateMutex.release();
+        }
+    }
+
     /** Cualquier estado → TERMINATED. deadlineExpired = true si lo mató el deadline. */
     public void markTerminated(long cycle, boolean deadlineExpired) {
         stateMutex.acquireUninterruptibly();
@@ -359,6 +383,10 @@ public class Pcb {
     public int getQuantumUsed() { return quantumUsed; }
     public int getItemsDone() { return itemsDone; }
     public boolean isDeadlineMissed() { return deadlineMissed; }
+    /** true si terminó porque su operación de E/S no se pudo hacer. */
+    public boolean isFailed() { return failureReason != null; }
+    /** Motivo por el que falló su operación de E/S, o null. */
+    public String getFailureReason() { return failureReason; }
     public long getFirstRunCycle() { return firstRunCycle; }
     public long getFinishCycle() { return finishCycle; }
     public long getBlockedOnSemaphoreCycles() { return blockedOnSemaphoreCycles; }
