@@ -143,7 +143,7 @@ public final class MainWindow extends JFrame {
      * @param computerCount number of computers (at least 1: Project 2 uses a single computer)
      */
     public MainWindow(int computerCount) {
-        super("ÁvilaOS - Simulador de sistema operativo distribuido");
+        super("ÁvilaOS - Simulador de sistema operativo");
         if (computerCount < 1) {
             throw new IllegalArgumentException("Se necesita al menos 1 computador");
         }

@@ -154,7 +154,7 @@ public final class DiskData {
      * @param firstBlock first block of the chain (-1 for directories)
      * @param owner      owner user (e.g. "admin", "user1")
      * @param isPublic   true = public, false = private
-     * @param creator    process that created it (e.g. "P3"), or "JSON" if it was loaded
+     * @param creator    name of the process that created it (e.g. "NuevoArchivo"), or "JSON" if it was loaded
      * @param chain      block numbers in chain order (empty for directories)
      */
     public record FileEntry(String path, boolean directory, int blocks, int firstBlock, String owner,

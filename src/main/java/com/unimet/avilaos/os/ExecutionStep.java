@@ -8,17 +8,21 @@ import com.unimet.avilaos.os.process.ProcessType;
  * El kernel lo usa para saber qué ejecuta la CPU en cada ciclo:
  *  - USER: una instrucción de usuario (calcular, producir o consumir).
  *  - IO_REQUEST: llamada al sistema para pedir E/S (1 ciclo de trabajo del SO).
+ *  - DISK_REQUEST: el proceso de E/S de archivo le pide al disco su operación
+ *    (1 instrucción en modo SO, Proyecto 2).
  *  - Las operaciones del productor-consumidor (anexo del enunciado), cada una
  *    una instrucción en modo sistema operativo:
  *      productor:  WAIT_EMPTY → WAIT_MUTEX → INSERT  → SIGNAL_MUTEX → SIGNAL_FULL
  *      consumidor: WAIT_FULL  → WAIT_MUTEX → EXTRACT → SIGNAL_MUTEX → SIGNAL_EMPTY
  *
  * @author victor1102
+ * @author NicollPinzon
  */
 public enum ExecutionStep {
 
     USER("instrucción de usuario"),
     IO_REQUEST("solicitud de E/S"),
+    DISK_REQUEST("solicitud al disco"),
     WAIT_EMPTY("semWait('vacíos')"),
     WAIT_FULL("semWait('lleno')"),
     WAIT_MUTEX("semWait('mutex')"),
@@ -40,7 +44,7 @@ public enum ExecutionStep {
 
     /** true si es una operación sobre un buffer (paga latencia si el buffer es remoto). */
     public boolean isBufferOperation() {
-        return this != USER && this != IO_REQUEST;
+        return this != USER && this != IO_REQUEST && this != DISK_REQUEST;
     }
 
     /** true si es un semWait (puede bloquear al proceso). */
@@ -61,7 +65,7 @@ public enum ExecutionStep {
             case WAIT_MUTEX -> producer ? INSERT : EXTRACT;
             case INSERT, EXTRACT -> SIGNAL_MUTEX;
             case SIGNAL_MUTEX -> producer ? SIGNAL_FULL : SIGNAL_EMPTY;
-            case SIGNAL_FULL, SIGNAL_EMPTY, USER, IO_REQUEST -> USER;
+            case SIGNAL_FULL, SIGNAL_EMPTY, USER, IO_REQUEST, DISK_REQUEST -> USER;
         };
     }
 }

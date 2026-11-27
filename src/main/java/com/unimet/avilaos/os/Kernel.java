@@ -4,12 +4,18 @@ import com.unimet.avilaos.datastructures.LinkedList;
 import com.unimet.avilaos.events.EventLog;
 import com.unimet.avilaos.hardware.Cpu;
 import com.unimet.avilaos.hardware.CpuMode;
+import com.unimet.avilaos.hardware.DiskRequest;
 import com.unimet.avilaos.hardware.Interrupt;
 import com.unimet.avilaos.hardware.InterruptHandler;
 import com.unimet.avilaos.hardware.InterruptType;
 import com.unimet.avilaos.hardware.IoDevice;
+import com.unimet.avilaos.hardware.IoOperation;
+import com.unimet.avilaos.hardware.SeekPlan;
 import com.unimet.avilaos.metrics.ComputerMetrics;
 import com.unimet.avilaos.metrics.SystemMetrics;
+import com.unimet.avilaos.os.disk.DiskPolicyType;
+import com.unimet.avilaos.os.fs.FsOperation;
+import com.unimet.avilaos.os.fs.FsResult;
 import com.unimet.avilaos.os.memory.MemoryManager;
 import com.unimet.avilaos.os.process.BlockReason;
 import com.unimet.avilaos.os.process.Pcb;
@@ -29,7 +35,7 @@ import java.util.concurrent.Semaphore;
  * Es también el único lugar donde cambian los estados de los procesos.
  *
  * Cada ciclo, el Computer lo llama en su propio hilo, en este orden:
- *   1. io.onTick(c)            el disco avanza
+ *   1. io.onTick(c), disk.onTick(c)   el dispositivo de E/S del P1 y el disco avanzan
  *   2. kernel.beforeCpu(c)     PLANEA: solicitudes, despertares, admisión,
  *                              expropiación y qué hará la CPU este ciclo
  *   3. cpu.onTick(c)           EJECUTA (y atiende interrupciones → handleInterrupt)
@@ -45,18 +51,33 @@ import java.util.concurrent.Semaphore;
  *  - Si un proceso termina y se le vence el deadline en el mismo ciclo, gana terminar.
  *  - Al morir un proceso se deshace lo que dejó tomado (como SEM_UNDO en UNIX).
  *
+ * Proceso de E/S de archivo (Proyecto 2):
+ *  - Al obtener la CPU, su primera instrucción (en modo SO) es pedir su operación:
+ *    el sistema de archivos la revisa (check) y, si se puede, la solicitud entra a la
+ *    cola del disco y el proceso queda Bloqueado por E/S. Si no se puede (por ejemplo,
+ *    otro proceso borró el archivo mientras esperaba en Listo), el proceso termina y el
+ *    log explica por qué, como una llamada al sistema que falla.
+ *  - Con la interrupción DISK_COMPLETION toma la solicitud terminada (Disk.pollCompleted),
+ *    aplica la operación (FileSystem.apply), lo anota en el log y el proceso pasa a Listo
+ *    para ejecutar el resto de sus instrucciones (o termina, si no le quedan).
+ *  - Si muere esperando, su solicitud se cancela en la cola del disco y en el disco.
+ *
  * Hilos: todo lo de arriba corre en el hilo de su computador. Desde otros hilos solo
  * se llaman submit, deliverWakeup, requestPolicy, requestQuantum y las consultas,
  * que pasan por un mutex.
  *
  * @author victor1102
+ * @author NicollPinzon
  */
 public class Kernel implements InterruptHandler {
 
     /** Qué hace la CPU en el ciclo actual (lo decide beforeCpu, lo aplica afterCpu). */
     private enum Action {
-        IDLE, DISPATCH, USER_INSTRUCTION, KERNEL_INSTRUCTION, IO_REQUEST, REMOTE_REQUEST
+        IDLE, DISPATCH, USER_INSTRUCTION, KERNEL_INSTRUCTION, IO_REQUEST, REMOTE_REQUEST, DISK_REQUEST
     }
+
+    /** Origen de las líneas del log que escribe el disco. */
+    private static final String DISK_SOURCE = "Disco";
 
     private final int computerId;
     private final String source;
@@ -68,6 +89,7 @@ public class Kernel implements InterruptHandler {
     private final ComputerMetrics metrics;
     private final SystemMetrics systemMetrics;      // puede ser null (pruebas)
     private final Interconnect network;
+    private final Storage storage;
 
     // ---------- Estado del kernel (solo el hilo del computador) ----------
     private final LinkedList<ProcessRuntime> processes = new LinkedList<>();   // todos los vivos
@@ -83,6 +105,7 @@ public class Kernel implements InterruptHandler {
     private final LinkedList<Wakeup> wakeups = new LinkedList<>();
     private PolicyType pendingPolicy;
     private int pendingQuantum;
+    private DiskPolicyType pendingDiskPolicy;
     private volatile Pcb runningPcb;
     private volatile String activity = "Ociosa";
 
@@ -91,13 +114,15 @@ public class Kernel implements InterruptHandler {
     }
 
     public Kernel(int computerId, Cpu cpu, IoDevice io, MemoryManager memory, Scheduler scheduler,
-            EventLog log, ComputerMetrics metrics, SystemMetrics systemMetrics, Interconnect network) {
+            EventLog log, ComputerMetrics metrics, SystemMetrics systemMetrics, Interconnect network,
+            Storage storage) {
         if (computerId < 1) {
             throw new IllegalArgumentException("El computador debe ser 1 o mayor");
         }
         if (cpu == null || io == null || memory == null || scheduler == null || log == null
-                || metrics == null || network == null) {
-            throw new IllegalArgumentException("El kernel necesita CPU, E/S, memoria, planificador, log, métricas y red");
+                || metrics == null || network == null || storage == null) {
+            throw new IllegalArgumentException("El kernel necesita CPU, E/S, memoria, planificador, log, métricas, red"
+                    + " y almacenamiento");
         }
         if (memory.getComputerId() != computerId) {
             throw new IllegalArgumentException("La memoria es del computador " + memory.getComputerId()
@@ -113,6 +138,7 @@ public class Kernel implements InterruptHandler {
         this.metrics = metrics;
         this.systemMetrics = systemMetrics;
         this.network = network;
+        this.storage = storage;
     }
 
     // =====================================================================
@@ -177,6 +203,19 @@ public class Kernel implements InterruptHandler {
         }
     }
 
+    /** La GUI pide cambiar la política de disco: se aplica al inicio del próximo ciclo. */
+    public void requestDiskPolicy(DiskPolicyType policy) {
+        if (policy == null) {
+            throw new IllegalArgumentException("La política de disco no puede ser null");
+        }
+        mutex.acquireUninterruptibly();
+        try {
+            pendingDiskPolicy = policy;
+        } finally {
+            mutex.release();
+        }
+    }
+
     // =====================================================================
     // 2. Antes de la CPU: planear el ciclo
     // =====================================================================
@@ -195,12 +234,15 @@ public class Kernel implements InterruptHandler {
     private void applyRequests() {
         PolicyType policy;
         int quantum;
+        DiskPolicyType diskPolicy;
         mutex.acquireUninterruptibly();
         try {
             policy = pendingPolicy;
             quantum = pendingQuantum;
+            diskPolicy = pendingDiskPolicy;
             pendingPolicy = null;
             pendingQuantum = 0;
+            pendingDiskPolicy = null;
         } finally {
             mutex.release();
         }
@@ -211,6 +253,11 @@ public class Kernel implements InterruptHandler {
         if (quantum > 0 && quantum != scheduler.getQuantum()) {
             scheduler.setQuantum(quantum);
             log.log(cycle, source, "cambia el quantum de Round Robin a " + quantum + " ciclos");
+        }
+        if (diskPolicy != null && diskPolicy != storage.diskScheduler().getPolicyType()) {
+            storage.diskScheduler().setPolicy(diskPolicy);
+            log.log(cycle, DISK_SOURCE, "cambia su política de planificación a " + diskPolicy.getLabel()
+                    + " (se aplica desde la próxima solicitud)");
         }
     }
 
@@ -329,6 +376,10 @@ public class Kernel implements InterruptHandler {
             cpu.scheduleKernelWork();
             action = Action.IO_REQUEST;
             activity = "SO: registra la E/S de " + rt.pcb;
+        } else if (step == ExecutionStep.DISK_REQUEST) {
+            cpu.setMode(CpuMode.KERNEL);                     // 1 instrucción del proceso, en modo SO
+            action = Action.DISK_REQUEST;
+            activity = rt.pcb + ": pide al disco " + rt.pcb.getFileOperation();
         } else if (step == ExecutionStep.USER) {
             cpu.setMode(CpuMode.USER);
             action = Action.USER_INSTRUCTION;
@@ -351,6 +402,10 @@ public class Kernel implements InterruptHandler {
 
     @Override
     public void handleInterrupt(Interrupt interrupt) {
+        if (interrupt.type() == InterruptType.DISK_COMPLETION) {
+            diskCompleted();
+            return;
+        }
         if (interrupt.type() != InterruptType.IO_COMPLETION) {
             log.log(cycle, source, "ignora la interrupción " + interrupt.type().getLabel());
             return;
@@ -361,6 +416,42 @@ public class Kernel implements InterruptHandler {
             return;
         }
         makeReady(rt, "termina su E/S");
+    }
+
+    /**
+     * El disco terminó una solicitud: se aplica la operación en el sistema de archivos
+     * y el proceso vuelve a Listo (o termina, si ya no le quedan instrucciones).
+     * Hay una interrupción por solicitud terminada, así que se toma una sola.
+     */
+    private void diskCompleted() {
+        SeekPlan plan = storage.disk().pollCompleted();
+        if (plan == null) {
+            return;
+        }
+        DiskRequest done = plan.getRequest();
+        // La política que ELIGIÓ la solicitud, no la vigente ahora (pueden haberla cambiado)
+        String policy = plan.getChosenBy() != null ? plan.getChosenBy()
+                : storage.diskScheduler().getPolicyType().getLabel();
+        ProcessRuntime rt = findById(done.getProcessId());
+        if (rt == null || !rt.pcb.getType().isFileIo() || rt.pcb.getState() != ProcessState.BLOCKED
+                || rt.pcb.getBlockReason() != BlockReason.IO) {
+            log.log(cycle, DISK_SOURCE, "termina la solicitud de P" + done.getProcessId()
+                    + ", pero el proceso ya no la espera");
+            return;
+        }
+        log.log(cycle, DISK_SOURCE, "atiende la solicitud de " + rt.pcb + " en el bloque " + done.getTargetBlock()
+                + " (" + policy + ")");
+        FsResult result = storage.fileSystem().apply(rt.pcb.getSession(), rt.pcb.getFileOperation());
+        if (!result.isOk()) {
+            terminate(rt, false, lowerFirst(result.getMessage()));
+            return;
+        }
+        log.log(cycle, source, "el proceso " + rt.pcb + ": " + result.getMessage());
+        if (rt.pcb.isFinished()) {
+            terminate(rt, false, null);                     // su única instrucción era la operación
+        } else {
+            makeReady(rt, "termina su E/S de disco");
+        }
     }
 
     // =====================================================================
@@ -409,6 +500,11 @@ public class Kernel implements InterruptHandler {
                 log.log(cycle, source, "el proceso " + rt.pcb + " pide E/S (" + rt.pcb.getIoDuration() + " ciclos)");
                 return;
             }
+            case DISK_REQUEST -> {
+                rt.pcb.instructionExecuted();
+                requestDisk(rt);
+                return;
+            }
             case USER_INSTRUCTION -> {
                 rt.pcb.instructionExecuted();
                 afterUserInstruction(rt);
@@ -421,14 +517,39 @@ public class Kernel implements InterruptHandler {
             }
         }
         if (running == rt && rt.pcb.isFinished()) {
-            terminate(rt, false);
+            terminate(rt, false, null);
         }
+    }
+
+    /**
+     * El proceso de E/S pide su operación. El sistema de archivos la revisa con el
+     * usuario del proceso: si se puede, la solicitud va a la cola del disco y el
+     * proceso queda Bloqueado por E/S; si no, el proceso termina con el motivo.
+     */
+    private void requestDisk(ProcessRuntime rt) {
+        FsOperation op = rt.pcb.getFileOperation();
+        FsResult check = storage.fileSystem().check(rt.pcb.getSession(), op);
+        if (!check.isOk()) {
+            terminate(rt, false, "no se pudo " + op + ": " + check.getMessage());
+            return;
+        }
+        String target = op.getOperation() == IoOperation.CREATE
+                ? op.getCreatedPath() : op.getPath();
+        DiskRequest request = new DiskRequest(rt.pcb.getId(), op.getOperation(), target, check.getTargetBlock(),
+                check.getBlockCount(), cycle);
+        storage.diskScheduler().enqueue(request);
+        rt.step = ExecutionStep.USER;                        // al volver, ejecuta sus instrucciones de usuario
+        block(rt, BlockReason.IO, "disco, " + op);
+        // Sin paréntesis propios: el texto de crear ya trae "(3 bloques)"
+        log.log(cycle, source, "el proceso " + rt.pcb + " pide al disco " + op + "; va al bloque "
+                + check.getTargetBlock() + " y abarca " + check.getBlockCount()
+                + (check.getBlockCount() == 1 ? " bloque" : " bloques") + "; queda bloqueado por E/S");
     }
 
     private void afterUserInstruction(ProcessRuntime rt) {
         switch (rt.pcb.getType()) {
-            case CPU_BOUND -> {
-                // solo calcula
+            case CPU_BOUND, FILE_IO -> {
+                // solo calcula (el proceso de E/S ya hizo su operación)
             }
             case IO_BOUND -> {
                 rt.sinceIo++;
@@ -506,7 +627,7 @@ public class Kernel implements InterruptHandler {
         while (!all.isEmpty()) {
             ProcessRuntime rt = all.removeFirst();
             if (rt.pcb.tickDeadline()) {
-                terminate(rt, true);
+                terminate(rt, true, null);
             }
         }
     }
@@ -543,9 +664,16 @@ public class Kernel implements InterruptHandler {
     // Terminación (con limpieza tipo SEM_UNDO)
     // =====================================================================
 
-    private void terminate(ProcessRuntime rt, boolean deadlineExpired) {
+    /**
+     * @param failure motivo si su operación de E/S no se pudo hacer (el proceso queda como
+     *                fallido y las métricas no lo cuentan a tiempo), o null si terminó su
+     *                trabajo o le venció el deadline
+     */
+    private void terminate(ProcessRuntime rt, boolean deadlineExpired, String failure) {
         Pcb pcb = rt.pcb;
         boolean admitted = pcb.getState() != ProcessState.NEW;
+        int removedFromQueue = 0;
+        boolean aborted = false;
         switch (pcb.getState()) {
             case NEW -> memory.removeFromNew(pcb);
             case READY -> scheduler.remove(pcb);
@@ -557,7 +685,16 @@ public class Kernel implements InterruptHandler {
             case BLOCKED -> {
                 removeBlocked(pcb);
                 switch (pcb.getBlockReason()) {
-                    case IO -> io.cancel(pcb.getId());
+                    case IO -> {
+                        if (pcb.getType().isFileIo()) {
+                            // Se cancela en los dos sin mirar lo que devuelven: si el disco estaba
+                            // pidiendo la siguiente, Disk.cancel da false pero igual la descarta.
+                            removedFromQueue = storage.diskScheduler().cancel(pcb.getId());
+                            aborted = storage.disk().cancel(pcb.getId());
+                        } else {
+                            io.cancel(pcb.getId());
+                        }
+                    }
                     case NETWORK -> rt.networkLeft = 0;
                     case SEMAPHORE -> {
                         if (!rt.waitingOn.removeWaiting(pcb)) {
@@ -573,7 +710,11 @@ public class Kernel implements InterruptHandler {
         if (pcb.getType().usesBuffer()) {
             releaseBufferHoldings(rt);
         }
-        pcb.markTerminated(cycle, deadlineExpired);
+        if (failure != null) {
+            pcb.markFailed(cycle, failure);
+        } else {
+            pcb.markTerminated(cycle, deadlineExpired);
+        }
         if (admitted) {
             memory.release(pcb);
         }
@@ -585,8 +726,20 @@ public class Kernel implements InterruptHandler {
             mutex.release();
         }
         metrics.processTerminated(pcb);
-        log.log(cycle, source, "el proceso " + pcb + (deadlineExpired
-                ? " se termina: venció su deadline" : " terminó su ejecución"));
+        String text = failure != null ? "se termina: " + failure
+                : deadlineExpired ? "se termina: venció su deadline" : "terminó su ejecución";
+        log.log(cycle, source, "el proceso " + pcb + " " + text);
+        String cause = deadlineExpired ? "venció su deadline" : "el proceso terminó";
+        if (aborted) {
+            log.log(cycle, DISK_SOURCE, "aborta la solicitud de " + pcb + " que estaba atendiendo (" + cause + ")");
+        } else if (removedFromQueue > 0) {
+            log.log(cycle, DISK_SOURCE, "saca de su cola la solicitud de " + pcb + " (" + cause + ")");
+        }
+    }
+
+    /** "No se pudo leer /x" → "no se pudo leer /x" (para continuar una frase del log). */
+    private static String lowerFirst(String text) {
+        return text.isEmpty() ? text : Character.toLowerCase(text.charAt(0)) + text.substring(1);
     }
 
     /**
@@ -765,5 +918,9 @@ public class Kernel implements InterruptHandler {
 
     public MemoryManager getMemoryManager() {
         return memory;
+    }
+
+    public Storage getStorage() {
+        return storage;
     }
 }

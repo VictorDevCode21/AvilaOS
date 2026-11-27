@@ -68,7 +68,7 @@ public class ConfigRepository {
                 line(out, BUFFER + "," + b.name() + "," + b.hostComputerId() + "," + b.capacity() + "," + b.memorySize());
             }
 
-            line(out, "# process,nombre,tipo (" + names(ProcessType.values()) + "),prioridad,memoriaMB,"
+            line(out, "# process,nombre,tipo (" + names(ProcessType.formTypes()) + "),prioridad,memoriaMB,"
                     + "instrucciones,deadline,computador (0=automatico),intervaloES,duracionES,buffer,"
                     + "intervaloOperacion,elementosRequeridos");
             LinkedList<ProcessConfig> processes = config.getProcesses();

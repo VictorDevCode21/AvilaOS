@@ -108,6 +108,9 @@ public final class ProcessTableModel extends AbstractTableModel {
         if (p.isDeadlineMissed()) {
             return p.getState().getLabel() + " (venció su deadline)";
         }
+        if (p.isFailed()) {
+            return p.getState().getLabel() + " (" + p.getFailureReason() + ")";   // proceso de E/S que falló
+        }
         return p.getState().getLabel();
     }
 }

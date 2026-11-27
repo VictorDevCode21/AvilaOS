@@ -12,6 +12,9 @@ import com.unimet.avilaos.os.scheduling.PolicyType;
  * para que se pueda armar la configuración paso a paso; lo exige validate(), que se
  * llama al cargar el archivo, al aceptar el diálogo y al crear el clúster.
  *
+ * El disco (DiskConfig) arranca con los valores de los casos de prueba del enunciado;
+ * el JSON de configuración los cambia con setDisk.
+ *
  * Se arma en este orden: computadores → buffers → procesos, porque cada paso
  * valida contra el anterior (un buffer necesita que exista su anfitrión; un
  * productor necesita que exista su buffer). ConfigRepository respeta ese orden
@@ -36,6 +39,7 @@ public class SimulationConfig {
     private final LinkedList<ComputerConfig> computers = new LinkedList<>();
     private final LinkedList<BufferConfig> buffers = new LinkedList<>();
     private final LinkedList<ProcessConfig> processes = new LinkedList<>();
+    private DiskConfig disk = DiskConfig.defaults();
 
     /**
      * @param cycleDurationMs duración de un ciclo en ms (MIN_CYCLE_MS a MAX_CYCLE_MS)
@@ -231,6 +235,19 @@ public class SimulationConfig {
 
     public int getComputerCount() {
         return computers.size();
+    }
+
+    /** Parámetros del disco del computador. */
+    public DiskConfig getDisk() {
+        return disk;
+    }
+
+    /** Cambia los parámetros del disco (se usan al crear el clúster). */
+    public void setDisk(DiskConfig disk) {
+        if (disk == null) {
+            throw new IllegalArgumentException("La configuración del disco no puede ser null");
+        }
+        this.disk = disk;
     }
 
     public LinkedList<ComputerConfig> getComputers() {
