@@ -48,7 +48,8 @@ public final class DiskFsDemo {
     // Fake metrics
     private long totalSeek;
     private long waitSum;
-    private final long[] servedPerPolicy = new long[MainWindow.DISK_POLICIES.length];
+    /** Same order as DiskPolicyType.values(), like the bars of the Metrics view. */
+    private final long[] servedPerPolicy = new long[DiskPolicyType.values().length];
 
     private DiskFsDemo() {
         loadFileSystem();
@@ -382,12 +383,7 @@ public final class DiskFsDemo {
     }
 
     private int policyIndex() {
-        for (int i = 0; i < MainWindow.DISK_POLICIES.length; i++) {
-            if (MainWindow.DISK_POLICIES[i].equals(policy)) {
-                return i;
-            }
-        }
-        return 0;
+        return DiskPolicyType.fromLabel(policy).ordinal();
     }
 
     private void refresh() {

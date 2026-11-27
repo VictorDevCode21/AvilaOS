@@ -82,12 +82,6 @@ public final class MainWindow extends JFrame {
     static final String VIEW_DISK = "Disco";
     static final String VIEW_FILES = "Archivos";
 
-    /**
-     * Disk policies shown in the Disk view. PROVISIONAL: it will come from the disk policy enum of
-     * the contracts PR.
-     */
-    static final String[] DISK_POLICIES = {"FIFO", "SSTF", "SCAN", "C-SCAN", "LOOK", "C-LOOK"};
-
     // ---------- Controles ----------
     private final JLabel cycleLabel = Theme.label("Ciclo 0", Theme.MONO_BOLD, Theme.TEXT);
     private final UiKit.Button startPauseButton = new UiKit.Button("Iniciar", UiKit.Kind.PRIMARY);
