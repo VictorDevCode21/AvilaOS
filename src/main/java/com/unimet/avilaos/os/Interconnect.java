@@ -5,7 +5,9 @@ import com.unimet.avilaos.os.sync.BoundedBuffer;
 import com.unimet.avilaos.os.sync.KernelSemaphore;
 
 /**
- * La red del clúster vista desde el kernel de UN computador.
+ * La red del clúster vista desde el kernel de UN computador (Proyecto 1: accesos a buffers de
+ * otros computadores y despertares entre ellos; con el único computador del Proyecto 2 no hay
+ * accesos remotos).
  *
  * El kernel (capa os) necesita llegar a otros computadores, pero no puede importar
  * la capa cluster, que está encima. Por eso define aquí lo que necesita y el

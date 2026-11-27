@@ -4,7 +4,8 @@ import com.unimet.avilaos.datastructures.LinkedList;
 import java.util.concurrent.Semaphore;
 
 /**
- * Reloj global del sistema distribuido.
+ * Reloj global de la simulación (en el Proyecto 1 sincronizaba varios computadores; el Proyecto 2
+ * tiene uno solo, con su disco).
  *
  * Cada componente registrado (normalmente un computador) recibe un hilo de Java
  * propio ("trabajador") que espera el tick. En cada ciclo el reloj:

@@ -4,8 +4,8 @@ import com.unimet.avilaos.datastructures.LinkedList;
 import java.util.concurrent.Semaphore;
 
 /**
- * Métricas del sistema distribuido completo: junta las de cada computador
- * y lleva los contadores de producidos/consumidos de cada buffer.
+ * Métricas del sistema completo: junta las de cada computador (el Proyecto 2 tiene uno solo)
+ * y lleva los contadores de producidos/consumidos de cada buffer (productor-consumidor del P1).
  *
  * Los promedios del sistema se calculan sumando los acumulados de todos los
  * computadores (no promediando los promedios), para que un computador con
