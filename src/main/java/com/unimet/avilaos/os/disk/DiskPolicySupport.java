@@ -78,9 +78,19 @@ final class DiskPolicySupport {
         return best;
     }
 
-    /** Último bloque en la dirección dada: diskSize - 1 si es UP, 0 si es DOWN. */
-    static int edge(HeadDirection direction, int diskSize) {
-        return direction == HeadDirection.UP ? diskSize - 1 : 0;
+    /**
+     * Extremo hasta el que barren SCAN y C-SCAN en la dirección dada:
+     * <ul>
+     *   <li>DOWN: el bloque 0;</li>
+     *   <li>UP: el último bloque de la zona de archivos (fileBlocks - 1), o el
+     *       bloque del cabezal si ya está más arriba, en el área de intercambio.</li>
+     * </ul>
+     * Así, con el disco del enunciado (200 bloques de archivos + 100 de swap), el
+     * cabezal llega al 199 como dicen los casos P3 y P4, y las solicitudes de
+     * suspender o reactivar (que van al swap) se atienden igual.
+     */
+    static int edge(HeadDirection direction, int fileBlocks, int headBlock) {
+        return direction == HeadDirection.UP ? Math.max(fileBlocks - 1, headBlock) : 0;
     }
 
     private static boolean isAhead(DiskRequest r, int headBlock, HeadDirection direction) {

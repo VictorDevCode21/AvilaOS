@@ -174,6 +174,9 @@ public final class PlanningDialog extends JDialog {
         table.getColumnModel().getColumn(3).setPreferredWidth(95);
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createTitledBorder("Cómo decide cada política"));
+        // Transparent outside the table, so no white square corners show around the rounded border
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
         scroll.setPreferredSize(new java.awt.Dimension(760, 162));
         return scroll;
     }

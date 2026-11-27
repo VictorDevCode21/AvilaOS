@@ -21,7 +21,7 @@ public final class FifoDiskPolicy implements DiskSchedulingPolicy {
 
     @Override
     public SeekPlan select(LinkedList<DiskRequest> pending, int headBlock, HeadDirection direction,
-            int diskSize) {
+            int fileBlocks) {
         return SeekPlan.direct(pending.peekFirst(), headBlock, direction);
     }
 }

@@ -7,9 +7,11 @@ import com.unimet.avilaos.hardware.SeekPlan;
 
 /**
  * SCAN (ascensor): el cabezal avanza en su dirección atendiendo lo que
- * encuentra; cuando ya no queda nada por delante sigue hasta el ÚLTIMO bloque
- * del disco, cambia de dirección y atiende lo que quedó atrás. Así lo pide el
- * enunciado ("llega al 199 y regresa"; anexo: 332 bloques).
+ * encuentra; cuando ya no queda nada por delante sigue hasta el extremo, cambia
+ * de dirección y atiende lo que quedó atrás. Así lo pide el enunciado ("llega al
+ * 199 y regresa"; anexo: 332 bloques). El extremo de subida es el último bloque
+ * de la zona de archivos (el 199 con el JSON del enunciado), aunque el área de
+ * intercambio esté después; ver DiskPolicySupport.edge.
  *
  * Evita la inanición de SSTF: toda solicitud se atiende, como mucho, en la
  * vuelta siguiente.
@@ -25,14 +27,14 @@ public final class ScanDiskPolicy implements DiskSchedulingPolicy {
 
     @Override
     public SeekPlan select(LinkedList<DiskRequest> pending, int headBlock, HeadDirection direction,
-            int diskSize) {
+            int fileBlocks) {
         DiskRequest ahead = DiskPolicySupport.nearestAhead(pending, headBlock, direction);
         if (ahead != null) {
             return new SeekPlan(ahead, headBlock, SeekPlan.NONE, SeekPlan.NONE, direction);
         }
         HeadDirection back = direction.opposite();
         DiskRequest behind = DiskPolicySupport.nearestAhead(pending, headBlock, back);
-        int edge = DiskPolicySupport.edge(direction, diskSize);
+        int edge = DiskPolicySupport.edge(direction, fileBlocks, headBlock);
         int sweep = headBlock == edge ? SeekPlan.NONE : edge;    // ya está en el extremo
         return new SeekPlan(behind, headBlock, sweep, SeekPlan.NONE, back);
     }

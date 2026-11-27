@@ -61,6 +61,11 @@ public final class UiKit {
             setBorder(Theme.padding(14, 16, 14, 16));
         }
 
+        /** Current fill color (used to paint the corners of rounded inputs inside the card). */
+        public Color getFill() {
+            return fill;
+        }
+
         /** Colores de fondo y borde (ej. un bloque gris dentro de una tarjeta). */
         public Card colors(Color fill, Color stroke) {
             this.fill = fill;
