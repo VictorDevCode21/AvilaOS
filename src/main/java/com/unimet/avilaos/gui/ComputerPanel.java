@@ -412,7 +412,6 @@ public final class ComputerPanel extends UiKit.Card {
         }
     }
 
-    /** Punto de color del estado de la CPU (verde = ejecutando, gris = ociosa). */
     /** Small rounded square with the computer's color, next to its name. */
     private static final class ColorMark extends JComponent {
 
@@ -434,6 +433,7 @@ public final class ComputerPanel extends UiKit.Card {
         }
     }
 
+    /** Punto de color del estado de la CPU (verde = ejecutando, gris = ociosa). */
     private static final class StatusDot extends JComponent {
 
         private static final long serialVersionUID = 1L;

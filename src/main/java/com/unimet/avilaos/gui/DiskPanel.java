@@ -65,15 +65,15 @@ public final class DiskPanel extends JPanel {
         UiKit.Card card = new UiKit.Card(new BorderLayout(0, 12));
         card.setBorder(Theme.padding(16, 18, 16, 18));
 
-        JPanel head = Theme.transparent(new JPanel(new BorderLayout(10, 0)));
-        JPanel titles = Theme.transparent(new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0)));
-        titles.add(Theme.label("Mapa de bloques", Theme.SECTION, Theme.TEXT));
-        titles.add(mapSubtitle);
-        head.add(titles, BorderLayout.WEST);
+        // Title and free blocks on the first line, the zones on the second: they never overlap
+        JPanel head = Theme.transparent(new JPanel(new BorderLayout(10, 4)));
+        head.add(Theme.label("Mapa de bloques", Theme.SECTION, Theme.TEXT), BorderLayout.WEST);
         head.add(freeLabel, BorderLayout.EAST);
+        head.add(mapSubtitle, BorderLayout.SOUTH);
         card.add(head, BorderLayout.NORTH);
 
-        JPanel center = Theme.transparent(new JPanel(new BorderLayout(0, 12)));
+        // As wide as the visible area: the block map scales its cells and the legend wraps
+        JPanel center = new WidthTrackingPanel(new BorderLayout(0, 12));
         center.add(blockMap, BorderLayout.NORTH);
         center.add(legend, BorderLayout.CENTER);
         JScrollPane scroll = new JScrollPane(center);

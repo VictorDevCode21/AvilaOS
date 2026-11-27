@@ -84,8 +84,14 @@ public final class JsonPreCheck {
                 return Result.fail("Hay un \"startBlock\" = " + block + " fuera del disco (0 a " + (total - 1) + ").");
             }
         }
+        // totalBlocks is the file zone: the swap area goes after it (BlockMap, DiskScheduler), so the files must fit here
+        long used = usedBlocks(text);
+        if (used > total) {
+            return Result.fail("Los archivos ocupan " + used + " bloques y el disco tiene " + total
+                    + " para archivos (\"totalBlocks\").");
+        }
         return new Result(true, total + " bloques · cabezal en " + head + " · " + entries + " entradas · "
-                + usedBlocks(text) + " bloques usados");
+                + used + " bloques usados");
     }
 
     /** Checks the processes JSON: globalConfig, computer and processes, with types and ranges. */
@@ -162,29 +168,90 @@ public final class JsonPreCheck {
     }
 
     /**
-     * Checks that the two files fit together: the swap area (processes JSON) and the files already on
-     * the disk (file system JSON) must fit in the disk.
+     * Checks that the two files fit together. The swap area does NOT take blocks from "totalBlocks":
+     * it goes after the file zone (BlockMap, DiskScheduler), as in the statement's example, where the
+     * files fill the 200 blocks and the swap adds 100 more. So this only warns about things that
+     * would make processes fail later:
+     * <ul>
+     *   <li>a process asks for more memory than the swap has (1 unit of memory = 1 block), so it
+     *       could never be suspended;</li>
+     *   <li>a process reads, renames or deletes a path that is not in the file system JSON;</li>
+     *   <li>a process creates a file and the file zone is already full.</li>
+     * </ul>
      *
-     * @return null if they fit, or a warning to show
+     * @return null if everything fits, or the warnings to show (one per line)
      */
     public static String crossCheck(File fileSystem, File processes) {
         try {
             String fs = read(fileSystem);
             String procs = read(processes);
-            int total = requiredInt(fs, "totalBlocks", "número de bloques del disco");
+            StringBuilder warnings = new StringBuilder();
+
             int swap = requiredInt(procs, "swapSizeBlocks", "tamaño del área de intercambio");
-            long used = usedBlocks(fs);
-            if (swap >= total) {
-                return "La swap (" + swap + " bloques) no cabe en un disco de " + total + " bloques.";
+            int biggest = 0;
+            Matcher memory = valuesOf(procs, "memory");
+            while (memory.find()) {
+                biggest = Math.max(biggest, toInt(memory.group(1), "memory"));
             }
-            if (used + swap > total) {
-                return "Los archivos usan " + used + " bloques y la swap pide " + swap + ": suman " + (used + swap)
-                        + " y el disco tiene " + total + ". No quedará espacio para la swap o para archivos nuevos.";
+            if (biggest > swap) {
+                warn(warnings, "Un proceso pide " + biggest + " de memoria y la swap tiene " + swap
+                        + " bloques: ese proceso no se podrá suspender.");
             }
-            return null;
+
+            String[] targets = stringsOf(procs, "targetPath");
+            String[] operations = stringsOf(procs, "operation");
+            if (targets.length == operations.length) {        // otherwise the pairs can't be matched safely
+                String[] paths = stringsOf(fs, "path");
+                boolean creates = false;
+                for (int i = 0; i < targets.length; i++) {
+                    if ("CREATE".equalsIgnoreCase(operations[i])) {
+                        creates = true;
+                    } else if (!contains(paths, targets[i])) {
+                        warn(warnings, "Un proceso de " + operations[i] + " usa " + targets[i]
+                                + ", que no está en el sistema de archivos.");
+                    }
+                }
+                int total = requiredInt(fs, "totalBlocks", "número de bloques del disco");
+                if (creates && usedBlocks(fs) >= total) {
+                    warn(warnings, "Hay procesos que crean archivos, pero los archivos ya llenan los " + total
+                            + " bloques: se rechazarán hasta que se borre alguno.");
+                }
+            }
+            return warnings.length() == 0 ? null : warnings.toString();
         } catch (IllegalArgumentException e) {      // includes Invalid: each file already shows its own error
             return null;
         }
+    }
+
+    private static void warn(StringBuilder warnings, String line) {
+        if (warnings.length() > 0) {
+            warnings.append('\n');
+        }
+        warnings.append(line);
+    }
+
+    /** Every string value of the key, in order (e.g. all "path" values). */
+    private static String[] stringsOf(String text, String key) {
+        Matcher m = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\"([^\"]*)\"").matcher(text);
+        int count = 0;
+        while (m.find()) {
+            count++;
+        }
+        String[] values = new String[count];
+        m.reset();
+        for (int i = 0; m.find(); i++) {
+            values[i] = m.group(1);
+        }
+        return values;
+    }
+
+    private static boolean contains(String[] values, String value) {
+        for (String v : values) {
+            if (v.equals(value)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---------- Helpers ----------
