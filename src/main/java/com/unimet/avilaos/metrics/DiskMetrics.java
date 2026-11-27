@@ -12,6 +12,8 @@ import java.util.concurrent.Semaphore;
  *   <li>tiempo promedio de espera de las solicitudes en la cola de E/S;</li>
  *   <li>cantidad de solicitudes atendidas por cada política;</li>
  *   <li>cantidad de suspensiones y reactivaciones;</li>
+ *   <li>solicitudes canceladas (procesos que murieron esperando), en un solo número: las
+ *       que se sacaron de la cola más las que el disco abortó o descartó;</li>
  *   <li>el desplazamiento acumulado con respecto al tiempo, para la gráfica que compara
  *       las políticas: una muestra cada vez que el disco termina una solicitud.</li>
  * </ul>
@@ -21,7 +23,9 @@ import java.util.concurrent.Semaphore;
  * terminar) y las suspensiones y reactivaciones, que se cuentan al completarse.
  *
  * Lo llena el kernel en el hilo del computador y lo lee la GUI en el de Swing: un Semaphore
- * protege los contadores y las consultas devuelven copias.
+ * protege los contadores y las consultas devuelven copias. Las atendidas de la foto son la
+ * suma de las atendidas por política (las cuenta esta clase), así el total siempre cuadra
+ * con el detalle por política aunque el disco vaya un ciclo adelante.
  *
  * @author NicollPinzon
  */
@@ -42,22 +46,25 @@ public class DiskMetrics {
      *
      * @param totalSeek       desplazamiento total del cabezal, sin los saltos
      * @param averageWait     ciclos promedio que esperó una solicitud en la cola
-     * @param served          solicitudes atendidas (todas las políticas)
+     * @param served          solicitudes atendidas (todas las políticas; = la suma de servedPerPolicy)
      * @param servedPerPolicy atendidas por cada política, en el orden de DiskPolicyType.values()
      *                        (el mismo de DiskPolicyType.labels(), que usa la vista del disco)
      * @param suspensions     suspensiones completadas
      * @param reactivations   reactivaciones completadas
+     * @param cancelled       solicitudes canceladas (sacadas de la cola + abortadas o descartadas por el disco)
      */
     public record Snapshot(long totalSeek, double averageWait, long served, long[] servedPerPolicy,
-            long suspensions, long reactivations) {
+            long suspensions, long reactivations, long cancelled) {
     }
 
     private final Disk disk;
     private final long[] servedPerPolicy = new long[DiskPolicyType.values().length];
     private final LinkedList<SeekSample> samples = new LinkedList<>();
     private final Semaphore mutex = new Semaphore(1, true);
+    private long served;
     private long suspensions;
     private long reactivations;
+    private long removedFromQueue;
 
     /** @param disk disco del computador (de él salen el desplazamiento y la espera) */
     public DiskMetrics(Disk disk) {
@@ -82,7 +89,21 @@ public class DiskMetrics {
             if (chosenBy != null) {
                 servedPerPolicy[DiskPolicyType.fromLabel(chosenBy).ordinal()]++;
             }
+            served++;
             samples.addLast(new SeekSample(cycle, cumulative, chosenBy));
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /** El kernel sacó n solicitudes de la cola del disco porque su proceso murió. */
+    public void requestsRemovedFromQueue(int n) {
+        if (n <= 0) {
+            return;
+        }
+        mutex.acquireUninterruptibly();
+        try {
+            removedFromQueue += n;
         } finally {
             mutex.release();
         }
@@ -113,10 +134,22 @@ public class DiskMetrics {
     public Snapshot getSnapshot() {
         long seek = disk.getTotalSeek();
         double wait = disk.getAverageWait();
-        long served = disk.getServedRequests();
+        long diskCancelled = disk.getCancelledRequests();
         mutex.acquireUninterruptibly();
         try {
-            return new Snapshot(seek, wait, served, servedPerPolicy.clone(), suspensions, reactivations);
+            return new Snapshot(seek, wait, served, servedPerPolicy.clone(), suspensions, reactivations,
+                    removedFromQueue + diskCancelled);
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /** Solicitudes canceladas en total: las sacadas de la cola y las que el disco abortó o descartó. */
+    public long getCancelledRequests() {
+        long diskCancelled = disk.getCancelledRequests();
+        mutex.acquireUninterruptibly();
+        try {
+            return removedFromQueue + diskCancelled;
         } finally {
             mutex.release();
         }

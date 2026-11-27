@@ -78,9 +78,10 @@ import java.util.concurrent.Semaphore;
  *     camino, se eligen Bloqueados (por E/S) de menor prioridad y, si empatan, el que lleva
  *     más tiempo bloqueado, hasta juntar la RAM que falta. Nunca el proceso cuya solicitud
  *     está atendiendo el disco, ni uno cuya E/S ya terminó en este ciclo (su interrupción
- *     está pendiente: la CPU la entrega al final del ciclo, después del mediano plazo). Si no alcanza (o no hay swap), no se suspende ninguno. Cada
- *     uno reserva sus bloques del swap, pasa a Bloqueado/Suspendido y una solicitud SUSPEND
- *     pasa por la cola del disco; su RAM se libera cuando el disco termina de escribirlo
+ *     está pendiente: la CPU la entrega al final del ciclo, después del mediano plazo).
+ *     Si no alcanza (o no hay swap), no se suspende ninguno. Cada uno reserva sus bloques
+ *     del swap, pasa a Bloqueado/Suspendido y una solicitud SUSPEND pasa por la cola del
+ *     disco; su RAM se libera cuando el disco termina de escribirlo
  *     (escribe y después libera, como dice el enunciado) y queda para ese Nuevo (así no la
  *     toma otro y no hay thrashing). Un bloque del swap equivale a una unidad de RAM.
  *  - Un Bloqueado/Suspendido cuyo evento ocurre pasa a Listo/Suspendido.
@@ -436,7 +437,8 @@ public class Kernel implements InterruptHandler {
                 reservations.remove(r);
                 r.newcomer.markReady();
                 scheduler.addReady(r.newcomer);
-                log.log(cycle, source, "admite el proceso " + r.newcomer + " con la RAM que liberaron las suspensiones ("
+                log.log(cycle, source, "admite el proceso " + r.newcomer
+                        + " con la RAM que liberaron las suspensiones ("
                         + memory.getMemory().getFreeSize() + " MB libres)");
             }
         }
@@ -461,7 +463,8 @@ public class Kernel implements InterruptHandler {
             rt.swappingIn = true;
             storage.diskScheduler().enqueue(new DiskRequest(rt.pcb.getId(), IoOperation.RESUME, DiskRequest.SWAP_TARGET,
                     rt.swapBlock, size, cycle));
-            log.log(cycle, MEDIUM_TERM_SOURCE, "Se reactiva al proceso " + rt.pcb + ": hay RAM y el disco lo trae del swap ("
+            log.log(cycle, MEDIUM_TERM_SOURCE, "Se reactiva al proceso " + rt.pcb
+                    + ": hay RAM y el disco lo trae del swap ("
                     + size + " bloques desde el bloque " + rt.swapBlock + ")");
         }
     }
@@ -537,8 +540,8 @@ public class Kernel implements InterruptHandler {
             } finally {
                 mutex.release();
             }
-            storage.diskScheduler().enqueue(new DiskRequest(rt.pcb.getId(), IoOperation.SUSPEND, DiskRequest.SWAP_TARGET,
-                    rt.swapBlock, size, cycle));
+            storage.diskScheduler().enqueue(new DiskRequest(rt.pcb.getId(), IoOperation.SUSPEND,
+                    DiskRequest.SWAP_TARGET, rt.swapBlock, size, cycle));
             log.log(cycle, MEDIUM_TERM_SOURCE, "Se suspende al proceso " + rt.pcb + " para admitir a " + newcomer
                     + ": el disco lo escribe en el swap (" + size + " bloques desde el bloque " + rt.swapBlock + ")");
         }
@@ -989,6 +992,7 @@ public class Kernel implements InterruptHandler {
             // pidiendo la siguiente, Disk.cancel da false pero igual la descarta.
             removedFromQueue = storage.diskScheduler().cancel(pcb.getId());
             aborted = storage.disk().cancel(pcb.getId());
+            diskMetrics.requestsRemovedFromQueue(removedFromQueue);   // las del disco las cuenta el disco
         }
         switch (pcb.getState()) {
             case NEW -> memory.removeFromNew(pcb);
