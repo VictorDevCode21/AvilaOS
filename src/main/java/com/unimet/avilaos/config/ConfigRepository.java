@@ -245,12 +245,21 @@ public class ConfigRepository {
         }
     }
 
+    /**
+     * Acepta el nombre del enum ("DOWN") o la etiqueta que muestra el diálogo
+     * ("Descendente ↓", también sin la flecha), sin importar mayúsculas.
+     */
     private static HeadDirection parseDirection(Row r, int column) {
-        try {
-            return HeadDirection.valueOf(r.cell(column).toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw r.error("dirección del cabezal desconocida '" + r.cell(column) + "' (UP o DOWN)");
+        String text = r.cell(column).trim();
+        for (HeadDirection d : HeadDirection.values()) {
+            String label = d.getLabel();
+            String word = label.substring(0, label.indexOf(' '));
+            if (text.equalsIgnoreCase(d.name()) || text.equalsIgnoreCase(label) || text.equalsIgnoreCase(word)) {
+                return d;
+            }
         }
+        throw r.error("dirección del cabezal desconocida '" + r.cell(column) + "' (UP, DOWN, "
+                + HeadDirection.UP.getLabel() + " o " + HeadDirection.DOWN.getLabel() + ")");
     }
 
     private static ProcessType parseType(Row r, int column) {
