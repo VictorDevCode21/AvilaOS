@@ -94,7 +94,10 @@ public final class UiKit {
 
     /** Variante del botón. */
     public enum Kind {
-        PRIMARY, SECONDARY, GHOST
+        PRIMARY, SECONDARY,
+        /** Borde y texto del color de acento: una acción que debe verse como botón sin competir con PRIMARY. */
+        OUTLINE,
+        GHOST
     }
 
     /** Botón plano con esquinas redondeadas; cambia de tono al pasar el mouse y al presionarlo. */
@@ -113,7 +116,7 @@ public final class UiKit {
             setRolloverEnabled(true);
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             setFont(kind == Kind.PRIMARY ? Theme.BODY_BOLD : Theme.BODY);
-            setForeground(kind == Kind.PRIMARY ? Color.WHITE : Theme.TEXT);
+            setForeground(kind == Kind.PRIMARY ? Color.WHITE : kind == Kind.OUTLINE ? Theme.ACCENT : Theme.TEXT);
             setBorder(Theme.padding(0, 14, 0, 14));
         }
 
@@ -136,6 +139,10 @@ public final class UiKit {
                 case SECONDARY -> {
                     fill = pressed ? Theme.ACCENT_SOFT : hover ? Theme.SURFACE_ALT : Theme.SURFACE;
                     stroke = Theme.BORDER_STRONG;
+                }
+                case OUTLINE -> {
+                    fill = pressed ? new Color(0xDCE7FD) : hover ? Theme.ACCENT_SOFT : Theme.SURFACE;
+                    stroke = isEnabled() ? Theme.ACCENT : Theme.BORDER_STRONG;
                 }
                 default -> fill = pressed ? Theme.ACCENT_SOFT : hover ? new Color(0xEEF0F3) : new Color(0, 0, 0, 0);
             }
