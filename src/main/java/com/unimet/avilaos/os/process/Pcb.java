@@ -203,7 +203,7 @@ public class Pcb {
         state = next;
     }
 
-    /** NEW → READY (admitido porque había RAM) o BLOCKED/RUNNING → READY. */
+    /** NEW → READY (admitido), BLOCKED/RUNNING → READY o READY_SUSPENDED → READY (reactivado). */
     public void markReady() {
         stateMutex.acquireUninterruptibly();
         try {
@@ -244,6 +244,31 @@ public class Pcb {
             transitionTo(ProcessState.BLOCKED);
             blockReason = reason;
             blockDetail = detail;
+        } finally {
+            stateMutex.release();
+        }
+    }
+
+    /**
+     * BLOCKED → BLOCKED_SUSPENDED: el planificador a mediano plazo lo saca de la RAM.
+     * Conserva el motivo del bloqueo: sigue esperando el mismo evento.
+     */
+    public void markSuspended() {
+        stateMutex.acquireUninterruptibly();
+        try {
+            transitionTo(ProcessState.BLOCKED_SUSPENDED);
+        } finally {
+            stateMutex.release();
+        }
+    }
+
+    /** BLOCKED_SUSPENDED → READY_SUSPENDED: su evento ocurrió mientras estaba en el swap. */
+    public void markReadySuspended() {
+        stateMutex.acquireUninterruptibly();
+        try {
+            transitionTo(ProcessState.READY_SUSPENDED);
+            blockReason = null;
+            blockDetail = null;
         } finally {
             stateMutex.release();
         }
