@@ -1,6 +1,8 @@
 package com.unimet.avilaos.config;
 
 import com.unimet.avilaos.datastructures.LinkedList;
+import com.unimet.avilaos.hardware.HeadDirection;
+import com.unimet.avilaos.os.disk.DiskPolicyType;
 import com.unimet.avilaos.os.process.ProcessType;
 import com.unimet.avilaos.os.scheduling.PolicyType;
 import java.io.BufferedReader;
@@ -20,9 +22,14 @@ import java.nio.file.Path;
  * setting,quantum,3
  * setting,networkLatency,2
  * computer,1,1024,ROUND_ROBIN
+ * disk,200,100,FIFO,50,UP,10
  * buffer,B1,1,3,64
  * process,Prod,PRODUCER,1,64,100,300,2,0,0,B1,2,5
  * </pre>
+ *
+ * The disk row (Project 2) is optional: a file without it gets DiskConfig.defaults(), so the
+ * Project 1 files still load. Columns: file blocks, swap blocks, initial disk policy, initial
+ * head, initial direction (UP/DOWN) and head positions per cycle.
  *
  * Al leer, cualquier dato inválido produce IllegalArgumentException con el número
  * de línea, para que la GUI lo muestre sin detener el simulador.
@@ -36,6 +43,9 @@ public class ConfigRepository {
 
     private static final String SETTING = "setting";
     private static final String COMPUTER = "computer";
+    private static final String DISK = "disk";
+    private static final String DISK_COLUMNS = "disk,bloquesArchivos,bloquesSwap,politicaDisco,cabezalInicial,"
+            + "direccion,posicionesPorCiclo";
     private static final String BUFFER = "buffer";
     private static final String PROCESS = "process";
     private static final String BOM = "\uFEFF";
@@ -60,6 +70,12 @@ public class ConfigRepository {
                 ComputerConfig c = computers.get(i);
                 line(out, COMPUTER + "," + c.id() + "," + c.ramSize() + "," + c.initialPolicy().name());
             }
+
+            DiskConfig disk = config.getDisk();
+            line(out, "# " + DISK_COLUMNS + " (politica: " + names(DiskPolicyType.values()) + "; direccion: "
+                    + names(HeadDirection.values()) + ")");
+            line(out, DISK + "," + disk.fileBlocks() + "," + disk.swapBlocks() + "," + disk.initialPolicy().name() + ","
+                    + disk.initialHead() + "," + disk.initialDirection().name() + "," + disk.positionsPerCycle());
 
             line(out, "# buffer,nombre,anfitrion,capacidad,memoriaMB");
             LinkedList<BufferConfig> buffers = config.getBuffers();
@@ -95,6 +111,7 @@ public class ConfigRepository {
     public SimulationConfig load(Path file) throws IOException {
         LinkedList<Row> settings = new LinkedList<>();
         LinkedList<Row> computers = new LinkedList<>();
+        LinkedList<Row> disks = new LinkedList<>();
         LinkedList<Row> buffers = new LinkedList<>();
         LinkedList<Row> processes = new LinkedList<>();
 
@@ -118,6 +135,7 @@ public class ConfigRepository {
                 switch (row.cell(0).toLowerCase()) {
                     case SETTING -> settings.addLast(row);
                     case COMPUTER -> computers.insertSorted(row, (a, b) -> Integer.compare(a.id(), b.id()));
+                    case DISK -> disks.addLast(row);
                     case BUFFER -> buffers.addLast(row);
                     case PROCESS -> processes.addLast(row);
                     default -> throw row.error("tipo de fila desconocido '" + row.cell(0) + "'");
@@ -134,6 +152,16 @@ public class ConfigRepository {
                 throw r.error("los computadores deben numerarse 1, 2, 3... (falta el " + expectedId + ")");
             }
             r.apply(() -> config.addComputer(r.integer(2, "RAM"), parsePolicy(r, 3)));
+        }
+        if (disks.size() > 1) {
+            throw disks.get(1).error("la fila disk solo puede aparecer una vez");
+        }
+        if (!disks.isEmpty()) {
+            Row r = disks.get(0);
+            r.expect(7, DISK_COLUMNS);
+            r.apply(() -> config.setDisk(new DiskConfig(r.integer(1, "bloques de archivos"),
+                    r.integer(2, "bloques del swap"), parseDiskPolicy(r, 3), r.integer(4, "cabezal inicial"),
+                    parseDirection(r, 5), r.integer(6, "posiciones por ciclo"))));
         }
         for (int i = 0; i < buffers.size(); i++) {
             Row r = buffers.get(i);
@@ -206,6 +234,22 @@ public class ConfigRepository {
             } catch (IllegalArgumentException notALabel) {
                 throw r.error("política desconocida '" + value + "'");
             }
+        }
+    }
+
+    private static DiskPolicyType parseDiskPolicy(Row r, int column) {
+        try {
+            return DiskPolicyType.fromLabel(r.cell(column));    // name (C_SCAN) or label (C-SCAN)
+        } catch (IllegalArgumentException e) {
+            throw r.error("política de disco desconocida '" + r.cell(column) + "'");
+        }
+    }
+
+    private static HeadDirection parseDirection(Row r, int column) {
+        try {
+            return HeadDirection.valueOf(r.cell(column).toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw r.error("dirección del cabezal desconocida '" + r.cell(column) + "' (UP o DOWN)");
         }
     }
 
