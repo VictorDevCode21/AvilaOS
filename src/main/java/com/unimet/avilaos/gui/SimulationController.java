@@ -52,8 +52,9 @@ import javax.swing.Timer;
  * de carga se abre solo al arrancar y, si se cierra sin cargar, "Iniciar" lo vuelve a abrir. Mientras
  * no hay JSON, la simulación es un relleno armado con la configuración por defecto: la tarjeta y los
  * indicadores dicen que falta cargar la simulación (no muestran ese relleno) y crear procesos se
- * rechaza con el motivo. Su "Iniciar simulación" la arma con SimulationLoader (los JSON mandan; la configuración solo da las claves
- * opcionales) y arranca el reloj. "Reiniciar" la vuelve a armar desde los mismos dos JSON.
+ * rechaza con el motivo. Su "Iniciar simulación" la arma con SimulationLoader (los JSON mandan; la
+ * configuración solo da las claves opcionales) y arranca el reloj. "Reiniciar" la vuelve a armar
+ * desde los mismos dos JSON.
  *
  * Reiniciar con procesos nuevos conservando el disco (punto del enunciado): con una simulación ya
  * cargada, el diálogo ofrece "Usar el disco actual"; los archivos y bloques de ahora (con los
