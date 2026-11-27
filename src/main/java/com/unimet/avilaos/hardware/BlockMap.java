@@ -51,6 +51,7 @@ public class BlockMap {
     private final int swapBlocks;
     private final String[] owners;
     private final int[] next;
+    private final boolean[] chainStart;   // true en el primer bloque de cada cadena
     private final Semaphore mutex = new Semaphore(1, true);
 
     private int freeFileBlocks;
@@ -72,6 +73,7 @@ public class BlockMap {
         this.swapBlocks = swapBlocks;
         this.owners = new String[fileBlocks + swapBlocks];
         this.next = new int[fileBlocks + swapBlocks];
+        this.chainStart = new boolean[fileBlocks + swapBlocks];
         for (int i = 0; i < next.length; i++) {
             next[i] = END;
         }
@@ -102,6 +104,9 @@ public class BlockMap {
 
     /**
      * Asigna una cadena de bloques en la zona de archivos (primeros libres).
+     * Quien la llama revisa antes {@link #getFreeFileBlocks()} (el sistema de
+     * archivos lo hace en check): quedarse sin espacio no es un error del
+     * programa, es un rechazo que se explica al usuario.
      *
      * @return el primer bloque de la cadena
      * @throws IllegalArgumentException si count < 1 o el dueño está vacío
@@ -113,6 +118,8 @@ public class BlockMap {
 
     /**
      * Asigna una cadena de bloques en el área de intercambio (proceso suspendido).
+     * El planificador a mediano plazo revisa antes {@link #getFreeSwapBlocks()}:
+     * si no alcanza, no suspende a ese proceso (no es un error del programa).
      *
      * @return el primer bloque de la cadena
      * @throws IllegalArgumentException si count < 1 o el dueño está vacío
@@ -147,6 +154,7 @@ public class BlockMap {
                 owners[b] = owner;
                 next[b] = b + 1 < start + count ? b + 1 : END;
             }
+            chainStart[start] = true;
             freeFileBlocks -= count;
             return start;
         } finally {
@@ -158,12 +166,13 @@ public class BlockMap {
      * Libera toda la cadena que empieza en first.
      *
      * @return cuántos bloques se liberaron
-     * @throws IllegalArgumentException si first está fuera del disco o libre
+     * @throws IllegalArgumentException si first está fuera del disco, libre o no es el inicio de una cadena
      */
     public int free(int first) {
         mutex.acquireUninterruptibly();
         try {
-            checkOccupied(first);
+            checkChainStart(first);
+            chainStart[first] = false;
             int count = 0;
             int b = first;
             while (b != END) {
@@ -194,7 +203,7 @@ public class BlockMap {
         }
         mutex.acquireUninterruptibly();
         try {
-            checkOccupied(first);
+            checkChainStart(first);
             for (int b = first; b != END; b = next[b]) {
                 owners[b] = owner;
             }
@@ -209,7 +218,7 @@ public class BlockMap {
     public int[] chainOf(int first) {
         mutex.acquireUninterruptibly();
         try {
-            checkOccupied(first);
+            checkChainStart(first);
             int length = 0;
             for (int b = first; b != END; b = next[b]) {
                 length++;
@@ -293,6 +302,7 @@ public class BlockMap {
                     next[b] = END;
                     if (previous == END) {
                         first = b;
+                        chainStart[b] = true;
                     } else {
                         next[previous] = b;
                     }
@@ -320,13 +330,17 @@ public class BlockMap {
         }
     }
 
-    private void checkOccupied(int block) {
+    private void checkChainStart(int block) {
         if (block < 0 || block >= owners.length) {
             throw new IllegalArgumentException("El bloque " + block + " está fuera del disco (0 a "
                     + (owners.length - 1) + ")");
         }
         if (owners[block] == null) {
             throw new IllegalArgumentException("El bloque " + block + " está libre: no es el inicio de una cadena");
+        }
+        if (!chainStart[block]) {
+            throw new IllegalArgumentException("El bloque " + block + " está en medio de la cadena de "
+                    + owners[block] + ": hay que dar el primer bloque");
         }
     }
 }
