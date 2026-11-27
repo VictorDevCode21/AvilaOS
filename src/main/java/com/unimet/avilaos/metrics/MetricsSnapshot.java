@@ -10,18 +10,22 @@ package com.unimet.avilaos.metrics;
  * cuenta hasta que termina. La utilización y el ciclo sí reflejan el instante actual.
  *
  * @param cycle                       último ciclo registrado
- * @param completedProcesses          procesos terminados (a tiempo o por deadline)
+ * @param completedProcesses          procesos terminados (a tiempo, por deadline o fallidos)
  * @param throughput                  procesos terminados a tiempo por ciclo
  * @param cpuUtilization              ciclos ocupada / ciclos totales (0 a 1)
  * @param averageResponseTime         primer ciclo en CPU - llegada (promedio, en ciclos)
  * @param averageTurnaroundTime       fin - llegada (promedio, en ciclos)
- * @param deadlineComplianceRate      terminados a tiempo / terminados (0 a 1)
+ * @param deadlineComplianceRate      terminados a tiempo / terminados, sin los fallidos (0 a 1)
  * @param fairnessIndex               índice de Jain (1 = equidad perfecta)
  * @param averageSemaphoreBlockedTime ciclos bloqueado en semáforos (promedio de productores/consumidores)
+ * @param failedProcesses             procesos de E/S que terminaron porque su operación no se pudo
+ *                                    hacer (Proyecto 2): se muestran aparte; cuentan en terminados y en
+ *                                    los tiempos, pero no en el rendimiento ni en el cumplimiento
  *
  * @author NicollPinzon
  */
 public record MetricsSnapshot(long cycle, long completedProcesses, double throughput,
         double cpuUtilization, double averageResponseTime, double averageTurnaroundTime,
-        double deadlineComplianceRate, double fairnessIndex, double averageSemaphoreBlockedTime) {
+        double deadlineComplianceRate, double fairnessIndex, double averageSemaphoreBlockedTime,
+        long failedProcesses) {
 }

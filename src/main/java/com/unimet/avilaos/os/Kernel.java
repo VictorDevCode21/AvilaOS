@@ -13,6 +13,7 @@ import com.unimet.avilaos.hardware.IoDevice;
 import com.unimet.avilaos.hardware.IoOperation;
 import com.unimet.avilaos.hardware.SeekPlan;
 import com.unimet.avilaos.metrics.ComputerMetrics;
+import com.unimet.avilaos.metrics.DiskMetrics;
 import com.unimet.avilaos.metrics.SystemMetrics;
 import com.unimet.avilaos.os.disk.DiskPolicyType;
 import com.unimet.avilaos.os.fs.FsOperation;
@@ -77,9 +78,10 @@ import java.util.concurrent.Semaphore;
  *     camino, se eligen Bloqueados (por E/S) de menor prioridad y, si empatan, el que lleva
  *     más tiempo bloqueado, hasta juntar la RAM que falta. Nunca el proceso cuya solicitud
  *     está atendiendo el disco, ni uno cuya E/S ya terminó en este ciclo (su interrupción
- *     está pendiente: la CPU la entrega al final del ciclo, después del mediano plazo). Si no alcanza (o no hay swap), no se suspende ninguno. Cada
- *     uno reserva sus bloques del swap, pasa a Bloqueado/Suspendido y una solicitud SUSPEND
- *     pasa por la cola del disco; su RAM se libera cuando el disco termina de escribirlo
+ *     está pendiente: la CPU la entrega al final del ciclo, después del mediano plazo).
+ *     Si no alcanza (o no hay swap), no se suspende ninguno. Cada uno reserva sus bloques
+ *     del swap, pasa a Bloqueado/Suspendido y una solicitud SUSPEND pasa por la cola del
+ *     disco; su RAM se libera cuando el disco termina de escribirlo
  *     (escribe y después libera, como dice el enunciado) y queda para ese Nuevo (así no la
  *     toma otro y no hay thrashing). Un bloque del swap equivale a una unidad de RAM.
  *  - Un Bloqueado/Suspendido cuyo evento ocurre pasa a Listo/Suspendido.
@@ -152,8 +154,7 @@ public class Kernel implements InterruptHandler {
     private final LinkedList<Pcb> readySuspended = new LinkedList<>();
     private final LinkedList<Pcb> blockedSuspended = new LinkedList<>();
     private final LinkedList<Reservation> reservations = new LinkedList<>();   // solo el hilo del kernel
-    private volatile long suspensions;
-    private volatile long reactivations;
+    private final DiskMetrics diskMetrics;
     private final LinkedList<Pcb> arrivals = new LinkedList<>();
     private final LinkedList<Wakeup> wakeups = new LinkedList<>();
     private PolicyType pendingPolicy;
@@ -192,6 +193,7 @@ public class Kernel implements InterruptHandler {
         this.systemMetrics = systemMetrics;
         this.network = network;
         this.storage = storage;
+        this.diskMetrics = new DiskMetrics(storage.disk());
     }
 
     // =====================================================================
@@ -435,7 +437,8 @@ public class Kernel implements InterruptHandler {
                 reservations.remove(r);
                 r.newcomer.markReady();
                 scheduler.addReady(r.newcomer);
-                log.log(cycle, source, "admite el proceso " + r.newcomer + " con la RAM que liberaron las suspensiones ("
+                log.log(cycle, source, "admite el proceso " + r.newcomer
+                        + " con la RAM que liberaron las suspensiones ("
                         + memory.getMemory().getFreeSize() + " MB libres)");
             }
         }
@@ -460,7 +463,8 @@ public class Kernel implements InterruptHandler {
             rt.swappingIn = true;
             storage.diskScheduler().enqueue(new DiskRequest(rt.pcb.getId(), IoOperation.RESUME, DiskRequest.SWAP_TARGET,
                     rt.swapBlock, size, cycle));
-            log.log(cycle, MEDIUM_TERM_SOURCE, "Se reactiva al proceso " + rt.pcb + ": hay RAM y el disco lo trae del swap ("
+            log.log(cycle, MEDIUM_TERM_SOURCE, "Se reactiva al proceso " + rt.pcb
+                    + ": hay RAM y el disco lo trae del swap ("
                     + size + " bloques desde el bloque " + rt.swapBlock + ")");
         }
     }
@@ -536,8 +540,8 @@ public class Kernel implements InterruptHandler {
             } finally {
                 mutex.release();
             }
-            storage.diskScheduler().enqueue(new DiskRequest(rt.pcb.getId(), IoOperation.SUSPEND, DiskRequest.SWAP_TARGET,
-                    rt.swapBlock, size, cycle));
+            storage.diskScheduler().enqueue(new DiskRequest(rt.pcb.getId(), IoOperation.SUSPEND,
+                    DiskRequest.SWAP_TARGET, rt.swapBlock, size, cycle));
             log.log(cycle, MEDIUM_TERM_SOURCE, "Se suspende al proceso " + rt.pcb + " para admitir a " + newcomer
                     + ": el disco lo escribe en el swap (" + size + " bloques desde el bloque " + rt.swapBlock + ")");
         }
@@ -575,7 +579,7 @@ public class Kernel implements InterruptHandler {
             rt.swappingOut = false;
             memory.release(rt.pcb);
             victimDone(rt.suspendedFor);
-            suspensions++;                                  // se cuenta al completarse, igual que las reactivaciones
+            diskMetrics.suspensionCompleted();              // se cuenta al completarse, igual que las reactivaciones
             log.log(cycle, MEDIUM_TERM_SOURCE, "El proceso " + rt.pcb + " ya está en el swap: se liberan " + size
                     + " MB de RAM para " + rt.suspendedFor);
             return;
@@ -586,7 +590,7 @@ public class Kernel implements InterruptHandler {
         removeSuspended(rt.pcb);
         rt.pcb.markReady();
         scheduler.addReady(rt.pcb);
-        reactivations++;
+        diskMetrics.reactivationCompleted();
         log.log(cycle, MEDIUM_TERM_SOURCE, "El proceso " + rt.pcb + " vuelve a la RAM (libera " + size
                 + " bloques del swap) y pasa a Listo");
     }
@@ -726,9 +730,11 @@ public class Kernel implements InterruptHandler {
             return;
         }
         DiskRequest done = plan.getRequest();
-        // La política que ELIGIÓ la solicitud, no la vigente ahora (pueden haberla cambiado)
+        // La política que ELIGIÓ la solicitud, no la vigente ahora (pueden haberla cambiado);
+        // si no viniera anotada, la vigente: así el log y las métricas nunca quedan sin política
         String policy = plan.getChosenBy() != null ? plan.getChosenBy()
                 : storage.diskScheduler().getPolicyType().getLabel();
+        diskMetrics.requestServed(cycle, policy);
         ProcessRuntime rt = findById(done.getProcessId());
         if (!done.getOperation().isFileOperation()) {
             swapCompleted(rt, done, policy);                // SUSPEND o RESUME
@@ -987,6 +993,7 @@ public class Kernel implements InterruptHandler {
             // pidiendo la siguiente, Disk.cancel da false pero igual la descarta.
             removedFromQueue = storage.diskScheduler().cancel(pcb.getId());
             aborted = storage.disk().cancel(pcb.getId());
+            diskMetrics.requestsRemovedFromQueue(removedFromQueue);   // las del disco las cuenta el disco
         }
         switch (pcb.getState()) {
             case NEW -> memory.removeFromNew(pcb);
@@ -1059,7 +1066,8 @@ public class Kernel implements InterruptHandler {
         if (aborted) {
             log.log(cycle, DISK_SOURCE, "aborta la solicitud de " + pcb + " que estaba atendiendo (" + cause + ")");
         } else if (removedFromQueue > 0) {
-            log.log(cycle, DISK_SOURCE, "saca de su cola la solicitud de " + pcb + " (" + cause + ")");
+            log.log(cycle, DISK_SOURCE, "saca de su cola " + (removedFromQueue == 1 ? "la solicitud"
+                    : "las " + removedFromQueue + " solicitudes") + " de " + pcb + " (" + cause + ")");
         }
         if (freedSwap > 0) {
             log.log(cycle, MEDIUM_TERM_SOURCE, "se liberan los " + freedSwap + " bloques del swap de " + pcb);
@@ -1259,12 +1267,17 @@ public class Kernel implements InterruptHandler {
      * una suspensión cancelada porque la víctima murió antes no cuenta.
      */
     public long getSuspensions() {
-        return suspensions;
+        return diskMetrics.getSuspensions();
     }
 
     /** Reactivaciones terminadas (el proceso volvió a la RAM). */
     public long getReactivations() {
-        return reactivations;
+        return diskMetrics.getReactivations();
+    }
+
+    /** Métricas del disco y de la suspensión, y los puntos de la gráfica de desplazamiento. */
+    public DiskMetrics getDiskMetrics() {
+        return diskMetrics;
     }
 
     public LinkedList<Pcb> getTerminatedSnapshot() {
