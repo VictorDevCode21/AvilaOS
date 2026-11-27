@@ -20,12 +20,15 @@ import com.unimet.avilaos.os.sync.KernelSemaphore;
 import java.util.concurrent.Semaphore;
 
 /**
- * El sistema distribuido: N computadores (instancias de Computer), los buffers,
- * el reloj global, el log y las métricas del sistema.
+ * La simulación completa: los computadores (instancias de Computer), los buffers, el
+ * reloj global, el log y las métricas del sistema. Proyecto 2: un solo computador
+ * (SimulationConfig.COMPUTER_COUNT) y sin productor-consumidor en la interfaz; los
+ * buffers y la red quedan del Proyecto 1 (se siguen leyendo de un CSV del P1).
  *
- * Implementa Interconnect: es "la red" que ve cada kernel. Así el kernel (capa os)
- * no importa el clúster (capa superior): inversión de dependencias, igual que
- * InterruptHandler entre el hardware y el SO.
+ * Implementa Interconnect: es "la red" que ve cada kernel (accesos a buffers remotos y
+ * despertares entre computadores, del P1). Así el kernel (capa os) no importa el
+ * clúster (capa superior): inversión de dependencias, igual que InterruptHandler
+ * entre el hardware y el SO.
  *
  * Hilos:
  *  - Cada computador corre en su propio hilo (el GlobalClock lo crea al registrarlo).
