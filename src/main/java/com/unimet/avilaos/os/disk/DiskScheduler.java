@@ -36,6 +36,7 @@ import java.util.concurrent.Semaphore;
  */
 public class DiskScheduler {
 
+    private final int fileBlocks;
     private final int diskSize;
     private final LinkedList<DiskRequest> queue = new LinkedList<>();
     private final Semaphore mutex = new Semaphore(1, true);
@@ -43,18 +44,38 @@ public class DiskScheduler {
     private DiskSchedulingPolicy policy;
 
     /**
-     * @param diskSize    cantidad de bloques del disco (mayor que 0)
+     * Disco sin área de intercambio (todos los bloques son de archivos).
+     *
+     * @param diskSize      cantidad de bloques del disco (mayor que 0)
      * @param initialPolicy política con la que arranca
      * @throws IllegalArgumentException si algún dato no es válido
      */
     public DiskScheduler(int diskSize, DiskPolicyType initialPolicy) {
-        if (diskSize <= 0) {
+        this(diskSize, 0, initialPolicy);
+    }
+
+    /**
+     * Disco con zona de archivos y área de intercambio al final (como el BlockMap).
+     * SCAN y C-SCAN barren hasta el último bloque de la zona de archivos (el 199
+     * con el JSON del enunciado); las solicitudes al swap se aceptan y se atienden igual.
+     *
+     * @param fileBlocks    bloques de la zona de archivos (mayor que 0)
+     * @param swapBlocks    bloques del área de intercambio (0 o más)
+     * @param initialPolicy política con la que arranca
+     * @throws IllegalArgumentException si algún dato no es válido
+     */
+    public DiskScheduler(int fileBlocks, int swapBlocks, DiskPolicyType initialPolicy) {
+        if (fileBlocks <= 0) {
             throw new IllegalArgumentException("El disco debe tener al menos 1 bloque");
+        }
+        if (swapBlocks < 0) {
+            throw new IllegalArgumentException("El área de intercambio no puede tener bloques negativos");
         }
         if (initialPolicy == null) {
             throw new IllegalArgumentException("El planificador de disco necesita una política inicial");
         }
-        this.diskSize = diskSize;
+        this.fileBlocks = fileBlocks;
+        this.diskSize = fileBlocks + swapBlocks;
         this.policy = initialPolicy.newPolicy();
     }
 
@@ -145,7 +166,7 @@ public class DiskScheduler {
                 mutex.release();
             }
 
-            SeekPlan plan = current.select(snapshot, headBlock, direction, diskSize);   // FUERA del mutex
+            SeekPlan plan = current.select(snapshot, headBlock, direction, fileBlocks);   // FUERA del mutex
             check(plan, snapshot, headBlock, current);
 
             mutex.acquireUninterruptibly();
@@ -211,7 +232,7 @@ public class DiskScheduler {
         int head = headBlock;
         HeadDirection dir = direction;
         while (!pending.isEmpty()) {
-            SeekPlan plan = current.select(pending.copy(), head, dir, diskSize);
+            SeekPlan plan = current.select(pending.copy(), head, dir, fileBlocks);
             check(plan, pending, head, current);
             pending.remove(plan.getRequest());
             order.addLast(plan);
@@ -251,8 +272,14 @@ public class DiskScheduler {
         }
     }
 
+    /** Bloques del disco completo (zona de archivos + área de intercambio). */
     public int getDiskSize() {
         return diskSize;
+    }
+
+    /** Bloques de la zona de archivos: SCAN y C-SCAN barren hasta fileBlocks - 1. */
+    public int getFileBlocks() {
+        return fileBlocks;
     }
 
     /** Un error de la política se detecta aquí, antes de que el disco mueva el cabezal. */
