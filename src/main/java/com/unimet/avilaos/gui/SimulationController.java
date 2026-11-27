@@ -16,6 +16,7 @@ import com.unimet.avilaos.hardware.Disk;
 import com.unimet.avilaos.hardware.DiskRequest;
 import com.unimet.avilaos.hardware.HeadDirection;
 import com.unimet.avilaos.hardware.IoOperation;
+import com.unimet.avilaos.metrics.DiskMetrics;
 import com.unimet.avilaos.metrics.MetricsSnapshot;
 import com.unimet.avilaos.os.Kernel;
 import com.unimet.avilaos.os.disk.DiskPolicyType;
@@ -494,10 +495,10 @@ public final class SimulationController {
             window.setUsers(users);
         }
 
-        // Not measured yet (the view says "pendiente"): average wait (NaN), served per policy (null) and
-        // suspensions / reactivations (-1, until the medium-term scheduler exists)
-        window.showDiskMetrics(new DiskData.DiskMetrics(disk.getTotalSeek(), Double.NaN, disk.getServedRequests(),
-                null, -1, -1));
+        // Métricas del disco y de la suspensión (DiskMetrics): una copia por refresco
+        DiskMetrics.Snapshot m = computer.getDiskMetrics().getSnapshot();
+        window.showDiskMetrics(new DiskData.DiskMetrics(m.totalSeek(), m.averageWait(), m.served(),
+                m.servedPerPolicy(), (int) m.suspensions(), (int) m.reactivations()));
         window.addSeekSample(cycle, disk.getTotalSeek(), scheduler.getPolicyType().getLabel());
     }
 
