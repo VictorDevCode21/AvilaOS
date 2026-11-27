@@ -28,30 +28,6 @@ public enum NavIcon {
         }
     },
 
-    /** Stacked layers: the producer-consumer buffers. */
-    BUFFERS {
-        @Override
-        void draw(Graphics2D g, float u) {
-            Path2D top = new Path2D.Float();
-            top.moveTo(12 * u, 3 * u);
-            top.lineTo(21 * u, 8 * u);
-            top.lineTo(12 * u, 13 * u);
-            top.lineTo(3 * u, 8 * u);
-            top.closePath();
-            g.draw(top);
-            Path2D middle = new Path2D.Float();
-            middle.moveTo(3 * u, 12.5f * u);
-            middle.lineTo(12 * u, 17.5f * u);
-            middle.lineTo(21 * u, 12.5f * u);
-            g.draw(middle);
-            Path2D bottom = new Path2D.Float();
-            bottom.moveTo(3 * u, 17 * u);
-            bottom.lineTo(12 * u, 22 * u);
-            bottom.lineTo(21 * u, 17 * u);
-            g.draw(bottom);
-        }
-    },
-
     /** Axes and a rising line: performance metrics. */
     METRICS {
         @Override
