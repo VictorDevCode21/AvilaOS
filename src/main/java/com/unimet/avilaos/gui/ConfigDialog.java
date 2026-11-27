@@ -278,11 +278,13 @@ public final class ConfigDialog extends JDialog {
         processList.setListData(processRows);
     }
 
-    /** Ej. "Calculo — CPU bound, 128 MB, 60 instr., Computador 1" (un productor del P1 agrega su buffer). */
+    /**
+     * Ej. "Calculo — CPU bound, 128 MB, 60 instr." (un productor de un CSV del P1 agrega su buffer).
+     * Sin el computador: el Proyecto 2 tiene uno solo.
+     */
     private static String describe(ProcessConfig p) {
         StringBuilder sb = new StringBuilder(p.name()).append(" — ").append(p.type().getLabel())
-                .append(", ").append(p.memorySize()).append(" MB, ").append(p.instructions()).append(" instr., ")
-                .append(p.isAutomatic() ? "automático" : "Computador " + p.computerId());
+                .append(", ").append(p.memorySize()).append(" MB, ").append(p.instructions()).append(" instr.");
         if (p.type().usesBuffer()) {
             sb.append(", buffer ").append(p.bufferName());
         }
