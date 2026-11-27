@@ -84,6 +84,13 @@ import java.util.concurrent.Semaphore;
  *     disco; su RAM se libera cuando el disco termina de escribirlo
  *     (escribe y después libera, como dice el enunciado) y queda para ese Nuevo (así no la
  *     toma otro y no hay thrashing). Un bloque del swap equivale a una unidad de RAM.
+ *     La víctima no se compara con la prioridad del Nuevo: si el único Bloqueado que se
+ *     puede suspender tiene más prioridad que el que entra, igual se suspende. El enunciado
+ *     pide suspender a un Bloqueado cuando un Nuevo no cabe, sin condicionarlo a la
+ *     prioridad; el Bloqueado no usa la CPU mientras espera su evento, así que sacarlo de la
+ *     RAM no le quita turno, y al ocurrir su evento es el primero en reactivarse (mayor
+ *     prioridad primero). Negarse dejaría al Nuevo esperando con la RAM ocupada por un
+ *     proceso que no avanza.
  *  - Un Bloqueado/Suspendido cuyo evento ocurre pasa a Listo/Suspendido.
  *  - Si un suspendido muere, se cancelan sus solicitudes y se liberan su swap y su RAM.
  *
