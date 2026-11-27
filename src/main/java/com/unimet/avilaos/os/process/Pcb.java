@@ -1,5 +1,8 @@
 package com.unimet.avilaos.os.process;
 
+import com.unimet.avilaos.hardware.IoOperation;
+import com.unimet.avilaos.os.fs.FsOperation;
+import com.unimet.avilaos.os.fs.UserSession;
 import java.util.concurrent.Semaphore;
 
 /**
@@ -21,8 +24,12 @@ import java.util.concurrent.Semaphore;
  *
  * Elementos mínimos que exige el enunciado: ID, nombre, computador, estado, tipo,
  * prioridad, memoria asignada, deadline y tiempo restante de ejecución.
+ * Proyecto 2: el proceso de E/S de archivo lleva además la operación pedida y la
+ * ruta (getIoOperation, getTargetPath), dentro de su FsOperation, y la sesión del
+ * usuario en cuyo nombre actúa (el sistema de archivos revisa sus permisos).
  *
  * @author donatovodola
+ * @author NicollPinzon
  */
 public class Pcb {
 
@@ -45,6 +52,10 @@ public class Pcb {
     private final String bufferName;
     private final int operationInterval;   // cada cuántos ciclos produce/consume un elemento
     private final int itemsRequired;       // elementos que necesita para terminar
+
+    // E/S de archivo (Proyecto 2)
+    private final FsOperation fileOperation;   // operación, ruta y datos del CRUD
+    private final UserSession session;         // en nombre de quién actúa
 
     // ---------- Estado de ejecución (cambia durante la simulación) ----------
     private volatile ProcessState state = ProcessState.NEW;
@@ -69,7 +80,8 @@ public class Pcb {
 
     private Pcb(String name, ProcessType type, int priority, int memorySize, int totalInstructions,
             long deadline, int computerId, long arrivalCycle, int ioInterval, int ioDuration,
-            String bufferName, int operationInterval, int itemsRequired) {
+            String bufferName, int operationInterval, int itemsRequired, FsOperation fileOperation,
+            UserSession session) {
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("El nombre del proceso no puede estar vacío");
         }
@@ -110,6 +122,8 @@ public class Pcb {
         this.bufferName = bufferName;
         this.operationInterval = operationInterval;
         this.itemsRequired = itemsRequired;
+        this.fileOperation = fileOperation;
+        this.session = session;
     }
 
     // ---------- Fábricas: una por tipo, cada una valida sus propios campos ----------
@@ -117,7 +131,7 @@ public class Pcb {
     public static Pcb cpuBound(String name, int priority, int memorySize, int instructions,
             long deadline, int computerId, long arrivalCycle) {
         return new Pcb(name, ProcessType.CPU_BOUND, priority, memorySize, instructions,
-                deadline, computerId, arrivalCycle, 0, 0, null, 0, 0);
+                deadline, computerId, arrivalCycle, 0, 0, null, 0, 0, null, null);
     }
 
     public static Pcb ioBound(String name, int priority, int memorySize, int instructions,
@@ -126,7 +140,7 @@ public class Pcb {
             throw new IllegalArgumentException("El intervalo y la duración de E/S deben ser mayores que 0");
         }
         return new Pcb(name, ProcessType.IO_BOUND, priority, memorySize, instructions,
-                deadline, computerId, arrivalCycle, ioInterval, ioDuration, null, 0, 0);
+                deadline, computerId, arrivalCycle, ioInterval, ioDuration, null, 0, 0, null, null);
     }
 
     /** @param type PRODUCER o CONSUMER */
@@ -143,7 +157,28 @@ public class Pcb {
             throw new IllegalArgumentException("El intervalo y los elementos requeridos deben ser mayores que 0");
         }
         return new Pcb(name, type, priority, memorySize, instructions, deadline, computerId,
-                arrivalCycle, 0, 0, bufferName.trim(), operationInterval, itemsRequired);
+                arrivalCycle, 0, 0, bufferName.trim(), operationInterval, itemsRequired, null, null);
+    }
+
+    /**
+     * Proceso de E/S de archivo (Proyecto 2). Cuando obtiene la CPU le pide al disco
+     * su operación (1 instrucción en modo SO) y queda Bloqueado por E/S hasta que el
+     * disco la atiende; después ejecuta el resto de sus instrucciones como usuario.
+     *
+     * @param operation operación del sistema de archivos (su creador es el nombre del proceso)
+     * @param session   usuario en cuyo nombre actúa: el de la sesión activa, o el
+     *                  administrador para los procesos que carga el JSON
+     */
+    public static Pcb fileIo(String name, int priority, int memorySize, int instructions, long deadline,
+            int computerId, long arrivalCycle, FsOperation operation, UserSession session) {
+        if (operation == null) {
+            throw new IllegalArgumentException("El proceso de E/S necesita su operación");
+        }
+        if (session == null) {
+            throw new IllegalArgumentException("El proceso de E/S necesita el usuario en cuyo nombre actúa");
+        }
+        return new Pcb(name, ProcessType.FILE_IO, priority, memorySize, instructions, deadline, computerId,
+                arrivalCycle, 0, 0, null, 0, 0, operation, session);
     }
 
     // ---------- Transiciones de estado (las ordena el kernel) ----------
@@ -314,6 +349,8 @@ public class Pcb {
     public String getBufferName() { return bufferName; }
     public int getOperationInterval() { return operationInterval; }
     public int getItemsRequired() { return itemsRequired; }
+    public FsOperation getFileOperation() { return fileOperation; }
+    public UserSession getSession() { return session; }
     public ProcessState getState() { return state; }
     public BlockReason getBlockReason() { return blockReason; }
     public String getBlockDetail() { return blockDetail; }
@@ -326,6 +363,16 @@ public class Pcb {
     public long getFinishCycle() { return finishCycle; }
     public long getBlockedOnSemaphoreCycles() { return blockedOnSemaphoreCycles; }
     public long getReadyCycles() { return readyCycles; }
+
+    /** Operación que pide un proceso de E/S de archivo, o null si es de otro tipo. */
+    public IoOperation getIoOperation() {
+        return fileOperation == null ? null : fileOperation.getOperation();
+    }
+
+    /** Ruta del archivo o directorio de un proceso de E/S (en crear, el directorio padre), o null. */
+    public String getTargetPath() {
+        return fileOperation == null ? null : fileOperation.getPath();
+    }
 
     /** Texto para la GUI de bloqueados, ej. "Esperando semáforo: 'lleno' de B1". */
     public String describeBlock() {

@@ -56,7 +56,7 @@ public final class ProcessFormDialog extends JDialog {
 
     // ---------- Campos comunes ----------
     private final JTextField nameField = new JTextField(15);
-    private final JComboBox<ProcessType> typeCombo = new JComboBox<>(ProcessType.values());
+    private final JComboBox<ProcessType> typeCombo = new JComboBox<>(ProcessType.formTypes());
     private final JTextField instructionsField = new JTextField("50");
     private final JTextField memoryField = new JTextField("100");
     private final JTextField priorityField = new JTextField("1");

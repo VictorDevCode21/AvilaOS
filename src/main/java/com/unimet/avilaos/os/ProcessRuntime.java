@@ -12,6 +12,7 @@ import com.unimet.avilaos.os.sync.KernelSemaphore;
  * red le queda. Solo lo usa el hilo de su computador.
  *
  * @author victor1102
+ * @author NicollPinzon
  */
 final class ProcessRuntime {
 
@@ -28,6 +29,8 @@ final class ProcessRuntime {
         this.pcb = pcb;
         if (pcb.getType() == ProcessType.CONSUMER) {
             this.step = ExecutionStep.WAIT_FULL;            // primero espera un elemento
+        } else if (pcb.getType().isFileIo()) {
+            this.step = ExecutionStep.DISK_REQUEST;         // primero pide su operación al disco
         } else {
             this.step = ExecutionStep.USER;
             this.userLeft = pcb.getOperationInterval();     // productor: primero produce
