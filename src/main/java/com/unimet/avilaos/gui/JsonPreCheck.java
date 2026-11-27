@@ -139,7 +139,7 @@ public final class JsonPreCheck {
         try {
             cpu = PolicyType.fromLabel(policy);
         } catch (IllegalArgumentException e) {
-            return Result.fail("\"policy\" (CPU) no es válida: " + policy + ".");
+            return Result.fail("\"policy\" (CPU) no es válida: " + policy + " (se aceptan: " + PolicyType.accepted() + ").");
         }
         // a policy that uses the quantum needs at least 1; the others ignore it (0 is fine)
         int quantum = requiredInt(text, "quantum", "quantum de Round Robin");
