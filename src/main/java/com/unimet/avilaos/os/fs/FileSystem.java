@@ -445,8 +445,12 @@ public class FileSystem {
     private FsNode parentForLoad(String path) {
         String parentPath = FsPaths.parentOf(path);
         FsNode parent = resolve(parentPath);
-        if (parent == null || !parent.directory) {
+        if (parent == null) {
             throw new IllegalArgumentException("El directorio " + parentPath + " de " + path + " no existe");
+        }
+        if (!parent.directory) {
+            throw new IllegalArgumentException(parentPath + " es un archivo, no un directorio: no puede contener a "
+                    + path);
         }
         if (parent.child(FsPaths.nameOf(path)) != null) {
             throw new IllegalArgumentException(path + " está repetido");
