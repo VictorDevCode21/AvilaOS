@@ -24,6 +24,12 @@ import java.util.concurrent.Semaphore;
  * SimulationConfig en los dos sentidos: un proceso que nunca cabría se rechaza
  * al crearlo, y un buffer que dejaría sin espacio a un proceso de Nuevos también.
  *
+ * Proyecto 2: el planificador a mediano plazo (en el kernel) puede pedir que se
+ * deje RAM libre al admitir (admit(keepFree)), admitir a un Nuevo en particular
+ * (admitOne), reservar la RAM de un proceso que se reactiva (reserveForResume) y
+ * liberar la de uno que ya se escribió en el swap (release). "Residente" = tiene su
+ * RAM reservada.
+ *
  * Este administrador NO cambia estados ni escribe el log: eso lo hace el kernel
  * (un solo lugar para las transiciones). Aquí solo se decide quién cabe.
  *
@@ -33,6 +39,7 @@ import java.util.concurrent.Semaphore;
  * MainMemory nunca llama de vuelta aquí, así que no puede haber deadlock.
  *
  * @author victor1102
+ * @author NicollPinzon
  */
 public class MemoryManager {
 
@@ -107,6 +114,14 @@ public class MemoryManager {
      * @return los admitidos en este llamado (vacía si ninguno cupo)
      */
     public LinkedList<Pcb> admit() {
+        return admit(0);
+    }
+
+    /**
+     * Como admit(), pero dejando siempre al menos keepFree MB libres: es la RAM que el
+     * planificador a mediano plazo ya prometió (al Nuevo por el que suspendió procesos).
+     */
+    public LinkedList<Pcb> admit(int keepFree) {
         LinkedList<Pcb> admitted = new LinkedList<>();
         mutex.acquireUninterruptibly();
         try {
@@ -116,7 +131,7 @@ public class MemoryManager {
                 if (pcb.getState() != ProcessState.NEW) {
                     continue;                            // ya no espera memoria: se descarta
                 }
-                if (memory.allocate(pcb.getMemorySize())) {
+                if (memory.getFreeSize() - keepFree >= pcb.getMemorySize() && memory.allocate(pcb.getMemorySize())) {
                     resident.addLast(pcb);
                     admitted.addLast(pcb);
                 } else {
@@ -130,7 +145,65 @@ public class MemoryManager {
     }
 
     /**
-     * Libera la RAM de un proceso que terminó (a tiempo o por deadline).
+     * Admite a un Nuevo en particular si cabe (el que causó una suspensión, cuando su RAM
+     * ya quedó libre). Lo saca de la cola de Nuevos y le reserva la RAM.
+     *
+     * @return true si se admitió; false si no está en Nuevos o todavía no cabe
+     */
+    public boolean admitOne(Pcb pcb) {
+        mutex.acquireUninterruptibly();
+        try {
+            if (pcb.getState() != ProcessState.NEW || !newQueue.contains(pcb)) {
+                return false;
+            }
+            if (!memory.allocate(pcb.getMemorySize())) {
+                return false;
+            }
+            newQueue.remove(pcb);
+            resident.addLast(pcb);
+            return true;
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /**
+     * Reserva la RAM de un proceso suspendido que se va a reactivar, dejando libres al
+     * menos keepFree MB. Se reserva al PEDIR la reactivación: mientras el disco lo trae
+     * del swap, nadie más puede quitarle ese espacio.
+     *
+     * @return true si se reservó
+     * @throws IllegalStateException si ya tenía RAM reservada
+     */
+    public boolean reserveForResume(Pcb pcb, int keepFree) {
+        mutex.acquireUninterruptibly();
+        try {
+            if (resident.contains(pcb)) {
+                throw new IllegalStateException(pcb + " ya tiene memoria reservada");
+            }
+            if (memory.getFreeSize() - keepFree < pcb.getMemorySize() || !memory.allocate(pcb.getMemorySize())) {
+                return false;
+            }
+            resident.addLast(pcb);
+            return true;
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /** true si el proceso tiene su RAM reservada. */
+    public boolean isResident(Pcb pcb) {
+        mutex.acquireUninterruptibly();
+        try {
+            return resident.contains(pcb);
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /**
+     * Libera la RAM de un proceso que terminó (a tiempo o por deadline) o que el disco
+     * ya terminó de escribir en el swap (suspendido).
      *
      * @throws IllegalStateException si el proceso no tenía RAM reservada
      *                               (se liberaría dos veces: error del kernel)
