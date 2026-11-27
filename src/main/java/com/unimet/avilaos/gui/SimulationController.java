@@ -14,6 +14,7 @@ import com.unimet.avilaos.hardware.HeadDirection;
 import com.unimet.avilaos.hardware.IoOperation;
 import com.unimet.avilaos.metrics.MetricsSnapshot;
 import com.unimet.avilaos.os.Kernel;
+import com.unimet.avilaos.os.disk.DiskPolicyType;
 import com.unimet.avilaos.os.disk.DiskScheduler;
 import com.unimet.avilaos.os.fs.FileSystem;
 import com.unimet.avilaos.os.fs.FsOperation;
@@ -65,6 +66,8 @@ public final class SimulationController {
     private DiskData.Session session = new DiskData.Session(true, Computer.ROOT_OWNER);
     private String usersKey = "";         // last list of users given to the session menu
     private int nextIoNumber = 1;         // for the default name of an I/O process ("IO_Read_3")
+    /** Disk policy chosen in the Disk view that the kernel hasn't applied yet (next cycle), or null. */
+    private DiskPolicyType pendingDiskPolicy;
 
     public SimulationController(SimulationConfig config) {
         if (config == null) {
@@ -98,7 +101,7 @@ public final class SimulationController {
         window.setCreateIoProcessAction(e -> createIoProcess(null, window.getFileSystemPanel().getSelectedPath()));
         window.getFileSystemPanel().setFileActionListener(this::createIoProcess);
         window.setSessionListener(this::changeSession);
-        window.getDiskPanel().setPolicyListener(policy -> cluster.setDiskPolicy(policy));
+        window.getDiskPanel().setPolicyListener(this::chooseDiskPolicy);
         planningDialog.setPlanningListener(this::applyPlanning);
         window.getCycleDurationSpinner().addChangeListener(e -> cluster.setCycleDurationMs(
                 ((Number) window.getCycleDurationSpinner().getValue()).longValue()));
@@ -152,6 +155,7 @@ public final class SimulationController {
         cluster = next;
         window.resetView();
         usersKey = "";
+        pendingDiskPolicy = null;                 // the new cluster starts with the configured policy
         lastLogSequence = -1;
         hadWork = false;
         showInitialSettings();
@@ -257,6 +261,16 @@ public final class SimulationController {
     }
 
     /**
+     * The kernel applies a new disk policy at the start of the next cycle, so until then (or while
+     * paused) the Disk view marks the chosen one and says it is pending.
+     */
+    private void chooseDiskPolicy(DiskPolicyType policy) {
+        cluster.setDiskPolicy(policy);
+        pendingDiskPolicy = policy;
+        window.getDiskPanel().showPolicy(computer().getDiskScheduler().getPolicyType(), pendingDiskPolicy);
+    }
+
+    /**
      * The mode picked in the rail. The administrator (owner of the root) can't use user mode; the
      * file system would reject all its operations anyway, so it's refused here with the reason.
      */
@@ -311,7 +325,11 @@ public final class SimulationController {
         diskPanel.showQueue(serving == null ? null : DiskData.Request.from(serving, cycle),
                 serving == null ? null : disk.getPhase().getLabel(),
                 DiskData.Request.fromPlans(scheduler.previewServiceOrder(head, direction), cycle));
-        diskPanel.showPolicy(scheduler.getPolicyType());
+        DiskPolicyType current = scheduler.getPolicyType();
+        if (pendingDiskPolicy == current) {
+            pendingDiskPolicy = null;             // the kernel applied it
+        }
+        diskPanel.showPolicy(current, pendingDiskPolicy);
 
         window.getFileSystemPanel().showFiles(DiskData.FileEntry.fromList(fileSystem.list()));
         String[] users = userNames();
@@ -321,9 +339,10 @@ public final class SimulationController {
             window.setUsers(users);
         }
 
-        // Average wait and served per policy aren't counted by the disk yet (NaN / null: the view says so)
+        // Not measured yet (the view says "pendiente"): average wait (NaN), served per policy (null) and
+        // suspensions / reactivations (-1, until the medium-term scheduler exists)
         window.showDiskMetrics(new DiskData.DiskMetrics(disk.getTotalSeek(), Double.NaN, disk.getServedRequests(),
-                null, 0, 0));
+                null, -1, -1));
         window.addSeekSample(cycle, disk.getTotalSeek(), scheduler.getPolicyType().getLabel());
     }
 

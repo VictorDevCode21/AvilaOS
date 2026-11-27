@@ -85,9 +85,14 @@ public final class DiskMetricsPanel extends JPanel {
                 metrics.served() == 0 ? "aún no se atiende ninguna"
                         : knownWait ? "por solicitud atendida" : "pendiente: el disco aún no la mide");
         servedKpi.show(String.valueOf(metrics.served()), "entre todas las políticas");
-        suspendKpi.show(String.valueOf(metrics.suspensions()), "planificador a mediano plazo");
-        resumeKpi.show(String.valueOf(metrics.reactivations()),
-                Math.max(0, metrics.suspensions() - metrics.reactivations()) + " siguen en swap");
+        if (metrics.suspensions() < 0 || metrics.reactivations() < 0) {        // not counted yet
+            suspendKpi.show("—", "pendiente: mediano plazo");
+            resumeKpi.show("—", "pendiente: mediano plazo");
+        } else {
+            suspendKpi.show(String.valueOf(metrics.suspensions()), "planificador a mediano plazo");
+            resumeKpi.show(String.valueOf(metrics.reactivations()),
+                    Math.max(0, metrics.suspensions() - metrics.reactivations()) + " siguen en swap");
+        }
         bars.setCounts(metrics.servedPerPolicy());       // null: not counted per policy yet
     }
 

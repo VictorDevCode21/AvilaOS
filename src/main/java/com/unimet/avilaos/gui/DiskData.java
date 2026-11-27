@@ -113,8 +113,8 @@ public final class DiskData {
      * @param servedPerPolicy  requests served with each disk policy, in the same order as the
      *                         policy labels the Disk view uses; null while the simulation doesn't
      *                         count them per policy
-     * @param suspensions      processes suspended by the medium-term scheduler
-     * @param reactivations    processes brought back to RAM
+     * @param suspensions      processes suspended by the medium-term scheduler, or -1 if not counted
+     * @param reactivations    processes brought back to RAM, or -1 if not counted
      */
     public record DiskMetrics(long totalSeek, double averageWait, long served, long[] servedPerPolicy,
             int suspensions, int reactivations) {
