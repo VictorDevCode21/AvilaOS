@@ -44,8 +44,8 @@ import javax.swing.filechooser.FileNameExtensionFilter;
  *  - refresca la vista con un javax.swing.Timer (REFRESH_MS) que LEE el estado:
  *    la simulación nunca espera a la GUI y la GUI nunca toca el SO.
  *
- * Todo aquí corre en el hilo de Swing. Los computadores corren en sus propios hilos;
- * lo que se lee de ellos son copias tomadas con el candado de su dueño.
+ * Todo aquí corre en el hilo de Swing. El computador corre en su propio hilo (el que le da
+ * el reloj global); lo que se lee de él son copias tomadas con el candado de su dueño.
  *
  * Project 2: it also connects the Disk view (block map, head, I/O queue in service order and the
  * disk policy selector), the Files view (tree and allocation table from the file system), the
@@ -275,8 +275,9 @@ public final class SimulationController {
 
     /**
      * Abre la vista de configuración. Si el usuario acepta, se aplica reemplazando la
-     * simulación completa: el número de computadores fija la ventana, así que se detiene
-     * el clúster, se cierra esta ventana y se abre un controlador nuevo con la configuración.
+     * simulación completa: se detiene la actual, se cierra esta ventana y se abre un
+     * controlador nuevo con la configuración, que vuelve a pedir los JSON (con los mismos
+     * archivos ya elegidos).
      */
     private void configure() {
         if (deniedInUserMode("cambiar la configuración")) {
