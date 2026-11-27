@@ -219,6 +219,16 @@ public class DiskScheduler implements SeekPlanSource {
 
     // ---------- Lo usa la GUI ----------
 
+    /** true si el disco todavía espera a la carga inicial (la vista del disco lo muestra). */
+    public boolean isHolding() {
+        mutex.acquireUninterruptibly();
+        try {
+            return holding;
+        } finally {
+            mutex.release();
+        }
+    }
+
     /**
      * Cambia la política en ejecución; se aplica desde la próxima solicitud.
      *
