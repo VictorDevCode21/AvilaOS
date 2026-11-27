@@ -154,7 +154,7 @@ disco, el kernel y las colas. Las políticas y el código ajeno se llaman fuera 
 | `InterruptHandler` | `Kernel` | La CPU entrega las interrupciones al kernel. |
 | `Interconnect` | `Cluster` | El kernel usa al clúster (despertares, latencia). |
 | `ElementComparator` | comparadores de las políticas | Orden de `LinkedList.insertSorted`. |
-| `SimulationListener` | — (la GUI lee el log por copias cada 150 ms) | Observador del log y del fin de cada ciclo, disponible para quien lo necesite. |
+| `SimulationListener` | la demo `GuiDemo` (src/test); la ventana principal no se registra y lee el log por copias cada 150 ms | Observador de cada entrada nueva del log. |
 
 ## Decisiones del Proyecto 2
 
