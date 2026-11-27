@@ -5,6 +5,8 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.LayoutManager;
+import java.awt.Rectangle;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -13,6 +15,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
+import javax.swing.Scrollable;
 import javax.swing.table.AbstractTableModel;
 
 /**
@@ -65,15 +68,15 @@ public final class DiskPanel extends JPanel {
         UiKit.Card card = new UiKit.Card(new BorderLayout(0, 12));
         card.setBorder(Theme.padding(16, 18, 16, 18));
 
-        JPanel head = Theme.transparent(new JPanel(new BorderLayout(10, 0)));
-        JPanel titles = Theme.transparent(new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0)));
-        titles.add(Theme.label("Mapa de bloques", Theme.SECTION, Theme.TEXT));
-        titles.add(mapSubtitle);
-        head.add(titles, BorderLayout.WEST);
+        // Title and free blocks on the first line, the zones on the second: they never overlap
+        JPanel head = Theme.transparent(new JPanel(new BorderLayout(10, 4)));
+        head.add(Theme.label("Mapa de bloques", Theme.SECTION, Theme.TEXT), BorderLayout.WEST);
         head.add(freeLabel, BorderLayout.EAST);
+        head.add(mapSubtitle, BorderLayout.SOUTH);
         card.add(head, BorderLayout.NORTH);
 
-        JPanel center = Theme.transparent(new JPanel(new BorderLayout(0, 12)));
+        // As wide as the visible area: the block map scales its cells and the legend wraps
+        JPanel center = new WidthTrackingPanel(new BorderLayout(0, 12));
         center.add(blockMap, BorderLayout.NORTH);
         center.add(legend, BorderLayout.CENTER);
         JScrollPane scroll = new JScrollPane(center);
@@ -297,6 +300,42 @@ public final class DiskPanel extends JPanel {
                 case 4 -> r.block();
                 default -> r.waitCycles() + " c.";
             };
+        }
+    }
+
+    /** Panel that takes the width of the scroll pane's viewport (only scrolls vertically). */
+    private static final class WidthTrackingPanel extends JPanel implements Scrollable {
+
+        private static final long serialVersionUID = 1L;
+
+        WidthTrackingPanel(LayoutManager layout) {
+            super(layout);
+            setOpaque(false);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+            return Math.max(16, visible.height - 32);
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
         }
     }
 }

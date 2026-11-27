@@ -10,11 +10,15 @@ import com.unimet.avilaos.os.disk.DiskPolicyType;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
+import java.awt.Insets;
+import java.awt.LayoutManager;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ActionListener;
@@ -170,7 +174,7 @@ public final class MainWindow extends JFrame {
 
         addView(VIEW_COMPUTERS, "Equipos", NavIcon.COMPUTER, buildComputersView());
         addView(VIEW_DISK, "Disco", NavIcon.DISK, diskPanel);
-        addView(VIEW_FILES, "Archivos", NavIcon.FILES, fileSystemPanel);
+        addView(VIEW_FILES, "Archivos", NavIcon.FILES, verticalScroll(fileSystemPanel));
         addView(VIEW_METRICS, "Métricas", NavIcon.METRICS, buildMetricsView());
         addView(VIEW_LOG, "Log", NavIcon.LOG, buildLogView());
         showView(VIEW_COMPUTERS);
@@ -243,10 +247,10 @@ public final class MainWindow extends JFrame {
     }
 
     private JPanel buildControlBar() {
-        JPanel bar = Theme.transparent(new JPanel(new BorderLayout(12, 0)));
-        bar.add(pageTitle, BorderLayout.WEST);
-
+        // Simulation controls and actions are two groups: when the window is narrow the actions go
+        // to a second row instead of covering the page title (see ControlBarLayout)
         JPanel controls = Theme.transparent(new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0)));
+        JPanel actions = Theme.transparent(new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0)));
         UiKit.Card cycle = new UiKit.Card(new BorderLayout());
         cycle.setBorder(Theme.padding(6, 12, 6, 12));
         cycle.add(cycleLabel);
@@ -259,20 +263,34 @@ public final class MainWindow extends JFrame {
         cycleDurationSpinner.setToolTipText("Ciclo (ms): duración de cada ciclo de reloj en milisegundos");
         showMillisecondsUnit(cycleDurationSpinner);
         controls.add(cycleDurationSpinner);        // rounded by RoundedInputs, like every spinner
-        controls.add(Box.createHorizontalStrut(4));
         planningButton.setToolTipText("Política de cada computador y quantum de Round Robin");
         configButton.setToolTipText("Computadores, RAM, carga inicial y archivo CSV");
-        controls.add(planningButton);
-        controls.add(configButton);
-        controls.add(Box.createHorizontalStrut(4));
+        actions.add(planningButton);
+        actions.add(configButton);
+        actions.add(Box.createHorizontalStrut(4));
         loadJsonButton.setToolTipText("Sistema de archivos y procesos: los dos son obligatorios antes de iniciar");
-        controls.add(loadJsonButton);
+        actions.add(loadJsonButton);
         createProcessButton.setToolTipText("Crear un proceso nuevo");
-        controls.add(createProcessButton);
+        actions.add(createProcessButton);
         createIoProcessButton.setToolTipText("Crear un proceso que crea, lee, renombra o elimina un archivo");
-        controls.add(createIoProcessButton);
-        bar.add(controls, BorderLayout.EAST);
+        actions.add(createIoProcessButton);
+
+        JPanel bar = Theme.transparent(new JPanel(new ControlBarLayout()));
+        bar.add(pageTitle);
+        bar.add(controls);
+        bar.add(actions);
         return bar;
+    }
+
+    /** Scroll pane without border that only scrolls when the view is taller than the window. */
+    private static JScrollPane verticalScroll(JComponent view) {
+        JScrollPane scroll = new JScrollPane(view);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        return scroll;
     }
 
     private JScrollPane buildComputersView() {
@@ -743,6 +761,81 @@ public final class MainWindow extends JFrame {
      * Panel que siempre usa el ancho visible: los computadores se reparten la ventana
      * en vez de salirse por la derecha (solo hay scroll vertical si no caben de alto).
      */
+    /**
+     * Top bar: the page title on the left, then the simulation controls and the actions on the
+     * right, in one row. If they don't fit (narrow window, down to the 1000 px minimum), the actions
+     * move to a second row, right-aligned, so nothing covers the title. Children, in order: title,
+     * simulation controls, actions.
+     */
+    private static final class ControlBarLayout implements LayoutManager {
+
+        private static final int TITLE_GAP = 12;
+        private static final int ROW_GAP = 10;
+
+        @Override
+        public void addLayoutComponent(String name, Component comp) {
+            // children are read by position
+        }
+
+        @Override
+        public void removeLayoutComponent(Component comp) {
+            // children are read by position
+        }
+
+        @Override
+        public Dimension preferredLayoutSize(Container parent) {
+            Dimension title = parent.getComponent(0).getPreferredSize();
+            Dimension controls = parent.getComponent(1).getPreferredSize();
+            Dimension actions = parent.getComponent(2).getPreferredSize();
+            Insets in = parent.getInsets();
+            int oneRowWidth = title.width + TITLE_GAP + controls.width + actions.width;
+            int width = parent.getWidth() > 0 ? parent.getWidth() - in.left - in.right : oneRowWidth;
+            int height = fitsOneRow(parent, width)
+                    ? Math.max(title.height, Math.max(controls.height, actions.height))
+                    : Math.max(title.height, controls.height) + ROW_GAP + actions.height;
+            return new Dimension(oneRowWidth + in.left + in.right, height + in.top + in.bottom);
+        }
+
+        @Override
+        public Dimension minimumLayoutSize(Container parent) {
+            return preferredLayoutSize(parent);
+        }
+
+        @Override
+        public void layoutContainer(Container parent) {
+            Component title = parent.getComponent(0);
+            Component controls = parent.getComponent(1);
+            Component actions = parent.getComponent(2);
+            Insets in = parent.getInsets();
+            int left = in.left;
+            int right = parent.getWidth() - in.right;
+            Dimension t = title.getPreferredSize();
+            Dimension c = controls.getPreferredSize();
+            Dimension a = actions.getPreferredSize();
+            if (fitsOneRow(parent, right - left)) {
+                int h = Math.max(t.height, Math.max(c.height, a.height));
+                int y = in.top;
+                title.setBounds(left, y + (h - t.height) / 2, t.width, t.height);
+                actions.setBounds(right - a.width, y + (h - a.height) / 2, a.width, a.height);
+                controls.setBounds(right - a.width - c.width, y + (h - c.height) / 2, c.width, c.height);
+            } else {
+                int h = Math.max(t.height, c.height);
+                int y = in.top;
+                title.setBounds(left, y + (h - t.height) / 2, Math.min(t.width, right - left - c.width), t.height);
+                controls.setBounds(right - c.width, y + (h - c.height) / 2, c.width, c.height);
+                actions.setBounds(Math.max(left, right - a.width), y + h + ROW_GAP, Math.min(a.width, right - left),
+                        a.height);
+            }
+        }
+
+        private static boolean fitsOneRow(Container parent, int width) {
+            int needed = parent.getComponent(0).getPreferredSize().width + TITLE_GAP
+                    + parent.getComponent(1).getPreferredSize().width
+                    + parent.getComponent(2).getPreferredSize().width;
+            return needed <= width;
+        }
+    }
+
     private static final class WidthTrackingPanel extends JPanel implements Scrollable {
 
         private static final long serialVersionUID = 1L;

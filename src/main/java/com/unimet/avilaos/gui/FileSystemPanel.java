@@ -8,8 +8,14 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Insets;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
 import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -17,6 +23,8 @@ import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTree;
+import javax.swing.JViewport;
+import javax.swing.Scrollable;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
@@ -35,7 +43,7 @@ import javax.swing.table.AbstractTableModel;
  *
  * @author donatovodola
  */
-public final class FileSystemPanel extends JPanel {
+public final class FileSystemPanel extends JPanel implements Scrollable {
 
     private static final long serialVersionUID = 1L;
 
@@ -49,6 +57,9 @@ public final class FileSystemPanel extends JPanel {
         void requested(IoOperation operation, String path);
     }
 
+    /** Smallest height of the allocation table card: header and about three rows. */
+    private static final int MIN_TABLE_CARD_HEIGHT = 170;
+
     private final transient OwnerPalette palette;
     private transient FileActionListener listener = (operation, path) -> { };
     private transient DiskData.FileEntry[] entries = new DiskData.FileEntry[0];
@@ -61,6 +72,7 @@ public final class FileSystemPanel extends JPanel {
 
     // Details
     private final CellRenderers.Swatch nameSwatch = new CellRenderers.Swatch();
+    private final Component swatchGap = Box.createHorizontalStrut(6);
     private final JLabel nameLabel = Theme.label("Selecciona un archivo", Theme.SECTION, Theme.TEXT);
     private final UiKit.Pill permissionPill = new UiKit.Pill("", null, Theme.TEXT);
     private final JLabel pathValue = value();
@@ -82,15 +94,29 @@ public final class FileSystemPanel extends JPanel {
 
     /** @param palette shared palette (same colors as the Disk view) */
     public FileSystemPanel(OwnerPalette palette) {
-        super(new BorderLayout(0, 14));
+        super(new GridBagLayout());
         setOpaque(false);
         this.palette = palette;
         JPanel top = Theme.transparent(new JPanel(new GridLayout(1, 2, 14, 0)));
         top.add(buildTreeCard());
-        top.add(buildDetailCard());
-        add(top, BorderLayout.CENTER);
-        add(buildAllocationCard(), BorderLayout.SOUTH);
+        JComponent details = buildDetailCard();
+        top.add(details);
         showDetails(null);
+        // The tree and the details never shrink below what the details need; the table gives up
+        // height first, and below that the whole view scrolls (see getScrollableTracksViewportHeight)
+        top.setMinimumSize(new Dimension(0, details.getPreferredSize().height));
+        JComponent allocation = buildAllocationCard();
+        allocation.setMinimumSize(new Dimension(0, MIN_TABLE_CARD_HEIGHT));
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridx = 0;
+        c.fill = GridBagConstraints.BOTH;
+        c.weightx = 1;
+        c.weighty = 1;
+        c.gridy = 0;
+        add(top, c);
+        c.gridy = 1;
+        c.insets = new Insets(14, 0, 0, 0);
+        add(allocation, c);
     }
 
     // ---------- Construction ----------
@@ -121,12 +147,20 @@ public final class FileSystemPanel extends JPanel {
         UiKit.Card card = new UiKit.Card(new BorderLayout(0, 12));
         card.setBorder(Theme.padding(16, 18, 16, 18));
 
-        JPanel title = Theme.transparent(new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0)));
+        // Left-aligned with the fields below; the color swatch only shows for a selected file
+        JPanel title = Theme.transparent(new JPanel());
+        title.setLayout(new BoxLayout(title, BoxLayout.X_AXIS));
         nameSwatch.setOpaque(false);
         nameSwatch.setPreferredSize(new Dimension(22, 18));
+        nameSwatch.setMaximumSize(new Dimension(22, 18));
+        nameSwatch.setVisible(false);
+        swatchGap.setVisible(false);
         title.add(nameSwatch);
+        title.add(swatchGap);
         title.add(nameLabel);
+        title.add(Box.createHorizontalStrut(8));
         title.add(permissionPill);
+        title.add(Box.createHorizontalGlue());
         card.add(title, BorderLayout.NORTH);
 
         JPanel fields = Theme.transparent(new JPanel(new GridLayout(0, 2, 12, 8)));
@@ -288,6 +322,40 @@ public final class FileSystemPanel extends JPanel {
 
     // ---------- Internals ----------
 
+    // ---------- Scrollable: only scrolls when the window is shorter than the view needs ----------
+
+    @Override
+    public Dimension getPreferredScrollableViewportSize() {
+        return getPreferredSize();
+    }
+
+    @Override
+    public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+        return 16;
+    }
+
+    @Override
+    public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+        return Math.max(16, visible.height - 32);
+    }
+
+    @Override
+    public boolean getScrollableTracksViewportWidth() {
+        return true;
+    }
+
+    @Override
+    public boolean getScrollableTracksViewportHeight() {
+        return getParent() instanceof JViewport viewport && viewport.getHeight() >= getMinimumSize().height;
+    }
+
+    /** The swatch takes no room when there is no color (nothing selected, or a directory). */
+    private void showSwatch(Color color) {
+        nameSwatch.setColor(color);
+        nameSwatch.setVisible(color != null);
+        swatchGap.setVisible(color != null);
+    }
+
     private void fire(IoOperation operation) {
         String path = getSelectedPath();
         if (path != null) {
@@ -320,7 +388,7 @@ public final class FileSystemPanel extends JPanel {
         deleteButton.setEnabled(has && !"/".equals(entry.path()));
         createButton.setEnabled(has && entry.directory());
         if (!has) {
-            nameSwatch.setColor(null);
+            showSwatch(null);
             nameLabel.setText("Selecciona un archivo o directorio");
             permissionPill.setText("");
             for (JLabel label : new JLabel[] {pathValue, typeValue, sizeValue, ownerValue, permissionValue,
@@ -330,7 +398,7 @@ public final class FileSystemPanel extends JPanel {
             chainText.setText("—");
             return;
         }
-        nameSwatch.setColor(entry.directory() ? null : palette.colorOf(entry.path(), false));
+        showSwatch(entry.directory() ? null : palette.colorOf(entry.path(), false));
         nameLabel.setText(entry.name());
         permissionPill.setText(entry.isPublic() ? "Público" : "Privado");
         permissionPill.setColors(entry.isPublic() ? new Color(0xEAF1FE) : Theme.KERNEL_BG,
