@@ -2,6 +2,7 @@ package com.unimet.avilaos.gui;
 
 import com.unimet.avilaos.cluster.Cluster;
 import com.unimet.avilaos.cluster.Computer;
+import com.unimet.avilaos.config.DiskConfig;
 import com.unimet.avilaos.config.FileSystemJson;
 import com.unimet.avilaos.config.ProcessConfig;
 import com.unimet.avilaos.config.ProcessesJson;
@@ -66,6 +67,12 @@ public final class SimulationController {
     static final int IO_PROCESS_INSTRUCTIONS = 1;
 
     private SimulationConfig config;      // the JSON loader replaces it with the one of the two files
+    /**
+     * Disco de la configuración (diálogo o CSV) con que se abrió esta ventana: al cargar los JSON
+     * da la dirección inicial, las posiciones por ciclo y la espera de la carga inicial si el JSON
+     * de procesos no las trae (los JSON mandan en lo demás, ver SimulationLoader).
+     */
+    private final DiskConfig configuredDisk;
     private final MainWindow window;
     private final PlanningDialog planningDialog;
     private final Timer refreshTimer;
@@ -98,6 +105,7 @@ public final class SimulationController {
             throw new IllegalArgumentException("La configuración no puede ser null");
         }
         this.config = config;
+        this.configuredDisk = config.getDisk();
         this.fileSystemFile = fileSystemFile;
         this.processesFile = processesFile;
         this.window = new MainWindow(config.getComputerCount());
@@ -180,7 +188,7 @@ public final class SimulationController {
         if (loadedFromJson()) {
             SimulationLoader.Loaded loaded;
             try {
-                loaded = SimulationLoader.start(fileSystemImage, processesImage);
+                loaded = SimulationLoader.start(fileSystemImage, processesImage, configuredDisk);
             } catch (IllegalArgumentException ex) {
                 showError("No se pudo reiniciar", ex);
                 return;
@@ -273,7 +281,7 @@ public final class SimulationController {
         try {
             fileSystem = JsonChecks.readFileSystem(chosen.fileSystem());
             processes = JsonChecks.readProcesses(chosen.processes());
-            loaded = SimulationLoader.start(fileSystem, processes);
+            loaded = SimulationLoader.start(fileSystem, processes, configuredDisk);
         } catch (IOException ex) {
             showError("No se pudo cargar la simulación", new IllegalArgumentException(JsonChecks.cannotRead(ex), ex));
             return;
