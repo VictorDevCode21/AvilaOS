@@ -38,11 +38,14 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 /**
  * Vista de configuración: arma una SimulationConfig NUEVA a partir de la actual.
  *
- * Permite cambiar la duración del ciclo, el quantum, la latencia de red, los computadores
- * (cuántos, su RAM y su política inicial), el disco (bloques, swap, política inicial, cabezal,
- * dirección y velocidad) y la carga inicial (agregar y quitar buffers y
- * procesos con los mismos formularios de la ventana principal). También guarda la
- * configuración en avilaos-config.csv y carga otra desde un archivo CSV.
+ * Permite cambiar la duración del ciclo, el quantum, el disco (bloques, swap, política inicial,
+ * cabezal, dirección y velocidad) y la carga inicial de procesos de CPU (con el mismo formulario
+ * de la ventana principal). También guarda la configuración en avilaos-config.csv y carga otra
+ * desde un archivo CSV.
+ *
+ * Proyecto 2: un solo computador y sin productor-consumidor, así que el diálogo ya no muestra la
+ * lista de computadores, los buffers ni la latencia de red. Si el archivo los trae (CSV del P1),
+ * se conservan tal cual para que "Guardar" no los pierda, pero no se editan.
  *
  * El diálogo solo junta datos: la validación es la de SimulationConfig (la misma del CSV).
  * Nada se aplica hasta "Aceptar"; quien lo abre decide qué hacer con la configuración
@@ -79,9 +82,9 @@ public final class ConfigDialog extends JDialog {
     private transient LinkedList<ComputerConfig> computers = new LinkedList<>();
 
     // Carga inicial: se guarda aparte y se vuelve a validar al armar la configuración
+    /** Buffers del archivo (P1): no se muestran ni se crean; se conservan para "Guardar". */
     private transient LinkedList<BufferConfig> buffers = new LinkedList<>();
     private transient LinkedList<ProcessConfig> processes = new LinkedList<>();
-    private final JList<String> bufferList = new JList<>();
     private final JList<String> processList = new JList<>();
 
     private transient SimulationConfig result;
@@ -104,7 +107,6 @@ public final class ConfigDialog extends JDialog {
         this.owner = owner;
         FormValidator.clearErrorOnEdit(cycleField, quantumField, fileBlocksField, swapField, headField,
                 positionsField);
-        bufferList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         processList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
         JPanel center = new JPanel();
@@ -188,19 +190,14 @@ public final class ConfigDialog extends JDialog {
     }
 
     private JPanel buildLoadArea() {
-        JButton addBuffer = new JButton("Agregar buffer");
-        JButton removeBuffer = new JButton("Quitar buffer");
         JButton addProcess = new JButton("Agregar proceso");
         JButton removeProcess = new JButton("Quitar proceso");
-        addBuffer.addActionListener(e -> addBuffer());
-        removeBuffer.addActionListener(e -> removeBuffer());
         addProcess.addActionListener(e -> addProcess());
         removeProcess.addActionListener(e -> removeProcess());
 
-        JPanel panel = new JPanel(new GridLayout(1, 2, 8, 8));
+        JPanel panel = new JPanel(new GridLayout(1, 1, 8, 8));
         panel.setBorder(BorderFactory.createTitledBorder("Carga inicial"));
-        panel.add(wrapList("Buffers", bufferList, addBuffer, removeBuffer));
-        panel.add(wrapList("Procesos", processList, addProcess, removeProcess));
+        panel.add(wrapList("Procesos de CPU", processList, addProcess, removeProcess));
         return panel;
     }
 
@@ -274,21 +271,14 @@ public final class ConfigDialog extends JDialog {
     }
 
     private void refreshLists() {
-        String[] bufferRows = new String[buffers.size()];
-        for (int i = 0; i < bufferRows.length; i++) {
-            BufferConfig b = buffers.get(i);
-            bufferRows[i] = b.name() + " — Computador " + b.hostComputerId() + ", capacidad " + b.capacity()
-                    + ", " + b.memorySize() + " MB";
-        }
         String[] processRows = new String[processes.size()];
         for (int i = 0; i < processRows.length; i++) {
             processRows[i] = describe(processes.get(i));
         }
-        bufferList.setListData(bufferRows);
         processList.setListData(processRows);
     }
 
-    /** Ej. "Prod — Productor, 64 MB, 100 instr., Computador 2, buffer B1". */
+    /** Ej. "Calculo — CPU bound, 128 MB, 60 instr., Computador 1" (un productor del P1 agrega su buffer). */
     private static String describe(ProcessConfig p) {
         StringBuilder sb = new StringBuilder(p.name()).append(" — ").append(p.type().getLabel())
                 .append(", ").append(p.memorySize()).append(" MB, ").append(p.instructions()).append(" instr., ")
@@ -301,25 +291,7 @@ public final class ConfigDialog extends JDialog {
 
     // ---------- Carga inicial ----------
 
-    /** El formulario valida contra la configuración que se está armando (computadores y buffers NUEVOS). */
-    private void addBuffer() {
-        SimulationConfig draft = buildConfig();
-        if (draft == null) {
-            return;
-        }
-        BufferConfig buffer = BufferFormDialog.showDialog(owner, draft);
-        if (buffer == null) {
-            return;
-        }
-        try {
-            draft.addBuffer(buffer);
-            buffers.addLast(buffer);
-            refreshLists();
-        } catch (IllegalArgumentException ex) {
-            showError("No se pudo agregar el buffer", ex.getMessage());
-        }
-    }
-
+    /** El formulario valida contra la configuración que se está armando. */
     private void addProcess() {
         SimulationConfig draft = buildConfig();
         if (draft == null) {
@@ -336,30 +308,6 @@ public final class ConfigDialog extends JDialog {
         } catch (IllegalArgumentException ex) {
             showError("No se pudo agregar el proceso", ex.getMessage());
         }
-    }
-
-    /** Un buffer que usan procesos no se quita: esos procesos quedarían sin buffer. */
-    private void removeBuffer() {
-        int index = bufferList.getSelectedIndex();
-        if (index < 0) {
-            showError("Quitar buffer", "Selecciona el buffer que quieres quitar.");
-            return;
-        }
-        BufferConfig buffer = buffers.get(index);
-        StringBuilder users = new StringBuilder();
-        for (int i = 0; i < processes.size(); i++) {
-            ProcessConfig p = processes.get(i);
-            if (p.type().usesBuffer() && BufferConfig.sameName(p.bufferName(), buffer.name())) {
-                users.append(users.length() == 0 ? "" : ", ").append(p.name());
-            }
-        }
-        if (users.length() > 0) {
-            showError("Buffer en uso", "El buffer " + buffer.name() + " lo usan estos procesos: " + users
-                    + ".\nQuítalos primero.");
-            return;
-        }
-        buffers.remove(buffer);
-        refreshLists();
     }
 
     private void removeProcess() {
