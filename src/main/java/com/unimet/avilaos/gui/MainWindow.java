@@ -260,8 +260,8 @@ public final class MainWindow extends JFrame {
         cycleDurationSpinner.setToolTipText("Ciclo (ms): duración de cada ciclo de reloj en milisegundos");
         showMillisecondsUnit(cycleDurationSpinner);
         controls.add(cycleDurationSpinner);        // rounded by RoundedInputs, like every spinner
-        planningButton.setToolTipText("Política de cada computador y quantum de Round Robin");
-        configButton.setToolTipText("Computadores, RAM, carga inicial y archivo CSV");
+        planningButton.setToolTipText("Política de planificación de CPU y quantum de Round Robin");
+        configButton.setToolTipText("Ciclo, quantum, disco, carga inicial de procesos de CPU y archivo CSV");
         actions.add(planningButton);
         actions.add(configButton);
         actions.add(Box.createHorizontalStrut(4));
