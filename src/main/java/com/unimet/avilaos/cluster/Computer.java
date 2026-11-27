@@ -22,7 +22,8 @@ import com.unimet.avilaos.os.process.Pcb;
 import com.unimet.avilaos.os.scheduling.Scheduler;
 
 /**
- * Un computador del clúster: el lugar donde se ensamblan el hardware (CPU, RAM, E/S,
+ * El computador de la simulación (el Proyecto 2 usa uno solo; el Proyecto 1 armaba varios):
+ * el lugar donde se ensamblan el hardware (CPU, RAM, E/S,
  * disco) y su sistema operativo (memoria, planificador, planificador de disco, sistema
  * de archivos, kernel). No toma decisiones: las toma
  * el kernel. Todos los computadores son instancias de esta misma clase (lo exige el
@@ -35,7 +36,8 @@ import com.unimet.avilaos.os.scheduling.Scheduler;
  *                        deja la interrupción DISK_COMPLETION en la CPU
  *   2. kernel.beforeCpu  solicitudes, llegadas, despertares, admisión, expropiación y plan del ciclo
  *   3. cpu.onTick        ejecuta (MAR ← PC, PC + 1) o trabajo del SO; atiende interrupciones
- *   4. kernel.afterCpu   efecto de lo ejecutado, latencias de red, deadlines y fin de procesos
+ *   4. kernel.afterCpu   efecto de lo ejecutado, latencias de red (P1), deadlines, fin de procesos
+ *                        y la cola inicial del disco
  *   5. metrics.recordCycle
  *
  * El disco implementa ClockListener como los demás componentes que reaccionan al reloj,
