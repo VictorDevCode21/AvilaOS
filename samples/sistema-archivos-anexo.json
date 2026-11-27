@@ -1,0 +1,70 @@
+{
+  "diskConfig": {
+    "totalBlocks": 200,
+    "initialHead": 50
+  },
+  "fileSystem": [
+    {
+      "path": "/anexo",
+      "type": "DIRECTORY",
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/anexo/bloque-16.dat",
+      "type": "FILE",
+      "startBlock": 16,
+      "blocks": 1,
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/anexo/bloque-17.dat",
+      "type": "FILE",
+      "startBlock": 17,
+      "blocks": 7,
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/anexo/bloque-24.dat",
+      "type": "FILE",
+      "startBlock": 24,
+      "blocks": 19,
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/anexo/bloque-43.dat",
+      "type": "FILE",
+      "startBlock": 43,
+      "blocks": 39,
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/anexo/bloque-82.dat",
+      "type": "FILE",
+      "startBlock": 82,
+      "blocks": 58,
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/anexo/bloque-140.dat",
+      "type": "FILE",
+      "startBlock": 140,
+      "blocks": 50,
+      "owner": "admin",
+      "permissions": "public"
+    },
+    {
+      "path": "/anexo/bloque-190.dat",
+      "type": "FILE",
+      "startBlock": 190,
+      "blocks": 10,
+      "owner": "admin",
+      "permissions": "public"
+    }
+  ]
+}
